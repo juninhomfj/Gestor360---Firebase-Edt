@@ -1,0 +1,167 @@
+
+import React, { useState, useEffect, useRef } from 'react';
+import Layout from './components/Layout';
+import Login from './components/Login';
+import RequestReset from './components/RequestReset';
+import LoadingScreen from './components/LoadingScreen';
+import Dashboard from './components/Dashboard';
+import SalesList from './components/SalesList';
+import SalesForm from './components/SalesForm';
+import FinanceDashboard from './components/FinanceDashboard';
+import FinanceTransactionsList from './components/FinanceTransactionsList';
+import FinanceTransactionForm from './components/FinanceTransactionForm';
+import FinanceCategories from './components/FinanceCategories';
+import FinanceGoals from './components/FinanceGoals';
+import FinanceChallenges from './components/FinanceChallenges';
+import FinanceReceivables from './components/FinanceReceivables';
+import FinanceDistribution from './components/FinanceDistribution';
+import FinanceReports from './components/FinanceReports';
+import FinanceManager from './components/FinanceManager';
+import ClientReports from './components/ClientReports';
+import SettingsHub from './components/SettingsHub';
+import Help from './components/Help';
+import WhatsAppModule from './components/WhatsAppModule';
+import BoletoControl from './components/BoletoControl';
+import ToastContainer, { ToastMessage } from './components/Toast';
+import PasswordReset from './components/PasswordReset'; 
+import SnowOverlay from './components/SnowOverlay';
+import DevRoadmap from './components/DevRoadmap';
+
+import { 
+    User, Sale, AppMode, AppTheme, FinanceAccount, Transaction, CreditCard, 
+    TransactionCategory, FinanceGoal, Challenge, ChallengeCell, Receivable, 
+    CommissionRule, ReportConfig, SalesTargets, 
+    ProductType, DashboardWidgetConfig
+} from './types';
+
+import { 
+    getStoredSales, getFinanceData, getSystemConfig, getReportConfig, 
+    getStoredTable, 
+} from './services/logic';
+
+import { reloadSession, logout } from './services/auth';
+import { AudioService } from './services/audioService';
+
+type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'RESET_PASSWORD' | 'APP';
+
+const App: React.FC = () => {
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [authView, setAuthView] = useState<AuthView>('LOGIN');
+    const initRun = useRef(false);
+
+    const [appMode, setAppMode] = useState<AppMode>(() => (localStorage.getItem('sys_last_mode') as AppMode) || 'SALES');
+    const [activeTab, setActiveTab] = useState(() => localStorage.getItem('sys_last_tab') || 'dashboard');
+    const [theme, setTheme] = useState<AppTheme>('glass'); 
+    const [toasts, setToasts] = useState<ToastMessage[]>([]);
+    
+    // Data States
+    const [sales, setSales] = useState<Sale[]>([]);
+    const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
+    const [cards, setCards] = useState<CreditCard[]>([]);
+    const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [categories, setCategories] = useState<TransactionCategory[]>([]);
+    const [goals, setGoals] = useState<FinanceGoal[]>([]);
+    const [challenges, setChallenges] = useState<Challenge[]>([]);
+    const [cells, setCells] = useState<ChallengeCell[]>([]);
+    const [receivables, setReceivables] = useState<Receivable[]>([]);
+    
+    // UI States
+    const [rulesBasic, setRulesBasic] = useState<CommissionRule[]>([]);
+    const [rulesNatal, setRulesNatal] = useState<CommissionRule[]>([]);
+    const [rulesCustom, setRulesCustom] = useState<CommissionRule[]>([]);
+    const [reportConfig, setReportConfig] = useState<ReportConfig>({ daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 });
+    const [salesTargets, setSalesTargets] = useState<SalesTargets>({ basic: 0, natal: 0 });
+    const [showSalesForm, setShowSalesForm] = useState(false);
+    const [showTxForm, setShowTxForm] = useState(false);
+    const [dashboardConfig, setDashboardConfig] = useState<DashboardWidgetConfig>({ showStats: true, showCharts: true, showRecents: true, showPacing: true, showBudgets: true });
+    const [hideValues, setHideValues] = useState(false);
+
+    useEffect(() => {
+        if (initRun.current) return;
+        initRun.current = true;
+
+        const init = async () => {
+            try {
+                await AudioService.preload();
+                const session = await reloadSession();
+                
+                if (session) {
+                    await handleLoginSuccess(session);
+                } else {
+                    setAuthView('LOGIN');
+                    setLoading(false);
+                }
+            } catch (err) {
+                setLoading(false);
+            }
+        };
+        init();
+    }, []); 
+
+    const handleLoginSuccess = async (user: User) => {
+        setCurrentUser(user);
+        await loadDataForUser();
+        setAuthView('APP');
+        setLoading(false);
+    };
+
+    const loadDataForUser = async () => {
+        const sysConfig = await getSystemConfig();
+        if (sysConfig.theme) setTheme(sysConfig.theme);
+        const [storedSales, finData, rBasic, rNatal, rCustom, rConfig] = await Promise.all([
+            getStoredSales(), getFinanceData(), getStoredTable(ProductType.BASICA),
+            getStoredTable(ProductType.NATAL), getStoredTable(ProductType.CUSTOM), getReportConfig()
+        ]);
+        setSales(storedSales);
+        setAccounts(finData.accounts || []);
+        setCards(finData.cards || []);
+        setTransactions(finData.transactions || []);
+        setCategories(finData.categories || []);
+        setGoals(finData.goals || []);
+        setChallenges(finData.challenges || []);
+        setCells(finData.cells || []);
+        setReceivables(finData.receivables || []);
+        setRulesBasic(rBasic);
+        setRulesNatal(rNatal);
+        setRulesCustom(rCustom);
+        setReportConfig(rConfig);
+    };
+
+    const addToast = (type: 'SUCCESS' | 'ERROR' | 'INFO', message: string) => {
+        const id = crypto.randomUUID();
+        setToasts(prev => [...prev, { id, type, message }]);
+    };
+
+    const removeToast = (id: string) => setToasts(prev => prev.filter(t => t.id !== id));
+
+    if (loading) return <LoadingScreen />;
+
+    if (authView === 'LOGIN') return <Login onLoginSuccess={handleLoginSuccess} onRequestReset={() => setAuthView('REQUEST_RESET')} />;
+    if (authView === 'REQUEST_RESET') return <RequestReset onBack={() => setAuthView('LOGIN')} />;
+    if (authView === 'RESET_PASSWORD' && currentUser) return <PasswordReset userId={currentUser.id} onSuccess={() => setAuthView('APP')} />;
+
+    if (!currentUser) return <Login onLoginSuccess={handleLoginSuccess} onRequestReset={() => setAuthView('REQUEST_RESET')} />;
+
+    return (
+        <div className={theme}>
+            <SnowOverlay />
+            <ToastContainer toasts={toasts} removeToast={removeToast} />
+            <Layout 
+                currentUser={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} appMode={appMode} setAppMode={setAppMode} currentTheme={theme} setTheme={setTheme} darkMode={theme !== 'neutral' && theme !== 'rose'} onLogout={logout} 
+                onNewSale={() => setShowSalesForm(true)} onNewIncome={() => setShowTxForm(true)} onNewExpense={() => setShowTxForm(true)} onNewTransfer={() => setShowTxForm(true)}
+                notifications={[]}
+            >
+                <div className="p-4">
+                    {activeTab === 'dashboard' && <Dashboard sales={sales} onNewSale={() => setShowSalesForm(true)} darkMode={theme !== 'neutral' && theme !== 'rose'} config={dashboardConfig} hideValues={hideValues} onToggleHide={() => setHideValues(!hideValues)} onUpdateConfig={setDashboardConfig} currentUser={currentUser} salesTargets={salesTargets} onUpdateTargets={setSalesTargets} />}
+                    {activeTab === 'sales' && <SalesList sales={sales} onEdit={() => {}} onDelete={() => {}} onNew={() => setShowSalesForm(true)} hasUndo={false} onUndo={() => {}} onBillSale={() => {}} onBillBulk={() => {}} onDeleteBulk={() => {}} onExportTemplate={() => {}} onImportFile={async () => {}} onClearAll={() => {}} onRestore={() => {}} onOpenBulkAdvanced={() => {}} onNotify={addToast} />}
+                    {activeTab === 'settings' && <SettingsHub rulesBasic={rulesBasic} rulesNatal={rulesNatal} rulesCustom={rulesCustom} reportConfig={reportConfig} onSaveRules={() => {}} onSaveReportConfig={() => {}} darkMode={theme !== 'neutral' && theme !== 'rose'} currentUser={currentUser} onUpdateUser={setCurrentUser} sales={sales} onUpdateSales={() => {}} onNotify={addToast} onThemeChange={setTheme} />}
+                    {activeTab === 'fin_dashboard' && <FinanceDashboard accounts={accounts} transactions={transactions} cards={cards} hideValues={hideValues} onToggleHide={() => setHideValues(!hideValues)} config={dashboardConfig} onUpdateConfig={setDashboardConfig} onNavigate={setActiveTab} darkMode={theme !== 'neutral' && theme !== 'rose'} />}
+                    {activeTab === 'dev_roadmap' && <DevRoadmap />}
+                </div>
+            </Layout>
+        </div>
+    );
+};
+
+export default App;

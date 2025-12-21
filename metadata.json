@@ -1,0 +1,13 @@
+{
+  "name": "Gestor 360 - FIREBASE NATIVE",
+  "description": "Sistema V2.5.0 - Infraestrutura Firebase Nativa com Persistência Síncrona.",
+  "version": "2.5.0",
+  "releaseDate": "2025-02-27",
+  "features": [
+    "Auth: Firebase Authentication Nativo",
+    "Database: Cloud Firestore com escrita direta (AWAIT)",
+    "Security: Regras de segurança de nível de produção",
+    "Architecture: Remoção completa da Sync Queue legada"
+  ],
+  "requestFramePermissions": []
+}
