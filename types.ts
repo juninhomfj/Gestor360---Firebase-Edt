@@ -87,7 +87,7 @@ export interface User {
     email: string;
     tel?: string;
     role: UserRole;
-    isActive: boolean; // Novo campo obrigatório conforme especificação
+    isActive: boolean; 
     profilePhoto?: string;
     theme: AppTheme;
     userStatus: UserStatus;
@@ -128,9 +128,9 @@ export interface SaleFormData {
   valueProposed: number;
   valueSold: number;
   status: SaleStatus;
-  date?: string; // Data de Faturamento
-  completionDate: string; // Data do Pedido / Fechamento
-  quoteDate?: string; // Data de Cotação
+  date?: string; 
+  completionDate: string; 
+  quoteDate?: string; 
   observations: string;
   marginPercent: number;
   quoteNumber?: string;
@@ -182,7 +182,7 @@ export interface Transaction {
     installments?: number;
     costCenter?: string;
     tags?: string[];
-    saleId?: string; // Vínculo opcional com venda
+    saleId?: string; 
     updatedAt?: string;
     deleted?: boolean;
     deletedAt?: string;

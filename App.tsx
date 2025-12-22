@@ -53,6 +53,7 @@ import {
 
 import { reloadSession, logout } from './services/auth';
 import { AudioService } from './services/audioService';
+import { auth as fbAuth } from './services/firebase';
 
 type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'RESET_PASSWORD' | 'APP' | 'ERROR';
 
@@ -65,14 +66,13 @@ const App: React.FC = () => {
     const [authError, setAuthError] = useState<string | null>(null);
 
     /**
-     * Resolvendo flags de permissão com herança corrigida DEV > ADMIN > USER
+     * Flags de permissão derivadas diretamente do usuário logado e resolvido.
      */
     const { isDev, isAdmin } = useMemo(() => {
         if (!currentUser) return { isDev: false, isAdmin: false };
-        const role = currentUser.role || 'USER';
         return {
-            isDev: role === 'DEV',
-            isAdmin: role === 'DEV' || role === 'ADMIN'
+            isDev: currentUser.role === 'DEV',
+            isAdmin: currentUser.role === 'DEV' || currentUser.role === 'ADMIN'
         };
     }, [currentUser]);
 
@@ -132,16 +132,23 @@ const App: React.FC = () => {
 
         const init = async () => {
             try {
-                // 1. Preload de ativos e sons
+                // 1. Pré-carga de sons e ativos
                 await AudioService.preload();
 
-                // 2. Aguarda resolução do Auth + Profile Firestore (Bloqueio de Render)
-                const session = await reloadSession();
+                // 2. Aguarda a resolução estrita do par AUTH + PROFILE (Firestore)
+                const sessionUser = await reloadSession();
                 
-                if (session) {
-                    await handleLoginSuccess(session);
+                if (sessionUser) {
+                    await handleLoginSuccess(sessionUser);
                 } else {
-                    setAuthView('LOGIN');
+                    // Se reloadSession retornou null mas o Auth ainda tem usuário, 
+                    // significa que o perfil Firestore está faltando ou inativo.
+                    if (fbAuth.currentUser) {
+                        setAuthError("Sua conta Auth está ativa, mas seu perfil Gestor 360 não foi encontrado ou está inativo. Contate o suporte.");
+                        setAuthView('ERROR');
+                    } else {
+                        setAuthView('LOGIN');
+                    }
                     setLoading(false);
                 }
             } catch (e: any) {
@@ -158,7 +165,7 @@ const App: React.FC = () => {
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
         
-        // 3. Executa Bootstrap IDEMPOTENTE de Produção
+        // 3. BOOTSTRAP DE PRODUÇÃO: Garante dados iniciais no Firestore ANTES do render
         await bootstrapProductionData();
         
         // 4. Carrega os dados reais do banco
@@ -220,10 +227,10 @@ const App: React.FC = () => {
     if (authView === 'ERROR') {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-center">
-                <div className="max-w-md">
+                <div className="max-w-md bg-slate-900 border border-red-500/50 p-8 rounded-3xl shadow-2xl">
                     <h1 className="text-2xl font-bold text-red-500 mb-4">Acesso Bloqueado</h1>
-                    <p className="text-slate-400 mb-8">{authError || "Seu perfil não pôde ser validado. Contate o suporte."}</p>
-                    <button onClick={() => window.location.reload()} className="px-6 py-3 bg-white text-black rounded-lg font-bold">Tentar Novamente</button>
+                    <p className="text-slate-400 mb-8">{authError || "Seu perfil não pôde ser validado."}</p>
+                    <button onClick={() => logout()} className="px-6 py-3 bg-white text-black rounded-lg font-bold">Voltar ao Login</button>
                 </div>
             </div>
         );

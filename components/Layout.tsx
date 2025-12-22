@@ -82,7 +82,6 @@ const Layout: React.FC<LayoutProps> = ({
   const [requestModal, setRequestModal] = useState<{ isOpen: boolean, module: string }>({ isOpen: false, module: '' });
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [isSandbox, setIsSandbox] = useState(false);
 
   useEffect(() => {
     const isDarkTheme = ['glass', 'cyberpunk', 'dark'].includes(currentTheme);
@@ -90,7 +89,6 @@ const Layout: React.FC<LayoutProps> = ({
     else document.documentElement.classList.remove('dark');
     
     getSystemConfig().then(cfg => { if(cfg.modules) setSysModules(prev => ({ ...prev, ...cfg.modules })); });
-    setIsSandbox(localStorage.getItem('SYS_ENV') === 'TEST');
   }, [currentTheme]);
 
   useEffect(() => {
@@ -112,15 +110,13 @@ const Layout: React.FC<LayoutProps> = ({
   const currentStyle = THEME_CONFIG[currentTheme] || THEME_CONFIG['glass'];
   
   /**
-   * Helper de permissão que respeita a hierarquia normalizada
+   * Helper de acesso que respeita a hierarquia centralizada em logic.ts
    */
-  const hasAccess = (mod: any) => {
-      if (isDev) return true; // DEV acessa tudo
-      if (isAdmin) return true; // ADMIN acessa quase tudo (filtros manuais por módulo)
-      return sysModules[mod as keyof SystemModules] !== false && canAccess(currentUser, mod);
+  const hasAccess = (mod: string) => {
+      return canAccess(currentUser, mod);
   };
 
-  const isUserAiEnabled = (currentUser.keys?.isGeminiEnabled === true && hasAccess('ai')) || isAdmin;
+  const isUserAiEnabled = (currentUser.keys?.isGeminiEnabled === true && hasAccess('ai'));
 
   const handleSmartNotificationClick = (notif: AppNotification) => {
       if (onNotificationClick) onNotificationClick(notif);
@@ -130,28 +126,28 @@ const Layout: React.FC<LayoutProps> = ({
   };
 
   const salesNavItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    ...(hasAccess('reports') ? [{ id: 'reports', label: 'Relatórios & BI', icon: BarChart2 }] : []),
-    { id: 'sales', label: 'Minhas Vendas', icon: ShoppingCart },
-    ...(isUserAiEnabled ? [{ id: 'ai_consultant', label: 'Consultor IA', icon: Sparkles }] : []),
-    { id: 'boletos', label: 'Tarefas (Envios)', icon: ClipboardList }, 
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, show: true },
+    { id: 'reports', label: 'Relatórios & BI', icon: BarChart2, show: hasAccess('reports') },
+    { id: 'sales', label: 'Minhas Vendas', icon: ShoppingCart, show: true },
+    { id: 'ai_consultant', label: 'Consultor IA', icon: Sparkles, show: isUserAiEnabled },
+    { id: 'boletos', label: 'Tarefas (Envios)', icon: ClipboardList, show: true }, 
   ];
 
   const financeNavItems = [
-    { id: 'fin_dashboard', label: 'Visão Geral', icon: PieChart },
-    ...(hasAccess('reports') ? [{ id: 'fin_reports', label: 'Relatórios Financeiros', icon: BarChart2 }] : []),
-    ...(sysModules.receivables ? [{ id: 'fin_receivables', label: 'A Receber', icon: PiggyBank }] : []),
-    ...(sysModules.distribution ? [{ id: 'fin_distribution', label: 'Distribuição', icon: ArrowLeftRight }] : []),
-    { id: 'fin_transactions', label: 'Extrato', icon: List }, 
-    { id: 'fin_pending', label: 'Contas a Pagar', icon: CalendarClock }, 
-    { id: 'fin_manager', label: 'Contas & Cartões', icon: Wallet },
-    { id: 'fin_categories', label: 'Categorias', icon: Tag },
-    { id: 'fin_goals', label: 'Metas', icon: Target },
-    { id: 'fin_challenges', label: 'Desafios', icon: Trophy },
-    ...(isUserAiEnabled ? [{ id: 'ai_consultant', label: 'Consultor IA', icon: Sparkles }] : []),
+    { id: 'fin_dashboard', label: 'Visão Geral', icon: PieChart, show: true },
+    { id: 'fin_reports', label: 'Relatórios Financeiros', icon: BarChart2, show: hasAccess('reports') },
+    { id: 'fin_receivables', label: 'A Receber', icon: PiggyBank, show: hasAccess('receivables') },
+    { id: 'fin_distribution', label: 'Distribuição', icon: ArrowLeftRight, show: hasAccess('distribution') },
+    { id: 'fin_transactions', label: 'Extrato', icon: List, show: true }, 
+    { id: 'fin_pending', label: 'Contas a Pagar', icon: CalendarClock, show: true }, 
+    { id: 'fin_manager', label: 'Contas & Cartões', icon: Wallet, show: true },
+    { id: 'fin_categories', label: 'Categorias', icon: Tag, show: true },
+    { id: 'fin_goals', label: 'Metas', icon: Target, show: true },
+    { id: 'fin_challenges', label: 'Desafios', icon: Trophy, show: true },
+    { id: 'ai_consultant', label: 'Consultor IA', icon: Sparkles, show: isUserAiEnabled },
   ];
 
-  let currentNavItems = appMode === 'SALES' ? salesNavItems : (appMode === 'FINANCE' ? financeNavItems : [{ id: 'whatsapp_main', label: 'Painel WhatsApp', icon: MessageCircle }]);
+  let currentNavItems = (appMode === 'SALES' ? salesNavItems : (appMode === 'FINANCE' ? financeNavItems : [])).filter(i => i.show);
 
   const toggleAppMode = () => {
     if (hasAccess('sales') && hasAccess('finance')) {
@@ -169,7 +165,7 @@ const Layout: React.FC<LayoutProps> = ({
   };
 
   return (
-    <div className={`flex h-[100dvh] overflow-hidden transition-all duration-500 relative ${currentStyle.background} ${currentTheme === 'neutral' ? 'font-sans' : ''}`}>
+    <div className={`flex h-[100dvh] overflow-hidden transition-all duration-500 relative ${currentStyle.background}`}>
       
       {/* Sidebar Desktop */}
       <aside className={`hidden md:flex flex-col w-64 z-20 transition-colors duration-300 ${currentStyle.sidebar}`}>
@@ -224,8 +220,6 @@ const Layout: React.FC<LayoutProps> = ({
       </aside>
 
       <div className="flex-1 flex flex-col h-full overflow-hidden z-10">
-        {isSandbox && <div className="bg-amber-500 text-white text-[10px] font-bold text-center py-1 z-50 flex justify-center items-center gap-2"><FlaskConical size={12}/> AMBIENTE DE TESTE (SANDBOX) - DADOS NÃO SERÃO SALVOS NA NUVEM</div>}
-
         <header className="md:hidden h-16 flex items-center justify-between px-4 z-20 bg-slate-950 border-b border-white/5">
           <Logo size="xs" variant="full" lightMode />
           <div className="flex items-center gap-3">

@@ -51,50 +51,49 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 };
 
 /**
- * HELPER DE ACESSO CENTRALIZADO (Hieraquia DEV > ADMIN > USER)
+ * REGRA CENTRAL DE AUTORIZAÇÃO (Hieraquia DEV > ADMIN > USER)
  */
 export const canAccess = (user: User | null, feature: string): boolean => {
     if (!user || !user.isActive) return false;
     
-    const role = user.role;
+    // 1. DEV: Engenheiro Raiz - Acesso Total Irrestrito
+    if (user.role === 'DEV') return true;
     
-    // 1. DEV acessa absolutamente tudo
-    if (role === 'DEV') return true;
-    
-    // 2. ADMIN acessa tudo exceto as ferramentas internas de engenharia (módulo 'dev')
-    if (role === 'ADMIN') {
-        if (feature === 'dev') return false;
+    // 2. ADMIN: Administrador do Sistema - Acesso Total exceto funções de infra DEV
+    if (user.role === 'ADMIN') {
+        if (feature === 'dev') return false; 
         return true;
     }
     
-    // 3. USER depende das flags de módulos habilitados no seu perfil
+    // 3. USER: Usuário Operacional - Acesso restrito aos módulos habilitados no perfil
     return !!(user.modules as any)[feature];
 };
 
 /**
- * BOOTSTRAP DE PRODUÇÃO IDEMPOTENTE: Garante documentos mínimos se as coleções estiverem vazias.
+ * BOOTSTRAP DE PRODUÇÃO IDEMPOTENTE: 
+ * Garante documentos mínimos apenas se as coleções estiverem vazias.
  */
 export const bootstrapProductionData = async (): Promise<void> => {
     if (!auth.currentUser) return;
     const userId = auth.currentUser.uid;
 
-    console.info("[Bootstrap] Validando integridade das coleções de produção...");
+    console.info("[Bootstrap] Verificando integridade das coleções no Firestore...");
 
     try {
-        // 1. Clientes
+        // 1. Clientes (Garante pelo menos 1 para o SalesForm não quebrar)
         const clientsSnap = await getDocs(query(collection(db, "clients"), limit(1)));
         if (clientsSnap.empty) {
-            console.log("[Bootstrap] Coleção 'clients' vazia. Criando modelo inicial...");
+            console.log("[Bootstrap] Criando cliente modelo inicial...");
             const modelClient: Client = {
-                id: "model_client_prod",
-                name: "Cliente Modelo Gestor360",
-                clientCode: "CLI-001",
-                companyName: "Empresa Exemplo LTDA",
+                id: "model_client_001",
+                name: "Cliente Modelo LTDA",
+                clientCode: "CLI-0001",
+                companyName: "Cliente Modelo LTDA",
                 contactName: "Administrador",
                 status: "ATIVO",
                 benefitProfile: "BASICA",
-                quotationDay: 1,
-                monthlyQuantityDeclared: 1,
+                quotationDay: 5,
+                monthlyQuantityDeclared: 10,
                 monthlyQuantityAverage: 0,
                 isActive: true,
                 userId: userId,
@@ -108,10 +107,10 @@ export const bootstrapProductionData = async (): Promise<void> => {
         // 2. Contas Financeiras
         const accountsSnap = await getDocs(query(collection(db, "accounts"), limit(1)));
         if (accountsSnap.empty) {
-            console.log("[Bootstrap] Coleção 'accounts' vazia. Criando conta padrão...");
+            console.log("[Bootstrap] Criando conta bancária padrão...");
             const modelAccount: FinanceAccount = {
                 id: "default_main",
-                name: "Conta Principal (Caixa)",
+                name: "Conta Principal",
                 type: "CASH",
                 balance: 0,
                 isAccounting: true,
@@ -122,13 +121,13 @@ export const bootstrapProductionData = async (): Promise<void> => {
             await dbPut('accounts', modelAccount);
         }
 
-        // 3. Categorias
+        // 3. Categorias Financeiras
         const categoriesSnap = await getDocs(query(collection(db, "categories"), limit(1)));
         if (categoriesSnap.empty) {
-            console.log("[Bootstrap] Coleção 'categories' vazia. Criando base financeira...");
+            console.log("[Bootstrap] Criando categorias financeiras essenciais...");
             const baseCategories: TransactionCategory[] = [
-                { id: "cat_receita_vendas", name: "Receita de Vendas", type: "INCOME", personType: "PJ", subcategories: [] },
-                { id: "cat_despesa_op", name: "Despesas Operacionais", type: "EXPENSE", personType: "PJ", subcategories: [] }
+                { id: "cat_receita_base", name: "Receita", type: "INCOME", personType: "PJ", subcategories: [] },
+                { id: "cat_despesa_base", name: "Despesa", type: "EXPENSE", personType: "PJ", subcategories: [] }
             ];
             for (const cat of baseCategories) {
                 await setDoc(doc(db, "categories", cat.id), cat);
@@ -136,16 +135,9 @@ export const bootstrapProductionData = async (): Promise<void> => {
             }
         }
 
-        // 4. Configuração do Sistema
-        const configSnap = await getDoc(doc(db, "config", "system"));
-        if (!configSnap.exists()) {
-            console.log("[Bootstrap] Configuração global não encontrada. Criando padrão...");
-            await setDoc(doc(db, "config", "system"), { ...DEFAULT_SYSTEM_CONFIG, updatedAt: serverTimestamp() });
-        }
-
-        console.info("[Bootstrap] Verificação concluída.");
+        console.info("[Bootstrap] Firestore pronto para uso.");
     } catch (e) {
-        console.error("[Bootstrap] Erro na inicialização de dados:", e);
+        console.error("[Bootstrap] Falha na validação de produção:", e);
     }
 };
 
@@ -208,7 +200,6 @@ export const saveSingleSale = async (sale: Sale) => {
             await setDoc(doc(db, "sales", sale.id), { ...sale, userId: auth.currentUser.uid, updatedAt: serverTimestamp() });
         } catch (e) {}
     }
-    // Ao salvar uma venda, recalcula a média do cliente se houver clientId
     if (sale.clientId) {
         await recalculateClientAverages(sale.clientId);
     }
@@ -275,7 +266,7 @@ const findCommissionRate = (margin: number, rules: CommissionRule[]): number => 
     return rule ? rule.commissionRate : 0;
 };
 
-// --- MÓDULO CLIENTES & CRM (NOVO) ---
+// --- MÓDULO CLIENTES & CRM ---
 export const getClients = async (): Promise<Client[]> => {
     const local = await dbGetAll('clients');
     // @ts-ignore
@@ -327,10 +318,7 @@ export const recalculateClientAverages = async (clientId: string) => {
     
     if (clientSales.length === 0) return;
 
-    // Calcula média baseada nos últimos 6 meses com vendas
     const totalQty = clientSales.reduce((acc, s) => acc + s.quantity, 0);
-    
-    // Extrai meses únicos
     const months = new Set(clientSales.map(s => (s.date || s.completionDate).substring(0, 7)));
     const avg = totalQty / (months.size || 1);
 
@@ -486,6 +474,7 @@ export const getInvoiceMonth = (date: string, closingDay: number): string => {
     return d.toISOString().substring(0, 7); 
 };
 
+// --- CRM & ANALYTICS LEGADO ---
 export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
     const clientsMap = new Map<string, any>();
     const now = new Date();
