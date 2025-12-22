@@ -1,117 +1,90 @@
-import { useEffect, useState } from 'react';
-import { toast } from '@/components/ui/use-toast';
-import { useFinance } from '@/contexts/FinanceContext';
+import React, { useState } from 'react';
+import { FinanceAccount, Transaction } from '../types';
 
 interface Props {
-  type: 'income' | 'expense' | 'transfer';
   isOpen: boolean;
   onClose: () => void;
+  onSave: (tx: Transaction) => Promise<void>;
+  accounts: FinanceAccount[];
+  type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
 }
 
-export default function FinanceTransactionForm({ type, isOpen, onClose }: Props) {
-  const { accounts, createTransaction } = useFinance();
-
-  const [description, setDescription] = useState('');
-  const [value, setValue] = useState('');
-  const [accountId, setAccountId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (accounts && accounts.length > 0 && !accountId) {
-      setAccountId(accounts[0].id);
-    }
-  }, [accounts, accountId]);
-
+const FinanceTransactionForm: React.FC<Props> = ({
+  isOpen,
+  onClose,
+  onSave,
+  accounts,
+  type,
+}) => {
   if (!isOpen) return null;
 
   if (!accounts || accounts.length === 0) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-        <div className="bg-white p-6 rounded">
-          <p>Nenhuma conta cadastrada</p>
-          <button onClick={onClose}>Fechar</button>
-        </div>
+      <div className="modal">
+        <p>Nenhuma conta cadastrada. Crie uma conta antes.</p>
+        <button onClick={onClose}>Fechar</button>
       </div>
     );
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  const [amount, setAmount] = useState<number>(0);
+  const [description, setDescription] = useState('');
+  const [accountId, setAccountId] = useState(accounts[0].id);
 
-    if (!description || !value || !accountId) {
-      toast({ title: 'Campos obrigatórios ausentes' });
-      return;
-    }
+  const handleSave = async () => {
+    if (amount <= 0) return;
 
-    setLoading(true);
+    const tx: Transaction = {
+      id: crypto.randomUUID(),
+      type,
+      amount,
+      description,
+      accountId,
+      createdAt: new Date(),
+    };
 
-    try {
-      await createTransaction({
-        type,
-        description,
-        value: Number(value),
-        accountId,
-      });
-
-      toast({ title: 'Lançamento realizado' });
-      onClose();
-    } catch {
-      toast({ title: 'Erro ao lançar transação' });
-    } finally {
-      setLoading(false);
-    }
-  }
+    await onSave(tx);
+    onClose();
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-      <div className="bg-white rounded-xl w-full max-w-md p-6">
-        <header className="flex justify-between mb-4">
-          <h2 className="font-bold">
-            {type === 'income' && 'Nova Receita'}
-            {type === 'expense' && 'Nova Despesa'}
-            {type === 'transfer' && 'Transferência'}
-          </h2>
-          <button onClick={onClose}>✕</button>
-        </header>
+    <div className="modal">
+      <h2>
+        {type === 'INCOME'
+          ? 'Nova Receita'
+          : type === 'EXPENSE'
+          ? 'Nova Despesa'
+          : 'Transferência'}
+      </h2>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <input
-            className="input"
-            placeholder="Descrição"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
+      <input
+        type="number"
+        placeholder="Valor"
+        value={amount}
+        onChange={(e) => setAmount(Number(e.target.value))}
+      />
 
-          <input
-            className="input"
-            type="number"
-            placeholder="Valor"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-          />
+      <input
+        type="text"
+        placeholder="Descrição"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+      />
 
-          <select
-            className="input"
-            value={accountId ?? ''}
-            onChange={(e) => setAccountId(e.target.value)}
-          >
-            {accounts.map((acc) => (
-              <option key={acc.id} value={acc.id}>
-                {acc.name}
-              </option>
-            ))}
-          </select>
+      <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+        {accounts.map((acc) => (
+          <option key={acc.id} value={acc.id}>
+            {acc.name}
+          </option>
+        ))}
+      </select>
 
-          <footer className="flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="btn-secondary">
-              Cancelar
-            </button>
-            <button disabled={loading} className="btn-primary">
-              Salvar
-            </button>
-          </footer>
-        </form>
+      <div className="actions">
+        <button onClick={onClose}>Cancelar</button>
+        <button onClick={handleSave}>Salvar</button>
       </div>
     </div>
   );
-}
+};
+
+export default FinanceTransactionForm;
