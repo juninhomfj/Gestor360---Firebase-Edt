@@ -105,6 +105,8 @@ export interface Sale extends SaleFormData {
   commissionRateUsed: number;
   deleted?: boolean;
   deletedAt?: string;
+  // Added missing createdAt property
+  createdAt?: Date | string;
   boletoStatus?: 'PENDING' | 'SENT' | 'PAID';
 }
 
@@ -136,6 +138,8 @@ export interface Transaction {
     updatedAt?: string;
     deleted?: boolean;
     deletedAt?: string;
+    // Added missing createdAt property
+    createdAt?: Date | string;
 }
 
 export interface CreditCard {

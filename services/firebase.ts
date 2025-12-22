@@ -1,3 +1,4 @@
+
 import { initializeApp, getApp, getApps, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
@@ -6,9 +7,9 @@ import { getFirestore, Firestore } from "firebase/firestore";
  * Detecta ambiente SANDBOX (Google AI Studio / runtime sem import.meta.env)
  */
 const isSandboxRuntime =
-  typeof import.meta === "undefined" ||
-  !import.meta.env ||
-  !import.meta.env.VITE_FIREBASE_API_KEY;
+  typeof (import.meta as any) === "undefined" ||
+  !(import.meta as any).env ||
+  !(import.meta as any).env.VITE_FIREBASE_API_KEY;
 
 /**
  * Configuração Firebase
@@ -25,12 +26,12 @@ const firebaseConfig = isSandboxRuntime
       appId: "1:1031626472436:web:dca4ae8435e945412157a1",
     }
   : {
-      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-      storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-      messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-      appId: import.meta.env.VITE_FIREBASE_APP_ID,
+      apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY,
+      authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID,
+      storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET,
+      messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+      appId: (import.meta as any).env.VITE_FIREBASE_APP_ID,
     };
 
 /**

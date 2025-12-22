@@ -1,26 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
+
 import Layout from './components/Layout';
 import Login from './components/Login';
 import RequestReset from './components/RequestReset';
 import LoadingScreen from './components/LoadingScreen';
 import Dashboard from './components/Dashboard';
-import SalesList from './components/SalesList';
 import SalesForm from './components/SalesForm';
 import FinanceDashboard from './components/FinanceDashboard';
-import FinanceTransactionsList from './components/FinanceTransactionsList';
 import FinanceTransactionForm from './components/FinanceTransactionForm';
-import FinanceCategories from './components/FinanceCategories';
-import FinanceGoals from './components/FinanceGoals';
-import FinanceChallenges from './components/FinanceChallenges';
-import FinanceReceivables from './components/FinanceReceivables';
-import FinanceDistribution from './components/FinanceDistribution';
-import FinanceReports from './components/FinanceReports';
-import FinanceManager from './components/FinanceManager';
-import ClientReports from './components/ClientReports';
 import SettingsHub from './components/SettingsHub';
-import Help from './components/Help';
-import WhatsAppModule from './components/WhatsAppModule';
-import BoletoControl from './components/BoletoControl';
 import ToastContainer, { ToastMessage } from './components/Toast';
 import PasswordReset from './components/PasswordReset';
 import SnowOverlay from './components/SnowOverlay';
@@ -51,7 +39,10 @@ import {
     getFinanceData,
     getSystemConfig,
     getReportConfig,
-    getStoredTable
+    getStoredTable,
+    bootstrapDefaultAccountIfMissing,
+    saveFinanceData,
+    saveSingleSale
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -60,21 +51,23 @@ import { AudioService } from './services/audioService';
 type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'RESET_PASSWORD' | 'APP';
 
 const App: React.FC = () => {
+    const initRun = useRef(false);
+
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
     const [authView, setAuthView] = useState<AuthView>('LOGIN');
-    const initRun = useRef(false);
 
     const [appMode, setAppMode] = useState<AppMode>(
         () => (localStorage.getItem('sys_last_mode') as AppMode) || 'SALES'
     );
+
     const [activeTab, setActiveTab] = useState(
         () => localStorage.getItem('sys_last_tab') || 'dashboard'
     );
+
     const [theme, setTheme] = useState<AppTheme>('glass');
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-    // DATA
     const [sales, setSales] = useState<Sale[]>([]);
     const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
     const [cards, setCards] = useState<CreditCard[]>([]);
@@ -85,15 +78,16 @@ const App: React.FC = () => {
     const [cells, setCells] = useState<ChallengeCell[]>([]);
     const [receivables, setReceivables] = useState<Receivable[]>([]);
 
-    // UI / CONFIG
     const [rulesBasic, setRulesBasic] = useState<CommissionRule[]>([]);
     const [rulesNatal, setRulesNatal] = useState<CommissionRule[]>([]);
     const [rulesCustom, setRulesCustom] = useState<CommissionRule[]>([]);
+
     const [reportConfig, setReportConfig] = useState<ReportConfig>({
         daysForNewClient: 30,
         daysForInactive: 60,
         daysForLost: 180
     });
+
     const [salesTargets, setSalesTargets] = useState<SalesTargets>({
         basic: 0,
         natal: 0
@@ -102,14 +96,13 @@ const App: React.FC = () => {
     const [showSalesForm, setShowSalesForm] = useState(false);
     const [showTxForm, setShowTxForm] = useState(false);
 
-    const [dashboardConfig, setDashboardConfig] =
-        useState<DashboardWidgetConfig>({
-            showStats: true,
-            showCharts: true,
-            showRecents: true,
-            showPacing: true,
-            showBudgets: true
-        });
+    const [dashboardConfig, setDashboardConfig] = useState<DashboardWidgetConfig>({
+        showStats: true,
+        showCharts: true,
+        showRecents: true,
+        showPacing: true,
+        showBudgets: true
+    });
 
     const [hideValues, setHideValues] = useState(false);
 
@@ -119,7 +112,9 @@ const App: React.FC = () => {
 
         const init = async () => {
             try {
+                await bootstrapDefaultAccountIfMissing();
                 await AudioService.preload();
+
                 const session = await reloadSession();
                 if (session) {
                     await handleLoginSuccess(session);
@@ -127,7 +122,8 @@ const App: React.FC = () => {
                     setAuthView('LOGIN');
                     setLoading(false);
                 }
-            } catch {
+            } catch (e) {
+                console.error('[INIT ERROR]', e);
                 setLoading(false);
             }
         };
@@ -171,16 +167,14 @@ const App: React.FC = () => {
         setChallenges(finData.challenges || []);
         setCells(finData.cells || []);
         setReceivables(finData.receivables || []);
+
         setRulesBasic(rBasic);
         setRulesNatal(rNatal);
         setRulesCustom(rCustom);
         setReportConfig(rConfig);
     };
 
-    const addToast = (
-        type: 'SUCCESS' | 'ERROR' | 'INFO',
-        message: string
-    ) => {
+    const addToast = (type: 'SUCCESS' | 'ERROR' | 'INFO', message: string) => {
         const id = crypto.randomUUID();
         setToasts(prev => [...prev, { id, type, message }]);
     };
@@ -222,15 +216,12 @@ const App: React.FC = () => {
             <SnowOverlay />
             <ToastContainer toasts={toasts} removeToast={removeToast} />
 
-            {/* 🔥 MODAIS GLOBAIS (ESTAVAM FALTANDO) */}
             {showSalesForm && (
                 <SalesForm
                     isOpen={showSalesForm}
                     onClose={() => setShowSalesForm(false)}
-                    onSaved={async () => {
-                        setShowSalesForm(false);
-                        await loadDataForUser();
-                    }}
+                    onSave={saveSingleSale}
+                    onSaved={loadDataForUser}
                 />
             )}
 
@@ -238,10 +229,20 @@ const App: React.FC = () => {
                 <FinanceTransactionForm
                     isOpen={showTxForm}
                     onClose={() => setShowTxForm(false)}
-                    onSaved={async () => {
-                        setShowTxForm(false);
-                        await loadDataForUser();
+                    accounts={accounts}
+                    onSave={async (tx: Transaction) => {
+                        await saveFinanceData(
+                            accounts,
+                            cards,
+                            [...transactions, tx],
+                            categories,
+                            goals,
+                            challenges,
+                            cells,
+                            receivables
+                        );
                     }}
+                    onSaved={loadDataForUser}
                 />
             )}
 
@@ -274,26 +275,6 @@ const App: React.FC = () => {
                             currentUser={currentUser}
                             salesTargets={salesTargets}
                             onUpdateTargets={setSalesTargets}
-                        />
-                    )}
-
-                    {activeTab === 'sales' && (
-                        <SalesList
-                            sales={sales}
-                            onEdit={() => {}}
-                            onDelete={() => {}}
-                            onNew={() => setShowSalesForm(true)}
-                            hasUndo={false}
-                            onUndo={() => {}}
-                            onBillSale={() => {}}
-                            onBillBulk={() => {}}
-                            onDeleteBulk={() => {}}
-                            onExportTemplate={() => {}}
-                            onImportFile={async () => {}}
-                            onClearAll={() => {}}
-                            onRestore={() => {}}
-                            onOpenBulkAdvanced={() => {}}
-                            onNotify={addToast}
                         />
                     )}
 
