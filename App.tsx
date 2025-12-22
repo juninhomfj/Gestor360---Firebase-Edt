@@ -46,7 +46,8 @@ import {
     saveFinanceData,
     saveSingleSale,
     getClients,
-    saveClient
+    saveClient,
+    saveCommissionRules // Nova função
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -62,9 +63,7 @@ const App: React.FC = () => {
     const [authView, setAuthView] = useState<AuthView>('LOGIN');
 
     /**
-     * Resolvendo flags de permissão com herança:
-     * DEV herda TUDO.
-     * ADMIN herda USER.
+     * Resolvendo flags de permissão com herança corrigida
      */
     const { isDev, isAdmin } = useMemo(() => {
         if (!currentUser) return { isDev: false, isAdmin: false };
@@ -335,10 +334,19 @@ const App: React.FC = () => {
                             rulesNatal={rulesNatal}
                             rulesCustom={rulesCustom}
                             reportConfig={reportConfig}
-                            onSaveRules={(type, rules) => {
-                                // Logic
+                            onSaveRules={async (type, rules) => {
+                                try {
+                                    await saveCommissionRules(type, rules);
+                                    addToast('SUCCESS', `Tabela ${type} atualizada com sucesso!`);
+                                    await loadDataForUser();
+                                } catch (e) {
+                                    addToast('ERROR', 'Erro ao salvar tabela.');
+                                }
                             }}
-                            onSaveReportConfig={setReportConfig}
+                            onSaveReportConfig={async (config) => {
+                                // Implementar salvamento de config de relatório se necessário
+                                setReportConfig(config);
+                            }}
                             darkMode={theme !== 'neutral' && theme !== 'rose'}
                             currentUser={currentUser}
                             onUpdateUser={setCurrentUser}

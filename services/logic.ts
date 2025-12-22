@@ -141,6 +141,18 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
     return await dbGetAll(store as any);
 };
 
+/**
+ * Salva tabelas de comissão local e futuramente na nuvem
+ */
+export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
+    const store = type === ProductType.BASICA ? 'commission_basic' 
+                : type === ProductType.NATAL ? 'commission_natal' 
+                : 'commission_custom';
+    
+    await dbClear(store as any);
+    await dbBulkPut(store as any, rules);
+};
+
 export const calculateMargin = (sold: number, proposed: number): number => {
     if (proposed <= 0.01) return 0; 
     const m = ((sold - proposed) / proposed) * 100;
