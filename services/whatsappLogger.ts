@@ -17,7 +17,7 @@ export class WhatsAppManualLogger {
   ): Promise<string> {
     const logId = crypto.randomUUID();
     
-    /* Fix: Updated log creation with all required properties */
+    // Fixed: Updated log creation with all required properties for ManualInteractionLog
     const log: ManualInteractionLog = {
       id: logId,
       campaignId,
@@ -51,7 +51,7 @@ export class WhatsAppManualLogger {
     
     (updates as any)[step] = timestamp;
     
-    /* Fix: Fixed property comparisons and arithmetic */
+    // Fixed: Corrected timing calculations and property access
     if (step === 'whatsappOpenedAt' && log.messageCopiedAt) {
       const start = new Date(log.messageCopiedAt);
       const end = new Date(timestamp);
@@ -134,7 +134,7 @@ export class WhatsAppManualLogger {
   private static async getCampaignROI(campaignId: string): Promise<{ revenue: number, salesCount: number }> {
       try {
           const sales = await dbGetAll('sales');
-          /* Fix: marketingCampaignId is now a property on Sale */
+          // Fixed: Access marketingCampaignId on Sale
           const campaignSales = sales.filter((s: Sale) => s.marketingCampaignId === campaignId);
           
           const revenue = campaignSales.reduce((acc, s) => acc + (s.valueSold * s.quantity), 0);

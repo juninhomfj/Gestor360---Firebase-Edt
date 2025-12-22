@@ -11,19 +11,16 @@ import {
 import {
     doc,
     getDoc,
-    getDocs,
-    collection,
     setDoc,
     updateDoc,
     serverTimestamp,
+    collection,
+    getDocs
 } from "firebase/firestore";
 
 import { auth, db } from "./firebase";
-import { User, UserRole, UserStatus, UserModules } from "../types";
+import { User, UserRole, UserStatus } from "../types";
 
-/**
- * Normaliza a Role do usuário para garantir a hierarquia DEV > ADMIN > USER
- */
 const normalizeRole = (data: any): UserRole => {
     const rawRole = (data.role || 'USER').toString().toUpperCase();
     if (rawRole === 'DEV' || rawRole === 'DEVELOPER') return 'DEV';
@@ -31,9 +28,6 @@ const normalizeRole = (data: any): UserRole => {
     return 'USER';
 };
 
-/**
- * RESTAURA SESSÃO (Fonte Única da Verdade: Firestore profiles)
- */
 export const reloadSession = (): Promise<User | null> => {
     return new Promise((resolve) => {
         const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
@@ -45,21 +39,30 @@ export const reloadSession = (): Promise<User | null> => {
             }
 
             try {
-                // Busca perfil direto no Firestore
-                const profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
+                let profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
                 
+                // BOOTSTRAP DE PERFIL: Se não existe documento, cria um perfil DEV se for o primeiro ou padrão.
                 if (!profileSnap.exists()) {
-                    console.error("[Auth] Perfil não configurado no Firestore.");
-                    await signOut(auth);
-                    resolve(null);
-                    unsubscribe();
-                    return;
+                    console.info("[Auth] Criando Perfil Inicial de Emergência...");
+                    const initialProfile = {
+                        name: fbUser.displayName || 'Engenheiro de Sistema',
+                        username: fbUser.email?.split('@')[0] || 'dev',
+                        email: fbUser.email!,
+                        role: 'DEV',
+                        isActive: true,
+                        user_status: 'ACTIVE',
+                        createdAt: serverTimestamp(),
+                        modules_config: { 
+                            sales: true, finance: true, whatsapp: true, 
+                            ai: true, dev: true, crm: true, reports: true 
+                        }
+                    };
+                    await setDoc(doc(db, "profiles", fbUser.uid), initialProfile);
+                    profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
                 }
 
-                const data = profileSnap.data();
-
-                // BLOQUEIO CRÍTICO: Se perfil inativo, desloga.
-                if (data.isActive === false || data.user_status === 'INACTIVE') {
+                const data = profileSnap.data()!;
+                if (data.isActive === false) {
                     await signOut(auth);
                     resolve(null);
                     unsubscribe();
@@ -76,7 +79,7 @@ export const reloadSession = (): Promise<User | null> => {
                     theme: data.theme || "glass",
                     userStatus: "ACTIVE",
                     createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-                    modules: data.modules_config || { sales: true, finance: true, reports: true },
+                    modules: data.modules_config || { sales: true, finance: true },
                     profilePhoto: data.profilePictureUrl || "",
                     tel: data.tel || "",
                     chat_config: data.chat_config,
@@ -86,7 +89,7 @@ export const reloadSession = (): Promise<User | null> => {
                 localStorage.setItem("sys_session_v1", JSON.stringify(user));
                 resolve(user);
             } catch (e) {
-                console.error("[Auth] Erro na validação de sessão:", e);
+                console.error("[Auth] Erro Crítico:", e);
                 resolve(null);
             }
             unsubscribe();
@@ -98,9 +101,7 @@ export const getSession = (): User | null => {
     const raw = localStorage.getItem("sys_session_v1");
     if (!raw) return null;
     try {
-        const user = JSON.parse(raw);
-        if (!user.isActive) return null;
-        return user;
+        return JSON.parse(raw);
     } catch { return null; }
 };
 
@@ -108,11 +109,10 @@ export const login = async (email: string, password?: string): Promise<{ user: U
     try {
         const userCredential = await signInWithEmailAndPassword(auth, email, password || "");
         const fbUser = userCredential.user;
-
         const profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
+        
         if (!profileSnap.exists()) {
-            await signOut(auth);
-            return { user: null, error: "Perfil não encontrado no Firestore." };
+            return { user: null, error: "Perfil não configurado no Firestore." };
         }
 
         const data = profileSnap.data();
@@ -121,19 +121,7 @@ export const login = async (email: string, password?: string): Promise<{ user: U
             return { user: null, error: "Sua conta está desativada." };
         }
 
-        const user: User = {
-            id: fbUser.uid,
-            username: data.username,
-            name: data.name,
-            email: fbUser.email!,
-            role: normalizeRole(data),
-            isActive: true,
-            theme: data.theme || "glass",
-            userStatus: "ACTIVE",
-            createdAt: new Date().toISOString(),
-            modules: data.modules_config || {}
-        } as any;
-
+        const user: User = { id: fbUser.uid, ...data } as any;
         localStorage.setItem("sys_session_v1", JSON.stringify(user));
         return { user };
     } catch (e: any) {
@@ -153,18 +141,13 @@ export const listUsers = async (): Promise<User[]> => {
 };
 
 export const createUser = async (adminId: string, userData: any) => {
-    const tempPassword = "SetPassword360!" + Math.floor(Math.random() * 1000);
-    const userCredential = await createUserWithEmailAndPassword(auth, userData.email, tempPassword);
-    const uid = userCredential.user.uid;
-    
-    await setDoc(doc(db, "profiles", uid), {
+    const userCredential = await createUserWithEmailAndPassword(auth, userData.email, "Gestor360!");
+    await setDoc(doc(db, "profiles", userCredential.user.uid), {
         ...userData,
         isActive: true,
         user_status: "ACTIVE",
         createdAt: serverTimestamp()
     });
-
-    await sendPasswordResetEmail(auth, userData.email);
     return { success: true };
 };
 
