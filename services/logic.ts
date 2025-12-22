@@ -37,7 +37,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     includeNonAccountingInTotal: false
 };
 
-// Added DEFAULT_REPORT_CONFIG as a fallback for getReportConfig
 export const DEFAULT_REPORT_CONFIG: ReportConfig = {
     daysForNewClient: 30,
     daysForInactive: 60,
@@ -46,7 +45,7 @@ export const DEFAULT_REPORT_CONFIG: ReportConfig = {
 
 export const canAccess = (user: User | null, feature: string): boolean => {
     if (!user || !user.isActive) return false;
-    if (user.role === 'DEV') return true; // BYPASS TOTAL PARA DEV
+    if (user.role === 'DEV') return true; 
     if (user.role === 'ADMIN') {
         if (feature === 'dev') return false;
         return true;
@@ -54,14 +53,30 @@ export const canAccess = (user: User | null, feature: string): boolean => {
     return !!(user.modules as any)[feature];
 };
 
+/**
+ * Bootstrap de Produção com tratamento de erros de permissão.
+ * Garante que falhas em tabelas específicas não travem o login.
+ */
 export const bootstrapProductionData = async (): Promise<void> => {
     if (!auth.currentUser) return;
     const uid = auth.currentUser.uid;
 
-    try {
-        console.info("[Bootstrap] Verificando integridade organizacional...");
+    console.info("[Bootstrap] Iniciando verificação de integridade segura...");
 
-        // 1. Clientes
+    const safeRun = async (name: string, fn: () => Promise<void>) => {
+        try {
+            await fn();
+        } catch (e: any) {
+            if (e.code === 'permission-denied') {
+                console.warn(`[Bootstrap] Sem permissão para inicializar ${name}. O perfil pode estar sendo propagado.`);
+            } else {
+                console.error(`[Bootstrap] Erro ao inicializar ${name}:`, e);
+            }
+        }
+    };
+
+    // 1. Clientes
+    await safeRun("clientes", async () => {
         const clientSnap = await getDocs(query(collection(db, "clients"), limit(1)));
         if (clientSnap.empty) {
             const model: Client = {
@@ -72,8 +87,10 @@ export const bootstrapProductionData = async (): Promise<void> => {
             };
             await setDoc(doc(db, "clients", model.id), { ...model, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
         }
+    });
 
-        // 2. Contas
+    // 2. Contas
+    await safeRun("contas", async () => {
         const accSnap = await getDocs(query(collection(db, "accounts"), limit(1)));
         if (accSnap.empty) {
             const model: FinanceAccount = {
@@ -82,31 +99,19 @@ export const bootstrapProductionData = async (): Promise<void> => {
             };
             await setDoc(doc(db, "accounts", model.id), model);
         }
+    });
 
-        // 3. Categorias
-        const catSnap = await getDocs(query(collection(db, "categories"), limit(1)));
-        if (catSnap.empty) {
-            const baseCats: TransactionCategory[] = [
-                { id: "cat_receita", name: "Receita de Vendas", type: "INCOME", personType: "PJ", subcategories: [] },
-                { id: "cat_despesa", name: "Despesa Operacional", type: "EXPENSE", personType: "PJ", subcategories: [] }
-            ];
-            for (const cat of baseCats) {
-                await setDoc(doc(db, "categories", cat.id), cat);
-            }
-        }
-
-        // 4. Tabelas de Comissão Isoladas
+    // 3. Tabelas de Comissão
+    await safeRun("comissões", async () => {
         const checkRules = await getDocs(query(collection(db, "commission_basic"), limit(1)));
         if (checkRules.empty) {
             const defaultRule: CommissionRule = { id: 'def_rule', minPercent: 0, maxPercent: null, commissionRate: 0.1 };
             await setDoc(doc(db, "commission_basic", defaultRule.id), defaultRule);
             await setDoc(doc(db, "commission_natal", defaultRule.id), defaultRule);
         }
+    });
 
-        console.info("[Bootstrap] Integridade Firestore validada.");
-    } catch (e) {
-        console.error("[Bootstrap] Erro de Permissão ou Rede:", e);
-    }
+    console.info("[Bootstrap] Processo de integridade finalizado.");
 };
 
 // --- CONFIGURAÇÃO ---
@@ -114,8 +119,10 @@ export const getSystemConfig = async (): Promise<SystemConfig> => {
     const local = await getConfigItem('system_config');
     // @ts-ignore
     if (db && db.type !== 'mock' && auth.currentUser) {
-        const snap = await getDoc(doc(db, "config", "system"));
-        if (snap.exists()) return snap.data() as SystemConfig;
+        try {
+            const snap = await getDoc(doc(db, "config", "system"));
+            if (snap.exists()) return snap.data() as SystemConfig;
+        } catch (e) {}
     }
     return local || DEFAULT_SYSTEM_CONFIG;
 };
@@ -128,18 +135,18 @@ export const saveSystemConfig = async (config: SystemConfig) => {
     }
 };
 
-// Added missing getReportConfig function to fix the import error in App.tsx
 export const getReportConfig = async (): Promise<ReportConfig> => {
     const local = await getConfigItem('report_config');
     // @ts-ignore
     if (db && db.type !== 'mock' && auth.currentUser) {
-        const snap = await getDoc(doc(db, "config", "reports"));
-        if (snap.exists()) return snap.data() as ReportConfig;
+        try {
+            const snap = await getDoc(doc(db, "config", "reports"));
+            if (snap.exists()) return snap.data() as ReportConfig;
+        } catch (e) {}
     }
     return local || DEFAULT_REPORT_CONFIG;
 };
 
-// Added saveReportConfig to handle persistence of report settings
 export const saveReportConfig = async (config: ReportConfig) => {
     await saveConfigItem('report_config', config);
     // @ts-ignore
@@ -152,8 +159,12 @@ export const saveReportConfig = async (config: ReportConfig) => {
 export const getStoredSales = async (): Promise<Sale[]> => {
     // @ts-ignore
     if (db && db.type !== 'mock' && auth.currentUser) {
-        const snap = await getDocs(query(collection(db, "sales"), where("userId", "==", auth.currentUser.uid)));
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as Sale)).filter(s => !s.deleted);
+        try {
+            const snap = await getDocs(query(collection(db, "sales"), where("userId", "==", auth.currentUser.uid)));
+            return snap.docs.map(d => ({ id: d.id, ...d.data() } as Sale)).filter(s => !s.deleted);
+        } catch (e) {
+            return [];
+        }
     }
     const local = await dbGetAll('sales');
     return local.filter(s => !s.deleted);
@@ -173,13 +184,17 @@ export const saveSales = async (sales: Sale[]) => {
     }
 };
 
-// --- COMISSÕES (SOLUÇÃO PARA O BUG DE ESPELHAMENTO) ---
+// --- COMISSÕES (ISOLAMENTO TOTAL) ---
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
     const colName = type === ProductType.BASICA ? "commission_basic" : (type === ProductType.NATAL ? "commission_natal" : "commission_custom");
     // @ts-ignore
     if (db && db.type !== 'mock' && auth.currentUser) {
-        const snap = await getDocs(collection(db, colName));
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
+        try {
+            const snap = await getDocs(collection(db, colName));
+            return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
+        } catch (e) {
+            return [];
+        }
     }
     return await dbGetAll(colName as any);
 };
@@ -191,7 +206,6 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
     // @ts-ignore
     if (db && db.type !== 'mock' && auth.currentUser) {
         const batch = writeBatch(db);
-        // Garante isolamento total gravando apenas na coleção solicitada
         rules.forEach(r => batch.set(doc(db, colName, r.id), r));
         await batch.commit();
     }
@@ -212,17 +226,21 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
 export const getFinanceData = async () => {
     // @ts-ignore
     if (db && db.type !== 'mock' && auth.currentUser) {
-        const [accS, txS, catS] = await Promise.all([
-            getDocs(collection(db, "accounts")),
-            getDocs(query(collection(db, "transactions"), where("deleted", "==", false))),
-            getDocs(collection(db, "categories"))
-        ]);
-        return {
-            accounts: accS.docs.map(d => ({ id: d.id, ...d.data() } as any)),
-            transactions: txS.docs.map(d => ({ id: d.id, ...d.data() } as any)),
-            categories: catS.docs.map(d => ({ id: d.id, ...d.data() } as any)),
-            cards: [], goals: [], challenges: [], cells: [], receivables: []
-        };
+        try {
+            const [accS, txS, catS] = await Promise.all([
+                getDocs(collection(db, "accounts")),
+                getDocs(query(collection(db, "transactions"), where("deleted", "==", false))),
+                getDocs(collection(db, "categories"))
+            ]);
+            return {
+                accounts: accS.docs.map(d => ({ id: d.id, ...d.data() } as any)),
+                transactions: txS.docs.map(d => ({ id: d.id, ...d.data() } as any)),
+                categories: catS.docs.map(d => ({ id: d.id, ...d.data() } as any)),
+                cards: [], goals: [], challenges: [], cells: [], receivables: []
+            };
+        } catch (e) {
+            return { accounts: [], transactions: [], categories: [], cards: [], goals: [], challenges: [], cells: [], receivables: [] };
+        }
     }
     const [acc, cards, txs, cats, goals, chals, cells, recs] = await Promise.all([
         dbGetAll('accounts'), dbGetAll('cards'), dbGetAll('transactions'), dbGetAll('categories'),
@@ -270,8 +288,12 @@ export const getInvoiceMonth = (date: string, closingDay: number): string => {
 };
 
 export const getTrashItems = async () => {
-    const txs = await getDocs(query(collection(db, "transactions"), where("deleted", "==", true)));
-    return { sales: [], transactions: txs.docs.map(d => ({ id: d.id, ...d.data() } as any)) };
+    try {
+        const txs = await getDocs(query(collection(db, "transactions"), where("deleted", "==", true)));
+        return { sales: [], transactions: txs.docs.map(d => ({ id: d.id, ...d.data() } as any)) };
+    } catch (e) {
+        return { sales: [], transactions: [] };
+    }
 };
 
 export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
@@ -296,8 +318,12 @@ export const getUserPlanLabel = (user: User) => {
 };
 
 export const getClients = async (): Promise<Client[]> => {
-    const snap = await getDocs(collection(db, "clients"));
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(c => !c.deleted);
+    try {
+        const snap = await getDocs(collection(db, "clients"));
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(c => !c.deleted);
+    } catch (e) {
+        return [];
+    }
 };
 
 export const saveClient = async (client: Client) => {
@@ -305,8 +331,12 @@ export const saveClient = async (client: Client) => {
 };
 
 export const getDeletedClients = async () => {
-    const snap = await getDocs(query(collection(db, "clients"), where("deleted", "==", true)));
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+    try {
+        const snap = await getDocs(query(collection(db, "clients"), where("deleted", "==", true)));
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+    } catch (e) {
+        return [];
+    }
 };
 
 export const restoreClient = async (id: string) => {

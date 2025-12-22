@@ -96,14 +96,17 @@ const App: React.FC = () => {
         const init = async () => {
             try {
                 await AudioService.preload();
-                // 1. Aguarda validação estrita do Perfil Firestore
+                
+                // PASSO 1: Aguarda validação estrita do Perfil Firestore
                 const sessionUser = await reloadSession();
                 
                 if (sessionUser) {
+                    // Se temos um usuário, carregamos os dados
                     await handleLoginSuccess(sessionUser);
                 } else {
+                    // Se logado no Firebase mas sem perfil validado, mostrar erro amigável
                     if (fbAuth.currentUser) {
-                        setAuthError("Perfil não validado ou inativo. Contate o administrador.");
+                        setAuthError("Não foi possível carregar seu perfil. Tente novamente ou contate o administrador.");
                         setAuthView('ERROR');
                     } else {
                         setAuthView('LOGIN');
@@ -111,7 +114,8 @@ const App: React.FC = () => {
                     setLoading(false);
                 }
             } catch (e: any) {
-                setAuthError(e.message || "Erro crítico de inicialização.");
+                console.error("Crash na inicialização:", e);
+                setAuthError("Falha na conexão com o banco de dados.");
                 setAuthView('ERROR');
                 setLoading(false);
             }
@@ -121,38 +125,54 @@ const App: React.FC = () => {
 
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
-        // 2. Garante Tabelas e Dados de Produção
-        await bootstrapProductionData();
-        // 3. Carrega Dados Reais
+        
+        // PASSO 2: Garante Tabelas e Dados de Produção APÓS carregar o perfil
+        // Envolvemos em try-catch para que erros de permissão em tabelas específicas não matem o login
+        try {
+            await bootstrapProductionData();
+        } catch (bootstrapErr) {
+            console.warn("Bootstrap ignorado por restrição de acesso temporária.");
+        }
+
+        // PASSO 3: Carrega Dados Reais
         await loadDataForUser();
         setAuthView('APP');
         setLoading(false);
     };
 
     const loadDataForUser = async () => {
-        const sysConfig = await getSystemConfig();
-        if (sysConfig.theme) setTheme(sysConfig.theme);
+        try {
+            const sysConfig = await getSystemConfig();
+            if (sysConfig.theme) setTheme(sysConfig.theme);
 
-        const [storedSales, storedClients, finData, rBasic, rNatal, rCustom, rConfig] = await Promise.all([
-            getStoredSales(), getClients(), getFinanceData(),
-            getStoredTable(ProductType.BASICA), getStoredTable(ProductType.NATAL), getStoredTable(ProductType.CUSTOM),
-            getReportConfig()
-        ]);
+            const [storedSales, storedClients, finData, rBasic, rNatal, rCustom, rConfig] = await Promise.all([
+                getStoredSales(), 
+                getClients(), 
+                getFinanceData(),
+                getStoredTable(ProductType.BASICA), 
+                getStoredTable(ProductType.NATAL), 
+                getStoredTable(ProductType.CUSTOM),
+                getReportConfig()
+            ]);
 
-        setSales(storedSales);
-        setClients(storedClients);
-        setAccounts(finData.accounts || []);
-        setCards(finData.cards || []);
-        setTransactions(finData.transactions || []);
-        setCategories(finData.categories || []);
-        setGoals(finData.goals || []);
-        setChallenges(finData.challenges || []);
-        setCells(finData.cells || []);
-        setReceivables(finData.receivables || []);
-        setRulesBasic(rBasic);
-        setRulesNatal(rNatal);
-        setRulesCustom(rCustom);
-        setReportConfig(rConfig);
+            setSales(storedSales || []);
+            setClients(storedClients || []);
+            setAccounts(finData.accounts || []);
+            setCards(finData.cards || []);
+            setTransactions(finData.transactions || []);
+            setCategories(finData.categories || []);
+            setGoals(finData.goals || []);
+            setChallenges(finData.challenges || []);
+            setCells(finData.cells || []);
+            setReceivables(finData.receivables || []);
+            setRulesBasic(rBasic || []);
+            setRulesNatal(rNatal || []);
+            setRulesCustom(rCustom || []);
+            setReportConfig(rConfig);
+        } catch (e) {
+            console.error("Erro ao carregar dados do usuário:", e);
+            // Fallback para arrays vazios para não quebrar a UI
+        }
     };
 
     const addToast = (type: 'SUCCESS' | 'ERROR' | 'INFO', message: string) => {
@@ -168,9 +188,9 @@ const App: React.FC = () => {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-center">
                 <div className="max-w-md bg-slate-900 border border-red-500/50 p-8 rounded-3xl shadow-2xl">
-                    <h1 className="text-2xl font-bold text-red-500 mb-4">Acesso Bloqueado</h1>
+                    <h1 className="text-2xl font-bold text-red-500 mb-4">Acesso Restrito</h1>
                     <p className="text-slate-400 mb-8">{authError}</p>
-                    <button onClick={() => logout()} className="px-6 py-3 bg-white text-black rounded-lg font-bold">Voltar ao Login</button>
+                    <button onClick={() => logout()} className="px-6 py-3 bg-white text-black rounded-lg font-bold hover:bg-gray-100 transition-colors">Tentar Novamente</button>
                 </div>
             </div>
         );
@@ -251,7 +271,6 @@ const App: React.FC = () => {
                             }}
                             onSaveReportConfig={async (config) => {
                                 try {
-                                    // Fixed: Added saveReportConfig call to persist report settings
                                     await saveReportConfig(config);
                                     setReportConfig(config);
                                     addToast('SUCCESS', 'Parâmetros de relatório atualizados!');

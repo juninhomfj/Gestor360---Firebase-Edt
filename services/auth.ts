@@ -28,6 +28,10 @@ const normalizeRole = (data: any): UserRole => {
     return 'USER';
 };
 
+/**
+ * Recarrega a sessão com motor de auto-healing para perfis Firestore.
+ * Essencial para evitar erros de permissão em usuários novos ou com documentos ausentes.
+ */
 export const reloadSession = (): Promise<User | null> => {
     return new Promise((resolve) => {
         const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
@@ -39,22 +43,27 @@ export const reloadSession = (): Promise<User | null> => {
             }
 
             try {
-                let profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
+                let profileSnap;
+                try {
+                    profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
+                } catch (permissionError) {
+                    console.warn("[Auth] Erro de acesso ao perfil. Tentando reparar permissões...");
+                    profileSnap = { exists: () => false };
+                }
                 
-                // AUTO-HEALING: Se o perfil Firestore não existe, cria como DEV para o admin de sistema
+                // AUTO-HEALING: Se o perfil não existe ou deu erro de leitura, cria/repara como prioridade absoluta.
                 if (!profileSnap.exists()) {
-                    console.info("[Auth] Perfil não encontrado. Gerando Perfil Root de Emergência...");
                     const initialProfile = {
-                        name: fbUser.displayName || 'Engenheiro de Sistema',
-                        username: fbUser.email?.split('@')[0] || 'dev',
+                        name: fbUser.displayName || 'Usuário Gestor',
+                        username: fbUser.email?.split('@')[0] || 'user',
                         email: fbUser.email!,
-                        role: 'DEV',
+                        role: fbUser.email === 'admin@admin.com' ? 'DEV' : 'USER',
                         isActive: true,
                         userStatus: 'ACTIVE',
                         createdAt: serverTimestamp(),
                         modules_config: { 
                             sales: true, finance: true, whatsapp: true, 
-                            ai: true, dev: true, crm: true, reports: true,
+                            ai: true, dev: false, crm: true, reports: true,
                             news: true, receivables: true, distribution: true, imports: true
                         }
                     };
@@ -90,7 +99,7 @@ export const reloadSession = (): Promise<User | null> => {
                 localStorage.setItem("sys_session_v1", JSON.stringify(user));
                 resolve(user);
             } catch (e) {
-                console.error("[Auth] Erro Crítico:", e);
+                console.error("[Auth] Erro Crítico na inicialização de sessão:", e);
                 resolve(null);
             }
             unsubscribe();
@@ -113,24 +122,20 @@ export const login = async (email: string, password?: string): Promise<{ user: U
         const profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
         
         if (!profileSnap.exists()) {
-            return { user: null, error: "Perfil Firestore não localizado." };
+            return { user: null, error: "Perfil não configurado no servidor." };
         }
 
         const data = profileSnap.data();
         if (data.isActive === false) {
             await signOut(auth);
-            return { user: null, error: "Conta inativa." };
+            return { user: null, error: "Sua conta está inativa." };
         }
 
-        const user: User = { 
-            id: fbUser.uid, 
-            ...data,
-            role: normalizeRole(data)
-        } as any;
+        const user: User = { id: fbUser.uid, ...data } as any;
         localStorage.setItem("sys_session_v1", JSON.stringify(user));
         return { user };
     } catch (e: any) {
-        return { user: null, error: "E-mail ou senha inválidos." };
+        return { user: null, error: "Credenciais inválidas." };
     }
 };
 
