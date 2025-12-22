@@ -3,7 +3,7 @@ import { getAuth, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
 
 /**
- * Detecta ambiente sandbox (Google AI Studio / runtime sem import.meta.env)
+ * Detecta ambiente SANDBOX (Google AI Studio / runtime sem import.meta.env)
  */
 const isSandboxRuntime =
   typeof import.meta === "undefined" ||
@@ -11,18 +11,18 @@ const isSandboxRuntime =
   !import.meta.env.VITE_FIREBASE_API_KEY;
 
 /**
- * CONFIGURAÇÃO FIREBASE
- * - Produção (Vercel): usa import.meta.env
- * - Sandbox (AI Studio): usa credenciais TEMPORÁRIAS
+ * Configuração Firebase
+ * - SANDBOX: credenciais hardcoded (TEMPORÁRIO)
+ * - PRODUÇÃO: variáveis de ambiente (Vercel)
  */
 const firebaseConfig = isSandboxRuntime
   ? {
-      apiKey: "SUBSTITUA_API_KEY_SANDBOX",
-      authDomain: "SUBSTITUA_PROJECT.firebaseapp.com",
-      projectId: "SUBSTITUA_PROJECT_ID",
-      storageBucket: "SUBSTITUA_PROJECT.appspot.com",
-      messagingSenderId: "SUBSTITUA_SENDER_ID",
-      appId: "SUBSTITUA_APP_ID",
+      apiKey: "AIzaSyAobQQZcZkTxhZO12nWje2ubfVQR7ewTI0",
+      authDomain: "gestor360-6dd17.firebaseapp.com",
+      projectId: "gestor360-6dd17",
+      storageBucket: "gestor360-6dd17.appspot.com",
+      messagingSenderId: "1031626472436",
+      appId: "1:1031626472436:web:dca4ae8435e945412157a1",
     }
   : {
       apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -34,11 +34,12 @@ const firebaseConfig = isSandboxRuntime
     };
 
 /**
- * FAIL RÁPIDO — não existe modo mock aqui
+ * Fail-fast: Firebase não pode inicializar sem API Key válida
  */
 if (!firebaseConfig.apiKey || firebaseConfig.apiKey.length < 10) {
-  console.error("[Firebase] Configuração inválida:", firebaseConfig);
-  throw new Error("Firebase não inicializado: API KEY ausente ou inválida");
+  throw new Error(
+    "[Firebase] Inicialização abortada: API Key ausente ou inválida."
+  );
 }
 
 let app: FirebaseApp;
