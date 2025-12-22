@@ -16,8 +16,6 @@ import {
     setDoc,
     updateDoc,
     serverTimestamp,
-    query,
-    where
 } from "firebase/firestore";
 
 import { auth, db } from "./firebase";
@@ -44,7 +42,10 @@ const normalizeRole = (data: any): UserRole => {
  */
 export const getSession = (): User | null => {
     const session = localStorage.getItem("sys_session_v1");
-    return session ? JSON.parse(session) : null;
+    if (!session) return null;
+    const user = JSON.parse(session) as User;
+    if (!user.isActive) return null;
+    return user;
 };
 
 /**
@@ -53,7 +54,7 @@ export const getSession = (): User | null => {
 export const login = async (
     email: string,
     password?: string
-): Promise<{ user: User | null; error?: string }> => {
+): Promise<{ user: User | null; error?: string; code?: string }> => {
     try {
         const userCredential = await signInWithEmailAndPassword(
             auth,
@@ -67,17 +68,19 @@ export const login = async (
 
         if (!profileSnap.exists()) {
             await signOut(auth);
-            return { user: null, error: "Perfil não configurado no sistema." };
+            return { user: null, error: "Perfil não configurado no sistema.", code: 'PROFILE_MISSING' };
         }
 
         const data = profileSnap.data();
 
-        // ETAPA 2: Bloqueio de usuários inativos
-        if (data.user_status === "INACTIVE") {
+        // Bloqueio de usuários inativos (conforme campo isActive ou user_status)
+        const isActive = data.isActive !== false && data.user_status !== "INACTIVE";
+        if (!isActive) {
             await signOut(auth);
             return {
                 user: null,
-                error: "Sua conta foi desativada. Entre em contato com o suporte."
+                error: "Sua conta foi desativada. Entre em contato com o suporte.",
+                code: 'USER_INACTIVE'
             };
         }
 
@@ -88,9 +91,10 @@ export const login = async (
             email: fbUser.email!,
             tel: data.tel || "",
             role: normalizeRole(data),
+            isActive: true,
             profilePhoto: data.profilePictureUrl || "",
             theme: data.theme || "glass",
-            userStatus: data.user_status as UserStatus,
+            userStatus: "ACTIVE",
             createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
             modules: data.modules_config || {},
             chat_config: data.chat_config || {
@@ -105,56 +109,71 @@ export const login = async (
     } catch (e: any) {
         return {
             user: null,
-            error: "Credenciais inválidas ou erro de conexão."
+            error: "Credenciais inválidas ou erro de conexão.",
+            code: 'AUTH_FAILED'
         };
     }
 };
 
 /**
- * RESTAURA SESSÃO: Observador nativo do Firebase
+ * RESTAURA SESSÃO: Observador nativo do Firebase.
+ * Aguarda a resolução do perfil no Firestore antes de liberar.
  */
 export const reloadSession = (): Promise<User | null> => {
     return new Promise((resolve) => {
-        onAuthStateChanged(auth, async (fbUser) => {
+        const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
             if (!fbUser) {
+                localStorage.removeItem("sys_session_v1");
                 resolve(null);
+                unsubscribe();
                 return;
             }
 
-            const profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
-            if (!profileSnap.exists()) {
+            try {
+                const profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
+                if (!profileSnap.exists()) {
+                    await signOut(auth);
+                    resolve(null);
+                    unsubscribe();
+                    return;
+                }
+
+                const data = profileSnap.data();
+                const isActive = data.isActive !== false && data.user_status !== "INACTIVE";
+
+                if (!isActive) {
+                    await signOut(auth);
+                    resolve(null);
+                    unsubscribe();
+                    return;
+                }
+
+                const user: User = {
+                    id: fbUser.uid,
+                    username: data.username,
+                    name: data.name,
+                    email: fbUser.email!,
+                    tel: data.tel || "",
+                    role: normalizeRole(data),
+                    isActive: true,
+                    profilePhoto: data.profilePictureUrl || "",
+                    theme: data.theme || "glass",
+                    userStatus: "ACTIVE",
+                    createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+                    modules: data.modules_config || {},
+                    chat_config: data.chat_config || {
+                        public_access: false,
+                        private_enabled: true
+                    },
+                    keys: data.keys
+                };
+
+                localStorage.setItem("sys_session_v1", JSON.stringify(user));
+                resolve(user);
+            } catch (e) {
                 resolve(null);
-                return;
             }
-
-            const data = profileSnap.data();
-
-            if (data.user_status !== "ACTIVE") {
-                await signOut(auth);
-                resolve(null);
-                return;
-            }
-
-            const user: User = {
-                id: fbUser.uid,
-                username: data.username,
-                name: data.name,
-                email: fbUser.email!,
-                tel: data.tel || "",
-                role: normalizeRole(data),
-                profilePhoto: data.profilePictureUrl || "",
-                theme: data.theme || "glass",
-                userStatus: data.user_status as UserStatus,
-                createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-                modules: data.modules_config || {},
-                chat_config: data.chat_config || {
-                    public_access: false,
-                    private_enabled: true
-                },
-                keys: data.keys
-            };
-
-            resolve(user);
+            unsubscribe();
         });
     });
 };
@@ -175,17 +194,15 @@ export const listUsers = async (): Promise<User[]> => {
             name: data.name,
             email: data.email,
             role: normalizeRole(data),
+            isActive: data.isActive !== false && data.user_status !== "INACTIVE",
             userStatus: data.user_status,
             modules: data.modules_config,
             chat_config: data.chat_config,
             profilePhoto: data.profilePictureUrl
-        } as User;
+        } as any;
     });
 };
 
-/**
- * ETAPA 3: Criar usuário (Admin) vinculando UID do Auth ao ID do Doc
- */
 export const createUser = async (
     adminId: string,
     userData: {
@@ -197,10 +214,7 @@ export const createUser = async (
         modules_config: UserModules;
     }
 ) => {
-    // Senha temporária para criação (será resetada pelo usuário)
     const tempPassword = "SetPassword360!" + Math.floor(Math.random() * 1000);
-
-    // 1. Cria no Firebase Auth
     const userCredential = await createUserWithEmailAndPassword(
         auth,
         userData.email,
@@ -208,14 +222,13 @@ export const createUser = async (
     );
 
     const uid = userCredential.user.uid;
-
-    // 2. Cria o perfil no Firestore usando o UID como chave
     await setDoc(doc(db, "profiles", uid), {
         username: userData.username,
         name: userData.name,
         email: userData.email,
         tel: userData.tel || "",
         role: userData.role,
+        isActive: true,
         modules_config: userData.modules_config,
         user_status: "ACTIVE",
         createdAt: serverTimestamp(),
@@ -223,26 +236,30 @@ export const createUser = async (
         createdBy: adminId
     });
 
-    // 3. Envia e-mail de reset de senha para que o usuário defina a sua própria
     await sendPasswordResetEmail(auth, userData.email);
-
     return { success: true };
 };
 
-/**
- * ETAPA 4: Atualizar perfil com proteção de campos sensíveis
- */
 export const updateUser = async (userId: string, data: any) => {
     const ref = doc(db, "profiles", userId);
     await updateDoc(ref, {
         ...data,
         updatedAt: serverTimestamp()
     });
+    
+    // Atualiza cache local se for o próprio usuário
+    if (auth.currentUser?.uid === userId) {
+        const current = getSession();
+        if (current) {
+            localStorage.setItem("sys_session_v1", JSON.stringify({ ...current, ...data }));
+        }
+    }
 };
 
 export const deactivateUser = async (userId: string) => {
     const ref = doc(db, "profiles", userId);
     await updateDoc(ref, {
+        isActive: false,
         user_status: "INACTIVE",
         deactivatedAt: serverTimestamp(),
         updatedAt: serverTimestamp()

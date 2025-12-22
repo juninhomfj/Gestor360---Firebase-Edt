@@ -48,13 +48,13 @@ import {
     getClients,
     saveClient,
     saveCommissionRules,
-    bootstrapProductionData // Importação necessária
+    bootstrapProductionData
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
 import { AudioService } from './services/audioService';
 
-type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'RESET_PASSWORD' | 'APP';
+type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'RESET_PASSWORD' | 'APP' | 'ERROR';
 
 const App: React.FC = () => {
     const initRun = useRef(false);
@@ -62,9 +62,10 @@ const App: React.FC = () => {
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
     const [authView, setAuthView] = useState<AuthView>('LOGIN');
+    const [authError, setAuthError] = useState<string | null>(null);
 
     /**
-     * Resolvendo flags de permissão com herança corrigida
+     * Resolvendo flags de permissão com herança corrigida DEV > ADMIN > USER
      */
     const { isDev, isAdmin } = useMemo(() => {
         if (!currentUser) return { isDev: false, isAdmin: false };
@@ -131,18 +132,22 @@ const App: React.FC = () => {
 
         const init = async () => {
             try {
-                // Preload de áudio
+                // 1. Preload de ativos e sons
                 await AudioService.preload();
 
+                // 2. Aguarda resolução do Auth + Profile Firestore (Bloqueio de Render)
                 const session = await reloadSession();
+                
                 if (session) {
                     await handleLoginSuccess(session);
                 } else {
                     setAuthView('LOGIN');
                     setLoading(false);
                 }
-            } catch (e) {
+            } catch (e: any) {
                 console.error('[INIT ERROR]', e);
+                setAuthError(e.message || "Erro crítico na inicialização do sistema.");
+                setAuthView('ERROR');
                 setLoading(false);
             }
         };
@@ -153,10 +158,12 @@ const App: React.FC = () => {
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
         
-        // BOOTSTRAP DE PRODUÇÃO: Garante dados iniciais no Firestore
+        // 3. Executa Bootstrap IDEMPOTENTE de Produção
         await bootstrapProductionData();
         
+        // 4. Carrega os dados reais do banco
         await loadDataForUser();
+        
         setAuthView('APP');
         setLoading(false);
     };
@@ -210,6 +217,18 @@ const App: React.FC = () => {
 
     if (loading) return <LoadingScreen />;
 
+    if (authView === 'ERROR') {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-center">
+                <div className="max-w-md">
+                    <h1 className="text-2xl font-bold text-red-500 mb-4">Acesso Bloqueado</h1>
+                    <p className="text-slate-400 mb-8">{authError || "Seu perfil não pôde ser validado. Contate o suporte."}</p>
+                    <button onClick={() => window.location.reload()} className="px-6 py-3 bg-white text-black rounded-lg font-bold">Tentar Novamente</button>
+                </div>
+            </div>
+        );
+    }
+
     if (authView === 'LOGIN')
         return (
             <Login
@@ -248,6 +267,7 @@ const App: React.FC = () => {
                     onClose={() => setShowSalesForm(false)}
                     onSave={saveSingleSale}
                     onSaved={loadDataForUser}
+                    userId={currentUser.id}
                 />
             )}
 

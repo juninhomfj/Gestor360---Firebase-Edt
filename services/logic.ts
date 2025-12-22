@@ -1,3 +1,4 @@
+
 import { 
     collection, 
     doc, 
@@ -50,31 +51,50 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 };
 
 /**
- * BOOTSTRAP DE PRODUÇÃO: Cria dados fundamentais se as coleções estiverem vazias.
- * Essencial para que os modais (SalesForm, FinanceForm) tenham itens selecionáveis.
+ * HELPER DE ACESSO CENTRALIZADO (Hieraquia DEV > ADMIN > USER)
+ */
+export const canAccess = (user: User | null, feature: string): boolean => {
+    if (!user || !user.isActive) return false;
+    
+    const role = user.role;
+    
+    // 1. DEV acessa absolutamente tudo
+    if (role === 'DEV') return true;
+    
+    // 2. ADMIN acessa tudo exceto as ferramentas internas de engenharia (módulo 'dev')
+    if (role === 'ADMIN') {
+        if (feature === 'dev') return false;
+        return true;
+    }
+    
+    // 3. USER depende das flags de módulos habilitados no seu perfil
+    return !!(user.modules as any)[feature];
+};
+
+/**
+ * BOOTSTRAP DE PRODUÇÃO IDEMPOTENTE: Garante documentos mínimos se as coleções estiverem vazias.
  */
 export const bootstrapProductionData = async (): Promise<void> => {
     if (!auth.currentUser) return;
     const userId = auth.currentUser.uid;
 
-    console.info("[Bootstrap] Iniciando verificação de dados de produção...");
+    console.info("[Bootstrap] Validando integridade das coleções de produção...");
 
     try {
-        // 1. Verificação de Clientes
+        // 1. Clientes
         const clientsSnap = await getDocs(query(collection(db, "clients"), limit(1)));
         if (clientsSnap.empty) {
-            console.log("[Bootstrap] Criando cliente modelo...");
-            // Added missing 'name' property to fix TypeScript error where 'name' is required in Client interface
+            console.log("[Bootstrap] Coleção 'clients' vazia. Criando modelo inicial...");
             const modelClient: Client = {
-                id: crypto.randomUUID(),
-                name: "Cliente Modelo LTDA",
-                clientCode: "CLI-0001",
-                companyName: "Cliente Modelo LTDA",
-                contactName: "Contato Administrativo",
+                id: "model_client_prod",
+                name: "Cliente Modelo Gestor360",
+                clientCode: "CLI-001",
+                companyName: "Empresa Exemplo LTDA",
+                contactName: "Administrador",
                 status: "ATIVO",
                 benefitProfile: "BASICA",
-                quotationDay: 5,
-                monthlyQuantityDeclared: 10,
+                quotationDay: 1,
+                monthlyQuantityDeclared: 1,
                 monthlyQuantityAverage: 0,
                 isActive: true,
                 userId: userId,
@@ -85,10 +105,10 @@ export const bootstrapProductionData = async (): Promise<void> => {
             await dbPut('clients', modelClient);
         }
 
-        // 2. Verificação de Contas Financeiras
+        // 2. Contas Financeiras
         const accountsSnap = await getDocs(query(collection(db, "accounts"), limit(1)));
         if (accountsSnap.empty) {
-            console.log("[Bootstrap] Criando conta bancária padrão...");
+            console.log("[Bootstrap] Coleção 'accounts' vazia. Criando conta padrão...");
             const modelAccount: FinanceAccount = {
                 id: "default_main",
                 name: "Conta Principal (Caixa)",
@@ -102,14 +122,13 @@ export const bootstrapProductionData = async (): Promise<void> => {
             await dbPut('accounts', modelAccount);
         }
 
-        // 3. Verificação de Categorias
+        // 3. Categorias
         const categoriesSnap = await getDocs(query(collection(db, "categories"), limit(1)));
         if (categoriesSnap.empty) {
-            console.log("[Bootstrap] Criando categorias financeiras base...");
+            console.log("[Bootstrap] Coleção 'categories' vazia. Criando base financeira...");
             const baseCategories: TransactionCategory[] = [
                 { id: "cat_receita_vendas", name: "Receita de Vendas", type: "INCOME", personType: "PJ", subcategories: [] },
-                { id: "cat_despesa_op", name: "Despesas Operacionais", type: "EXPENSE", personType: "PJ", subcategories: [] },
-                { id: "cat_pessoal_fixo", name: "Gastos Pessoais", type: "EXPENSE", personType: "PF", subcategories: [] }
+                { id: "cat_despesa_op", name: "Despesas Operacionais", type: "EXPENSE", personType: "PJ", subcategories: [] }
             ];
             for (const cat of baseCategories) {
                 await setDoc(doc(db, "categories", cat.id), cat);
@@ -117,9 +136,16 @@ export const bootstrapProductionData = async (): Promise<void> => {
             }
         }
 
-        console.info("[Bootstrap] Processo concluído com sucesso.");
+        // 4. Configuração do Sistema
+        const configSnap = await getDoc(doc(db, "config", "system"));
+        if (!configSnap.exists()) {
+            console.log("[Bootstrap] Configuração global não encontrada. Criando padrão...");
+            await setDoc(doc(db, "config", "system"), { ...DEFAULT_SYSTEM_CONFIG, updatedAt: serverTimestamp() });
+        }
+
+        console.info("[Bootstrap] Verificação concluída.");
     } catch (e) {
-        console.error("[Bootstrap] Erro ao popular dados iniciais:", e);
+        console.error("[Bootstrap] Erro na inicialização de dados:", e);
     }
 };
 
@@ -214,9 +240,6 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
     return await dbGetAll(store as any);
 };
 
-/**
- * Salva tabelas de comissão local e futuramente na nuvem
- */
 export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
     const store = type === ProductType.BASICA ? 'commission_basic' 
                 : type === ProductType.NATAL ? 'commission_natal' 
@@ -281,7 +304,6 @@ export const saveClient = async (client: Client) => {
     }
 };
 
-// Fixed: Added functions required by TrashBin component
 export const getDeletedClients = async (): Promise<Client[]> => {
     const clients = await dbGetAll('clients');
     return clients.filter(c => c.deleted);
@@ -320,7 +342,6 @@ export const recalculateClientAverages = async (clientId: string) => {
 
 export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
     const clients = await getClients();
-    // Fixed: 'deleted' property now exists on Client
     const myClients = clients.filter(c => c.userId === userId && !c.deleted);
     const activeClients = myClients.filter(c => c.isActive && c.status === 'ATIVO');
     
@@ -330,7 +351,6 @@ export const calculateProductivityMetrics = async (userId: string): Promise<Prod
     const sales = await getStoredSales();
     const monthlySales = sales.filter(s => 
         !s.deleted && 
-        // Fixed: 'userId' property now exists on Sale
         s.userId === userId && 
         (s.date || s.completionDate).startsWith(monthKey) &&
         s.clientId
@@ -466,7 +486,6 @@ export const getInvoiceMonth = (date: string, closingDay: number): string => {
     return d.toISOString().substring(0, 7); 
 };
 
-// --- CRM & ANALYTICS LEGADO ---
 export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
     const clientsMap = new Map<string, any>();
     const now = new Date();
@@ -584,7 +603,6 @@ export const readExcelFile = async (file: File): Promise<any[][]> => {
     return utils.sheet_to_json(ws, { header: 1 });
 };
 
-// Fix: Updated processSalesImport to include required properties for SaleFormData
 export const processSalesImport = (data: any[][], mapping: ImportMapping): SaleFormData[] => {
     const rows = data.slice(1); 
     return rows.map(row => {
@@ -601,7 +619,6 @@ export const processSalesImport = (data: any[][], mapping: ImportMapping): SaleF
             marginPercent: mapping.margin !== -1 ? (parseFloat(row[mapping.margin]) || 0) : 0,
             quoteNumber: mapping.quote !== -1 ? String(row[mapping.quote] || '') : '',
             trackingCode: mapping.tracking !== -1 ? String(row[mapping.tracking] || '') : '',
-            // Fix: Added missing required properties for SaleFormData type
             status: rowDate.length > 0 ? 'FATURADO' as const : 'ORÇAMENTO' as const,
             hasNF: false,
             isBilled: rowDate.length > 0
@@ -654,23 +671,10 @@ export const hardResetLocalData = async () => {
     window.location.reload();
 };
 
-/**
- * Helper de Acesso Hierárquico
- */
-export const canAccess = (user: User, mod: string): boolean => {
-    const role = user.role || 'USER';
-    if (role === 'DEV') return true; // Super-acesso
-    if (role === 'ADMIN') {
-        if (mod === 'dev') return false; // Bloqueio manual de módulos DEV para Admin
-        return true;
-    }
-    return !!(user.modules as any)[mod];
-};
-
 export const getUserPlanLabel = (user: User) => {
     const role = user.role || 'USER';
-    if (role === 'DEV') return 'Engenheiro de Sistema';
-    return role === 'ADMIN' ? 'Plano Master 360' : 'Plano Profissional';
+    if (role === 'DEV') return 'Engenheiro de Sistema (Root)';
+    return role === 'ADMIN' ? 'Administrador do Sistema' : 'Plano Profissional';
 };
 
 export const generateChallengeCells = (challengeId: string, target: number, count: number, model: ChallengeModel): ChallengeCell[] => {
@@ -721,7 +725,5 @@ export const importEncryptedBackup = async (file: File, pass: string) => {
 };
 
 export const findPotentialDuplicates = (sales: Sale[]) => {
-    const names = Array.from(new Set(sales.map(s => s.client)));
-    const dups: any[] = [];
-    return dups;
+    return [];
 };

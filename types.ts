@@ -87,10 +87,7 @@ export interface User {
     email: string;
     tel?: string;
     role: UserRole;
-    profile?: string; // Fallback para perfil
-    permissions?: {
-        role: string;
-    };
+    isActive: boolean; // Novo campo obrigatório conforme especificação
     profilePhoto?: string;
     theme: AppTheme;
     userStatus: UserStatus;
