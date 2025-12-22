@@ -143,7 +143,8 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
 
 export const calculateMargin = (sold: number, proposed: number): number => {
     if (proposed <= 0.01) return 0; 
-    return ((sold - proposed) / proposed) * 100;
+    const m = ((sold - proposed) / proposed) * 100;
+    return Number(m.toFixed(2));
 };
 
 export const computeCommissionValues = (quantity: number, valueProposed: number, marginPercent: number, rules: CommissionRule[]) => {
