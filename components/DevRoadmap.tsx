@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Bot, MessageSquare, Smartphone, Zap, Lock, Code2, CheckSquare, Server, FileText, Download, Activity, Database, Share2, Map, Eye, HardDrive, Cpu, Layers, Braces, Terminal, Construction, Copy, CheckCircle2, Brain, RefreshCw, Wifi, WifiOff, Calculator, AlertTriangle, Play, GitBranch, Trash2, FileOutput, FlaskConical, LayoutTemplate, ShieldAlert } from 'lucide-react';
-import { getStoredSales, getFinanceData, hardResetLocalData } from '../services/logic';
+import { getStoredSales, getFinanceData, hardResetLocalData, bootstrapProductionData } from '../services/logic';
 import { getPendingSyncs } from '../storage/db';
 import { auth, db } from '../services/firebase';
 import { getSession } from '../services/auth';
@@ -12,8 +12,10 @@ const DevRoadmap: React.FC = () => {
   const [dbStats, setDbStats] = useState({ sales: 0, transactions: 0, syncQueue: 0, size: 'Calc...' });
   const [firebaseStatus, setFirebaseStatus] = useState<string>('CONECTANDO...');
   const [selectedFile, setSelectedFile] = useState<string>('types.ts');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const loadDiagnostics = async () => {
+      setIsRefreshing(true);
       try {
           const s = await getStoredSales();
           const f = await getFinanceData();
@@ -24,6 +26,7 @@ const DevRoadmap: React.FC = () => {
           // @ts-ignore
           setFirebaseStatus(db && db.type !== 'mock' ? 'FIREBASE CLOUD ATIVO' : 'MODO LOCAL');
       } catch (e) {}
+      setIsRefreshing(false);
   };
 
   useEffect(() => { loadDiagnostics(); }, []);
@@ -32,6 +35,14 @@ const DevRoadmap: React.FC = () => {
     if(confirm('Isso apagará TODOS os dados locais. Tem certeza?')) {
         hardResetLocalData();
     }
+  };
+
+  const handleReRunBootstrap = async () => {
+      if(confirm('Deseja re-executar o bootstrap de integridade do banco?')) {
+          await bootstrapProductionData();
+          loadDiagnostics();
+          alert('Integridade validada no Firestore.');
+      }
   };
 
   return (
@@ -61,8 +72,15 @@ const DevRoadmap: React.FC = () => {
                 </div>
 
                 <div className="bg-white dark:bg-slate-800 p-6 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm flex flex-wrap gap-4">
-                    <button onClick={loadDiagnostics} className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold text-xs flex items-center gap-2"><RefreshCw size={14}/> Atualizar Status</button>
-                    <button onClick={handleHardReset} className="px-6 py-2 bg-red-600 text-white rounded-lg font-bold text-xs flex items-center gap-2 hover:bg-red-700"><Trash2 size={14}/> Limpar Banco Local</button>
+                    <button onClick={loadDiagnostics} className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold text-xs flex items-center gap-2 hover:scale-105 transition-all">
+                        <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''}/> Atualizar Diagnóstico
+                    </button>
+                    <button onClick={handleReRunBootstrap} className="px-6 py-2 bg-emerald-600 text-white rounded-lg font-bold text-xs flex items-center gap-2 hover:bg-emerald-700">
+                        <CheckSquare size={14}/> Validar Integridade (Bootstrap)
+                    </button>
+                    <button onClick={handleHardReset} className="px-6 py-2 bg-red-600 text-white rounded-lg font-bold text-xs flex items-center gap-2 hover:bg-red-700">
+                        <Trash2 size={14}/> Limpar Banco Local
+                    </button>
                 </div>
             </div>
         )}
@@ -79,7 +97,7 @@ const DevRoadmap: React.FC = () => {
                 <div className="md:col-span-3 bg-black rounded-xl border border-slate-800 overflow-hidden flex flex-col">
                     <div className="bg-slate-900 p-2 text-[10px] text-slate-500 font-mono flex justify-between">
                         <span>{selectedFile}</span>
-                        <span>TypeScript / React</span>
+                        <span>TypeScript / React / Firestore Native</span>
                     </div>
                     <pre className="flex-1 p-4 overflow-auto text-[11px] text-emerald-400 font-mono custom-scrollbar">
                         <code>{(SOURCE_FILES as any)[selectedFile]}</code>
@@ -98,10 +116,10 @@ const DevRoadmap: React.FC = () => {
                    </div>
                 </div>
                 <div className="space-y-4">
-                    <RoadmapItem done title="Migração Firebase Nativa" desc="Escrita síncrona aguardando confirmação do banco." />
-                    <RoadmapItem done title="Novo Motor de Permissões" desc="Hierarquia DEV > ADMIN > USER funcional." />
-                    <RoadmapItem title="Realtime Dashboards" desc="Gráficos que atualizam sem refresh conforme equipe vende." />
-                    <RoadmapItem title="Integração de Contratos" desc="Geração de PDFs dinâmicos com base nos dados da venda." />
+                    <RoadmapItem done title="Migração Firebase Nativa" desc="Escrita síncrona aguardando confirmação do banco para consistência organizacional." />
+                    <RoadmapItem done title="Novo Motor de Permissões" desc="Hierarquia DEV > ADMIN > USER com bypass de segurança para root." />
+                    <RoadmapItem title="Realtime Dashboards" desc="Gráficos que atualizam sem refresh conforme equipe organizacional vende." />
+                    <RoadmapItem title="Integração de Contratos" desc="Geração de PDFs dinâmicos com base nos dados da venda e assinatura digital." />
                 </div>
             </div>
         )}

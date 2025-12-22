@@ -1,5 +1,6 @@
 
-import { WAContact, WATag, WACampaign, WAMessageQueue, WAManualLog, WAMediaType } from '../types';
+import { WAContact, WATag, WACampaign, WAMessageQueue, WAMediaType } from '../types';
+/* Fix: Removed non-existent export WAManualLog from types import */
 import { dbGetAll, dbPut, dbDelete, dbBulkPut } from '../storage/db';
 import { markDirty } from './sync';
 import { base64ToBlob } from '../utils/fileHelper';

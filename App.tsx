@@ -25,7 +25,7 @@ import {
 import {
     getStoredSales, getFinanceData, getSystemConfig, getReportConfig,
     getStoredTable, saveFinanceData, saveSingleSale, getClients,
-    saveCommissionRules, bootstrapProductionData
+    saveCommissionRules, bootstrapProductionData, saveReportConfig
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -249,7 +249,16 @@ const App: React.FC = () => {
                                     await loadDataForUser();
                                 } catch (e) { addToast('ERROR', 'Erro ao salvar.'); }
                             }}
-                            onSaveReportConfig={async (config) => setReportConfig(config)}
+                            onSaveReportConfig={async (config) => {
+                                try {
+                                    // Fixed: Added saveReportConfig call to persist report settings
+                                    await saveReportConfig(config);
+                                    setReportConfig(config);
+                                    addToast('SUCCESS', 'Parâmetros de relatório atualizados!');
+                                } catch (e) {
+                                    addToast('ERROR', 'Falha ao salvar configurações de relatório.');
+                                }
+                            }}
                             darkMode={theme !== 'neutral' && theme !== 'rose'}
                             currentUser={currentUser} onUpdateUser={setCurrentUser}
                             sales={sales} onUpdateSales={setSales}

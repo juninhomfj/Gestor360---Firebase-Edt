@@ -122,13 +122,6 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRequestReset }) => {
                             <div className="space-y-1.5 group">
                                 <div className="flex justify-between items-center">
                                     <label className="text-xs font-bold text-slate-500 ml-1 group-focus-within:text-emerald-400 transition-colors uppercase">Senha</label>
-                                    <button 
-                                        type="button"
-                                        onClick={onRequestReset}
-                                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300 uppercase tracking-tighter"
-                                    >
-                                        Esqueci minha senha
-                                    </button>
                                 </div>
                                 <div className="relative">
                                     <Lock className="absolute left-4 top-3.5 text-slate-500 group-focus-within:text-white transition-colors" size={18} />
@@ -144,6 +137,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRequestReset }) => {
                         )}
 
                         <div className="pt-2 flex flex-col gap-3">
+                            {/* 1. BOTÃO PRINCIPAL */}
                             <button 
                                 type="submit"
                                 disabled={isLoading}
@@ -153,6 +147,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRequestReset }) => {
                                 <ArrowRight size={16} />
                             </button>
 
+                            {/* 2. MAGIC LINK TOGGLE */}
                             <button 
                                 type="button"
                                 onClick={() => { setIsMagicLink(!isMagicLink); setError(''); setSuccessMsg(''); }}
@@ -160,6 +155,15 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRequestReset }) => {
                             >
                                 {isMagicLink ? <KeyRound size={14}/> : <Wand2 size={14}/>}
                                 {isMagicLink ? 'Voltar para Senha' : 'Entrar via Link Mágico'}
+                            </button>
+
+                            {/* 3. ESQUECI A SENHA */}
+                            <button 
+                                type="button"
+                                onClick={onRequestReset}
+                                className="w-full py-2 text-[11px] font-bold text-blue-400 hover:text-blue-300 uppercase tracking-wide text-center"
+                            >
+                                Esqueci minha senha
                             </button>
                         </div>
                     </form>

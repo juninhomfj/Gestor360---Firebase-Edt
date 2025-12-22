@@ -41,20 +41,21 @@ export const reloadSession = (): Promise<User | null> => {
             try {
                 let profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
                 
-                // BOOTSTRAP DE PERFIL: Se não existe documento, cria um perfil DEV se for o primeiro ou padrão.
+                // AUTO-HEALING: Se o perfil Firestore não existe, cria como DEV para o admin de sistema
                 if (!profileSnap.exists()) {
-                    console.info("[Auth] Criando Perfil Inicial de Emergência...");
+                    console.info("[Auth] Perfil não encontrado. Gerando Perfil Root de Emergência...");
                     const initialProfile = {
                         name: fbUser.displayName || 'Engenheiro de Sistema',
                         username: fbUser.email?.split('@')[0] || 'dev',
                         email: fbUser.email!,
                         role: 'DEV',
                         isActive: true,
-                        user_status: 'ACTIVE',
+                        userStatus: 'ACTIVE',
                         createdAt: serverTimestamp(),
                         modules_config: { 
                             sales: true, finance: true, whatsapp: true, 
-                            ai: true, dev: true, crm: true, reports: true 
+                            ai: true, dev: true, crm: true, reports: true,
+                            news: true, receivables: true, distribution: true, imports: true
                         }
                     };
                     await setDoc(doc(db, "profiles", fbUser.uid), initialProfile);
@@ -112,20 +113,24 @@ export const login = async (email: string, password?: string): Promise<{ user: U
         const profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
         
         if (!profileSnap.exists()) {
-            return { user: null, error: "Perfil não configurado no Firestore." };
+            return { user: null, error: "Perfil Firestore não localizado." };
         }
 
         const data = profileSnap.data();
         if (data.isActive === false) {
             await signOut(auth);
-            return { user: null, error: "Sua conta está desativada." };
+            return { user: null, error: "Conta inativa." };
         }
 
-        const user: User = { id: fbUser.uid, ...data } as any;
+        const user: User = { 
+            id: fbUser.uid, 
+            ...data,
+            role: normalizeRole(data)
+        } as any;
         localStorage.setItem("sys_session_v1", JSON.stringify(user));
         return { user };
     } catch (e: any) {
-        return { user: null, error: "Credenciais inválidas." };
+        return { user: null, error: "E-mail ou senha inválidos." };
     }
 };
 
@@ -145,7 +150,7 @@ export const createUser = async (adminId: string, userData: any) => {
     await setDoc(doc(db, "profiles", userCredential.user.uid), {
         ...userData,
         isActive: true,
-        user_status: "ACTIVE",
+        userStatus: "ACTIVE",
         createdAt: serverTimestamp()
     });
     return { success: true };
@@ -156,7 +161,7 @@ export const updateUser = async (userId: string, data: any) => {
 };
 
 export const deactivateUser = async (userId: string) => {
-    await updateDoc(doc(db, "profiles", userId), { isActive: false, user_status: "INACTIVE" });
+    await updateDoc(doc(db, "profiles", userId), { isActive: false, userStatus: "INACTIVE" });
 };
 
 export const requestPasswordReset = async (email: string) => { await sendPasswordResetEmail(auth, email); };

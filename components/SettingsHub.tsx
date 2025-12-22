@@ -45,13 +45,11 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
   const [systemConfig, setSystemConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
   const [showBackupModal, setShowBackupModal] = useState(false);
 
-  const [syncStats, setSyncStats] = useState({ pending: 0, isOnline: true, isConnected: false });
   const [notificationSound, setNotificationSound] = useState('');
   const [alertSound, setAlertSound] = useState('');
   const [successSound, setSuccessSound] = useState('');
   const [warningSound, setWarningSound] = useState('');
   
-  // CORREÇÃO: Adicionado 'const' para evitar quebra da tela
   const audioInputRef = useRef<HTMLInputElement>(null);
   const [targetAudioField, setTargetAudioField] = useState<string | null>(null);
 
@@ -65,18 +63,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
           setWarningSound(cfg.warningSound || '');
       };
       loadConfig();
-      refreshCloudStats();
-      const interval = setInterval(refreshCloudStats, 5000);
-      return () => clearInterval(interval);
   }, []);
-
-  const refreshCloudStats = async () => {
-      const pending = await getPendingSyncs();
-      const online = navigator.onLine;
-      // @ts-ignore
-      const connected = db && db.type !== 'mock' && !!auth.currentUser;
-      setSyncStats({ pending: pending.length, isOnline: online, isConnected: connected });
-  };
 
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -87,9 +74,9 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
           if (targetAudioField === 'successSound') setSuccessSound(base64);
           if (targetAudioField === 'alertSound') setAlertSound(base64);
           if (targetAudioField === 'warningSound') setWarningSound(base64);
-          onNotify('SUCCESS', 'Áudio carregado!');
+          onNotify('SUCCESS', 'Som carregado com sucesso!');
       } catch (err) {
-          onNotify('ERROR', 'Erro ao carregar áudio.');
+          onNotify('ERROR', 'Erro ao processar áudio.');
       }
       if (audioInputRef.current) audioInputRef.current.value = '';
       setTargetAudioField(null);
@@ -102,16 +89,13 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
       };
       setSystemConfig(newConfig);
       saveSystemConfig(newConfig);
-      onNotify('SUCCESS', 'Configurações salvas!');
+      onNotify('SUCCESS', 'Sons do sistema atualizados!');
   };
 
   const handleTabSelect = (id: any) => {
       setActiveTab(id);
       setShowMobileContent(true);
   };
-
-  const hasSalesModule = currentUser.modules?.sales || isAdmin;
-  const hasFinanceModule = currentUser.modules?.finance || isAdmin;
 
   const NavBtn = ({ id, icon: Icon, label, show = true }: any) => {
       if (!show) return null;
@@ -121,7 +105,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
             onClick={() => handleTabSelect(id)}
             className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-all mb-1 text-left ${
                 active 
-                ? (darkMode ? 'bg-indigo-600 text-white shadow-lg' : 'bg-indigo-600 text-white shadow-md')
+                ? 'bg-indigo-600 text-white shadow-lg'
                 : (darkMode ? 'text-slate-400 hover:bg-white/5 hover:text-white' : 'text-gray-600 hover:bg-gray-100')
             }`}
           >
@@ -141,9 +125,9 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
            <NavBtn id="SOUNDS" icon={Volume2} label="Sons & Avisos" />
            
            <h2 className="px-4 mb-2 mt-4 text-[10px] font-black uppercase tracking-widest opacity-40">Módulos</h2>
-           <NavBtn id="COMMISSIONS" icon={Settings} label="Tabelas de Comissão" show={hasSalesModule} />
-           <NavBtn id="CLIENTS" icon={Users} label="Gestão de Clientes" show={hasSalesModule} />
-           <NavBtn id="DATA" icon={Database} label="Banco de Dados" show={hasSalesModule || hasFinanceModule} />
+           <NavBtn id="COMMISSIONS" icon={Settings} label="Tabelas de Comissão" />
+           <NavBtn id="CLIENTS" icon={Users} label="Gestão de Clientes" />
+           <NavBtn id="DATA" icon={Database} label="Banco de Dados" />
            <NavBtn id="TRASH" icon={Trash2} label="Lixeira" />
 
            {(isAdmin || isDev) && (
@@ -167,73 +151,45 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
            {activeTab === 'PROFILE' && <UserProfile user={currentUser} onUpdate={onUpdateUser} />}
            {activeTab === 'USERS' && (isAdmin || isDev) && <AdminUsers currentUser={currentUser} />}
            
-           {activeTab === 'CLOUD' && (isAdmin || isDev) && (
-               <div className="space-y-6 animate-in fade-in">
-                   <div className={`p-6 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
-                        <div className="flex items-center gap-4 mb-6">
-                            <div className="bg-blue-500/10 p-3 rounded-full text-blue-500"><Activity size={24} /></div>
-                            <div>
-                                <h4 className="font-bold text-lg">Firebase Cloud Services</h4>
-                                <p className="text-sm opacity-60">Conexão ativa em tempo real com o Firestore.</p>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="p-4 rounded-lg bg-black/10">
-                                <span className="text-xs uppercase font-bold opacity-50">Sincronia</span>
-                                <p className={`text-lg font-bold ${syncStats.isConnected ? 'text-emerald-500' : 'text-red-500'}`}>{syncStats.isConnected ? 'ONLINE' : 'OFFLINE'}</p>
-                            </div>
-                            <div className="p-4 rounded-lg bg-black/10">
-                                <span className="text-xs uppercase font-bold opacity-50">Itens na Fila</span>
-                                <p className="text-lg font-bold">{syncStats.pending}</p>
-                            </div>
-                        </div>
-                        <button onClick={refreshCloudStats} className="mt-6 px-4 py-2 rounded-lg border font-bold text-xs uppercase tracking-widest">Recarregar Status</button>
-                   </div>
-               </div>
-           )}
-
-           {activeTab === 'COMMISSIONS' && hasSalesModule && (
+           {activeTab === 'COMMISSIONS' && (
               <div className="space-y-6 animate-in fade-in">
                 <div className="flex p-1 rounded-xl w-fit flex-wrap gap-2 bg-gray-100 dark:bg-slate-800 shadow-inner">
                     <button onClick={() => setCommissionTab(ProductType.BASICA)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${commissionTab === ProductType.BASICA ? 'bg-emerald-600 text-white shadow-md' : 'text-gray-500'}`}>Cesta Básica</button>
                     <button onClick={() => setCommissionTab(ProductType.NATAL)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${commissionTab === ProductType.NATAL ? 'bg-red-600 text-white shadow-md' : 'text-gray-500'}`}>Cesta de Natal</button>
-                    <button onClick={() => setCommissionTab(ProductType.CUSTOM)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${commissionTab === ProductType.CUSTOM ? 'bg-blue-600 text-white shadow-md' : 'text-gray-500'}`}>Tabelas Personalizadas</button>
                 </div>
                 <CommissionEditor 
                     type={commissionTab} 
-                    initialRules={commissionTab === ProductType.BASICA ? rulesBasic : (commissionTab === ProductType.NATAL ? rulesNatal : rulesCustom)} 
-                    onSave={(r) => onSaveRules(commissionTab, r)} 
-                    readOnly={!isAdmin && !isDev} 
+                    initialRules={commissionTab === ProductType.BASICA ? rulesBasic : rulesNatal} 
+                    onSave={(t, r) => onSaveRules(t, r)} 
+                    readOnly={!isDev && !isAdmin} 
                     currentUser={currentUser} 
                 />
               </div>
            )}
-
-           {activeTab === 'DATA' && (hasSalesModule || hasFinanceModule) && (
-               <div className="space-y-6 animate-in fade-in">
-                   {(isAdmin || isDev) && <DatabaseInspector darkMode={!!darkMode} />}
-                   <div className={`${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-100'} rounded-xl shadow-sm border p-6`}>
-                       <h3 className="text-lg font-bold mb-4 flex items-center gap-2">Exportação de Segurança</h3>
-                       <p className="text-sm opacity-70 mb-6">Gere um arquivo .v360 para backup manual offline.</p>
-                       <button onClick={() => setShowBackupModal(true)} className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-blue-500/20 active:scale-95 transition-all">Exportar .v360</button>
-                   </div>
-               </div>
-           )}
            
            {activeTab === 'SOUNDS' && (
                 <div className={`p-6 rounded-xl border shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-100'}`}>
-                    <h3 className="text-lg font-bold mb-6">Eventos Sonoros</h3>
-                    <div className="space-y-4">
-                        <SoundRow label="Sucesso no Lançamento" value={successSound} onUpload={() => { setTargetAudioField('successSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(successSound).play()} onDelete={() => setSuccessSound('')} />
-                        <SoundRow label="Notificações do Sistema" value={notificationSound} onUpload={() => { setTargetAudioField('notificationSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(notificationSound).play()} onDelete={() => setNotificationSound('')} />
+                    <div className="flex items-center gap-3 mb-6">
+                        <Volume2 className="text-indigo-500" size={24}/>
+                        <h3 className="text-lg font-bold">Eventos Sonoros do Sistema</h3>
                     </div>
-                    <button onClick={handleSaveSystemSettings} className="mt-8 px-8 py-3 bg-emerald-600 text-white font-bold rounded-xl active:scale-95 transition-all">Salvar Configuração de Áudio</button>
+                    <div className="space-y-4">
+                        <SoundRow label="Notificação Padrão" value={notificationSound} onUpload={() => { setTargetAudioField('notificationSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(notificationSound).play()} onDelete={() => setNotificationSound('')} />
+                        <SoundRow label="Sucesso em Lançamento" value={successSound} onUpload={() => { setTargetAudioField('successSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(successSound).play()} onDelete={() => setSuccessSound('')} />
+                        <SoundRow label="Alerta Crítico / Erro" value={alertSound} onUpload={() => { setTargetAudioField('alertSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(alertSound).play()} onDelete={() => setAlertSound('')} />
+                        <SoundRow label="Aviso de Pendência" value={warningSound} onUpload={() => { setTargetAudioField('warningSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(warningSound).play()} onDelete={() => setWarningSound('')} />
+                    </div>
+                    <div className="mt-8 pt-6 border-t dark:border-slate-700">
+                        <button onClick={handleSaveSystemSettings} className="px-8 py-3 bg-emerald-600 text-white font-bold rounded-xl active:scale-95 transition-all shadow-lg hover:bg-emerald-700">
+                           <Save size={20} className="inline mr-2"/> Salvar Configuração de Áudio
+                        </button>
+                    </div>
                 </div>
            )}
 
            {activeTab === 'TRASH' && <TrashBin darkMode={!!darkMode} />}
            {activeTab === 'ROADMAP' && (isAdmin || isDev) && <DevRoadmap />}
-           {activeTab === 'CLIENTS' && hasSalesModule && <ClientList currentUser={currentUser} darkMode={!!darkMode} />}
+           {activeTab === 'CLIENTS' && <ClientList currentUser={currentUser} darkMode={!!darkMode} />}
        </div>
 
        <BackupModal isOpen={showBackupModal} mode="BACKUP" onClose={() => setShowBackupModal(false)} onSuccess={() => {}} />
@@ -242,12 +198,15 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
 };
 
 const SoundRow = ({ label, value, onUpload, onTest, onDelete }: any) => (
-    <div className="p-4 rounded-xl border bg-black/5 dark:bg-black/20 border-gray-200 dark:border-slate-700 flex items-center justify-between">
-        <span className="font-bold text-sm">{label}</span>
+    <div className="p-4 rounded-xl border bg-black/5 dark:bg-black/20 border-gray-200 dark:border-slate-700 flex items-center justify-between group transition-all hover:bg-black/10 dark:hover:bg-black/30">
+        <div>
+            <span className="font-bold text-sm block">{label}</span>
+            <span className="text-[10px] text-gray-500 font-mono">{value ? 'Arquivo Carregado' : 'Sem áudio definido (Mudo)'}</span>
+        </div>
         <div className="flex gap-2">
-            {value && <button onClick={onTest} className="p-2 text-emerald-500 hover:scale-110 transition-transform"><PlayCircle size={20}/></button>}
-            <button onClick={onUpload} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700">{value ? 'Trocar' : 'Upload'}</button>
-            {value && <button onClick={onDelete} className="p-2 text-red-500 hover:scale-110 transition-transform"><Trash2 size={20}/></button>}
+            {value && <button onClick={onTest} className="p-2 text-emerald-500 hover:scale-110 transition-transform" title="Testar Som"><PlayCircle size={20}/></button>}
+            <button onClick={onUpload} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors">{value ? 'Trocar' : 'Upload'}</button>
+            {value && <button onClick={onDelete} className="p-2 text-red-400 hover:text-red-500 transition-colors" title="Remover"><Trash2 size={20}/></button>}
         </div>
     </div>
 );

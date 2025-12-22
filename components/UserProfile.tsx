@@ -14,7 +14,9 @@ interface UserProfileProps {
 }
 
 const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }) => {
+  // DEV ignora qualquer bloqueio de UI para gestão total
   const isSuper = currentUser.role === 'DEV' || currentUser.role === 'ADMIN';
+  const isRoot = currentUser.role === 'DEV';
   
   const [name, setName] = useState(currentUser.name);
   const [username, setUsername] = useState(currentUser.username || '');
@@ -127,7 +129,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                         </label>
                     ))}
                 </div>
-                {!isSuper && <p className="text-[10px] text-gray-400 mt-4 italic text-center">Permissões gerenciadas pelo administrador.</p>}
+                {(!isSuper) && <p className="text-[10px] text-gray-400 mt-4 italic text-center">Permissões gerenciadas pelo administrador.</p>}
+                {(isRoot) && <p className="text-[10px] text-purple-500 mt-4 font-bold text-center">Modo Engenheiro: Acesso Total Liberado.</p>}
             </div>
           </div>
 

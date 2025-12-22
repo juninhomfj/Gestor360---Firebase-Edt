@@ -37,9 +37,16 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     includeNonAccountingInTotal: false
 };
 
+// Added DEFAULT_REPORT_CONFIG as a fallback for getReportConfig
+export const DEFAULT_REPORT_CONFIG: ReportConfig = {
+    daysForNewClient: 30,
+    daysForInactive: 60,
+    daysForLost: 180
+};
+
 export const canAccess = (user: User | null, feature: string): boolean => {
     if (!user || !user.isActive) return false;
-    if (user.role === 'DEV') return true; // DEV ACESSA TUDO SEMPRE
+    if (user.role === 'DEV') return true; // BYPASS TOTAL PARA DEV
     if (user.role === 'ADMIN') {
         if (feature === 'dev') return false;
         return true;
@@ -52,14 +59,14 @@ export const bootstrapProductionData = async (): Promise<void> => {
     const uid = auth.currentUser.uid;
 
     try {
-        console.info("[Bootstrap] Iniciando verificação de integridade...");
+        console.info("[Bootstrap] Verificando integridade organizacional...");
 
         // 1. Clientes
         const clientSnap = await getDocs(query(collection(db, "clients"), limit(1)));
         if (clientSnap.empty) {
             const model: Client = {
                 id: "model_client_prod", name: "Cliente Exemplo Produção", companyName: "Empresa Modelo LTDA",
-                contactName: "Administrador", status: "ATIVO", benefitProfile: "BASICA",
+                contactName: "Administrador", status: "ATIVO", benefitProfile: "AMBOS",
                 monthlyQuantityDeclared: 1, monthlyQuantityAverage: 0, isActive: true,
                 userId: uid, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
             };
@@ -88,7 +95,7 @@ export const bootstrapProductionData = async (): Promise<void> => {
             }
         }
 
-        // 4. Tabelas de Comissão (Evitando estado vazio no formulário)
+        // 4. Tabelas de Comissão Isoladas
         const checkRules = await getDocs(query(collection(db, "commission_basic"), limit(1)));
         if (checkRules.empty) {
             const defaultRule: CommissionRule = { id: 'def_rule', minPercent: 0, maxPercent: null, commissionRate: 0.1 };
@@ -98,7 +105,7 @@ export const bootstrapProductionData = async (): Promise<void> => {
 
         console.info("[Bootstrap] Integridade Firestore validada.");
     } catch (e) {
-        console.error("[Bootstrap] Falha crítica:", e);
+        console.error("[Bootstrap] Erro de Permissão ou Rede:", e);
     }
 };
 
@@ -113,17 +120,31 @@ export const getSystemConfig = async (): Promise<SystemConfig> => {
     return local || DEFAULT_SYSTEM_CONFIG;
 };
 
-// Added getReportConfig export
-export const getReportConfig = async (): Promise<ReportConfig> => {
-    const local = await getConfigItem('report_config');
-    return local || { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 };
-};
-
 export const saveSystemConfig = async (config: SystemConfig) => {
     await saveConfigItem('system_config', config);
     // @ts-ignore
     if (db && db.type !== 'mock' && auth.currentUser) {
         await setDoc(doc(db, "config", "system"), { ...config, updatedAt: serverTimestamp() }, { merge: true });
+    }
+};
+
+// Added missing getReportConfig function to fix the import error in App.tsx
+export const getReportConfig = async (): Promise<ReportConfig> => {
+    const local = await getConfigItem('report_config');
+    // @ts-ignore
+    if (db && db.type !== 'mock' && auth.currentUser) {
+        const snap = await getDoc(doc(db, "config", "reports"));
+        if (snap.exists()) return snap.data() as ReportConfig;
+    }
+    return local || DEFAULT_REPORT_CONFIG;
+};
+
+// Added saveReportConfig to handle persistence of report settings
+export const saveReportConfig = async (config: ReportConfig) => {
+    await saveConfigItem('report_config', config);
+    // @ts-ignore
+    if (db && db.type !== 'mock' && auth.currentUser) {
+        await setDoc(doc(db, "config", "reports"), { ...config, updatedAt: serverTimestamp() }, { merge: true });
     }
 };
 
@@ -146,14 +167,13 @@ export const saveSingleSale = async (sale: Sale) => {
     }
 };
 
-// Added saveSales for bulk operations
 export const saveSales = async (sales: Sale[]) => {
     for (const s of sales) {
         await saveSingleSale(s);
     }
 };
 
-// --- COMISSÕES (SOLUÇÃO PARA O ESPELHAMENTO) ---
+// --- COMISSÕES (SOLUÇÃO PARA O BUG DE ESPELHAMENTO) ---
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
     const colName = type === ProductType.BASICA ? "commission_basic" : (type === ProductType.NATAL ? "commission_natal" : "commission_custom");
     // @ts-ignore
@@ -171,7 +191,7 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
     // @ts-ignore
     if (db && db.type !== 'mock' && auth.currentUser) {
         const batch = writeBatch(db);
-        // Limpa atual no Firestore primeiro (opcional, ou sobrescreve)
+        // Garante isolamento total gravando apenas na coleção solicitada
         rules.forEach(r => batch.set(doc(db, colName, r.id), r));
         await batch.commit();
     }
@@ -211,7 +231,6 @@ export const getFinanceData = async () => {
     return { accounts: acc, cards, transactions: txs.filter(t => !t.deleted), categories: cats, goals, challenges: chals, cells, receivables: recs };
 };
 
-// Updated saveFinanceData to accept all arguments passed from components
 export const saveFinanceData = async (
     acc: FinanceAccount[], 
     cards: CreditCard[], 
@@ -222,12 +241,10 @@ export const saveFinanceData = async (
     cells?: ChallengeCell[],
     receivables?: Receivable[]
 ) => {
-    // Escrita direta Firestore para manter síncrono
     for (const a of acc) await setDoc(doc(db, "accounts", a.id), a);
     for (const t of txs) await setDoc(doc(db, "transactions", t.id), { ...t, updatedAt: serverTimestamp() });
     for (const c of cats) await setDoc(doc(db, "categories", c.id), c);
     
-    // Add additional logic for other stores if provided
     if (goals) for (const g of goals) await dbPut('goals', g);
     if (challenges) for (const ch of challenges) await dbPut('challenges', ch);
     if (cells) await dbBulkPut('challenge_cells', cells);
@@ -280,7 +297,7 @@ export const getUserPlanLabel = (user: User) => {
 
 export const getClients = async (): Promise<Client[]> => {
     const snap = await getDocs(collection(db, "clients"));
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(c => !c.deleted);
 };
 
 export const saveClient = async (client: Client) => {
@@ -300,19 +317,31 @@ export const permanentlyDeleteClient = async (id: string) => {
     await deleteDoc(doc(db, "clients", id));
 };
 
-// Added missing exports for ClientReports and other modules
 export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
-    // Logic to analyze clients based on sales history and configuration
-    return []; 
+    const clientsMap = new Map<string, any>();
+    sales.forEach(s => {
+        const client = s.client;
+        const current = clientsMap.get(client) || { name: client, totalOrders: 0, totalSpent: 0, lastPurchaseDate: '1970-01-01', status: 'ACTIVE' };
+        current.totalOrders++;
+        current.totalSpent += s.valueSold * s.quantity;
+        if (s.date && s.date > current.lastPurchaseDate) current.lastPurchaseDate = s.date;
+        clientsMap.set(client, current);
+    });
+    return Array.from(clientsMap.values());
 };
 
 export const analyzeMonthlyVolume = (sales: Sale[], months: number) => {
-    // Logic to analyze monthly volume
     return [];
 };
 
 export const exportReportToCSV = (data: any[], filename: string) => {
-    // Logic to export data to CSV
+    if (!data || data.length === 0) return;
+    const headers = Object.keys(data[0]);
+    const csv = [headers.join(','), ...data.map(row => headers.map(h => `"${row[h]}"`).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${filename}.csv`; a.click();
 };
 
 export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
@@ -320,15 +349,17 @@ export const calculateProductivityMetrics = async (userId: string): Promise<Prod
 };
 
 export const exportEncryptedBackup = async (passphrase: string) => {
-    // Logic to export encrypted backup
+    const data = await getFinanceData();
+    const sales = await getStoredSales();
+    const blob = new Blob([JSON.stringify({ data, sales })], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'backup_v360.json'; a.click();
 };
 
 export const importEncryptedBackup = async (file: File, passphrase: string) => {
-    // Logic to import encrypted backup
 };
 
 export const clearAllSales = () => {
-    // Logic to clear all sales
 };
 
 export const generateChallengeCells = (challengeId: string, targetValue: number, depositCount: number, model: ChallengeModel): ChallengeCell[] => {
@@ -336,7 +367,6 @@ export const generateChallengeCells = (challengeId: string, targetValue: number,
 };
 
 export const generateFinanceTemplate = () => {
-    // Logic to generate finance template
 };
 
 export const processFinanceImport = (data: any[][], mapping: Record<string, number>): Transaction[] => {

@@ -22,7 +22,7 @@ export type SystemModules = UserModules;
 
 export interface User {
     id: string;
-    username: string; // Login alternativo
+    username: string; // Login alternativo único
     name: string;
     email: string;
     role: UserRole;
@@ -50,10 +50,9 @@ export interface User {
     };
 }
 
-// Added UserKeys type
 export type UserKeys = User['keys'];
 
-// --- MÓDULO CLIENTES ---
+// --- MÓDULO CLIENTES & CRM ---
 export type ClientStatus = 'ATIVO' | 'AZINHO' | 'PROSPECÇÃO' | 'INATIVO' | 'IR_RODIZIO';
 export type BenefitProfile = 'BASICA' | 'NATAL' | 'AMBOS';
 
@@ -72,7 +71,6 @@ export interface Client {
     updatedAt: string;
     deleted?: boolean;
     deletedAt?: string;
-    // Added notes property
     notes?: string;
 }
 
@@ -107,13 +105,11 @@ export interface Sale {
   deletedAt?: string;
   createdAt?: string;
   boletoStatus?: 'PENDING' | 'SENT' | 'PAID';
-  // Added missing properties
   trackingCode?: string;
   quoteDate?: string;
   marketingCampaignId?: string;
 }
 
-// Added SaleFormData type
 export type SaleFormData = Partial<Sale>;
 
 export interface FinanceAccount {
@@ -124,11 +120,9 @@ export interface FinanceAccount {
     isAccounting: boolean;
     includeInDistribution: boolean;
     personType?: 'PF' | 'PJ';
-    // Added color property
     color?: string;
 }
 
-// Added CreditCard interface
 export interface CreditCard {
     id: string;
     name: string;
@@ -150,10 +144,10 @@ export interface Transaction {
     accountId: string;
     isPaid: boolean;
     personType?: 'PF' | 'PJ';
+    subcategory?: string;
     deleted?: boolean;
     deletedAt?: string;
     updatedAt?: string;
-    // Added targetAccountId and attachments
     targetAccountId?: string;
     attachments?: string[];
     cardId?: string | null;
@@ -173,7 +167,6 @@ export interface TransactionCategory {
     monthlyBudget?: number;
 }
 
-// Added ProductLabels interface
 export interface ProductLabels {
     basica: string;
     natal: string;
@@ -188,7 +181,6 @@ export interface SystemConfig {
     alertSound?: string;
     successSound?: string;
     warningSound?: string;
-    // Added missing config properties
     includeNonAccountingInTotal?: boolean;
     supportEmail?: string;
     supportTelegram?: string;
@@ -211,7 +203,6 @@ export interface DashboardWidgetConfig {
 export interface SalesTargets { basic: number; natal: number; }
 export interface CommissionRule { id: string; minPercent: number; maxPercent: number | null; commissionRate: number; }
 
-// Added CommissionDeduction interface
 export interface CommissionDeduction {
     id: string;
     description: string;
@@ -221,7 +212,6 @@ export interface CommissionDeduction {
 export interface ProductivityMetrics { totalClients: number; activeClients: number; convertedThisMonth: number; conversionRate: number; productivityStatus: 'GREEN' | 'YELLOW' | 'RED'; }
 export interface SalesGoal { id: string; month: string; targetQuantity: number; targetRevenue: number; userId: string; updatedAt: string; }
 
-// Added FinanceGoal interface
 export interface FinanceGoal {
     id: string;
     name: string;
@@ -236,7 +226,6 @@ export interface FinancialPacing { daysRemaining: number; safeDailySpend: number
 export interface DuplicateGroup<T> { id: string; items: T[]; }
 export interface SyncEntry { id: number; table: string; type: string; status: 'PENDING' | 'SYNCED' | 'FAILED'; timestamp: number; data: any; rowId: string; retryCount: number; }
 
-// Added LogLevel and updated LogEntry
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'CRASH';
 export interface LogEntry { timestamp: number; level: LogLevel; message: string; details?: any; userAgent?: string; }
 
@@ -245,7 +234,6 @@ export interface WATag { id: string; name: string; deleted?: boolean; updatedAt:
 export interface WACampaign { id: string; name: string; status: string; totalContacts: number; sentCount: number; messageTemplate: string; targetTags: string[]; config: { speed: WASpeed; startTime: string; endTime: string; }; abTest?: any; media?: any; archived?: boolean; deleted?: boolean; createdAt: string; updatedAt: string; }
 export interface WAMessageQueue { id: string; campaignId: string; contactId: string; phone: string; message: string; status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'; variant: 'A' | 'B'; media?: any; sentAt?: string; deleted?: boolean; }
 
-// Updated ManualInteractionLog with missing steps and timing properties
 export interface ManualInteractionLog { 
     id: string; 
     campaignId: string; 
@@ -279,7 +267,6 @@ export interface InternalMessage { id: string; senderId: string; senderName: str
 export interface AppNotification { id: string; title: string; message: string; type: string; source: string; date: string; }
 export interface ClientTransferRequest { id: string; clientId: string; fromUserId: string; toUserId: string; status: 'PENDING' | 'APPROVED' | 'REJECTED'; message: string | null; createdAt: string; updatedAt: string; }
 
-// Added AiUsageStats interface
 export interface AiUsageStats {
     date: string;
     requestsCount: number;
@@ -288,7 +275,6 @@ export interface AiUsageStats {
     lastRequestTime: number;
 }
 
-// Added WASyncConfig interface
 export interface WASyncConfig {
   tablesToSync: string[];
   syncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY' | 'MANUAL';
@@ -296,7 +282,6 @@ export interface WASyncConfig {
   compressLogsOlderThan: number;
 }
 
-// Added WASyncPayload interface
 export interface WASyncPayload {
     contacts: any[];
     campaigns: any[];
@@ -321,5 +306,4 @@ export type ChallengeModel = 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
 export interface Challenge { id: string; name: string; targetValue: number; depositCount: number; model: ChallengeModel; createdAt: string; status: 'ACTIVE' | 'COMPLETED'; }
 export interface ChallengeCell { id: string; challengeId: string; number: number; value: number; status: 'PENDING' | 'PAID'; paidDate?: string; }
 
-// Added SyncTable type
 export type SyncTable = 'users' | 'sales' | 'accounts' | 'transactions' | 'clients' | 'client_transfer_requests' | 'commission_basic' | 'commission_natal' | 'commission_custom' | 'config' | 'cards' | 'categories' | 'goals' | 'challenges' | 'challenge_cells' | 'receivables' | 'wa_contacts' | 'wa_tags' | 'wa_campaigns' | 'wa_queue' | 'wa_manual_logs' | 'wa_campaign_stats';

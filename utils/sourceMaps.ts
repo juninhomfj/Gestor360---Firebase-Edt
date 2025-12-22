@@ -2,36 +2,36 @@
 export const SOURCE_FILES = {
     'types.ts': `export interface User {
     id: string;
-    username: string;
+    username: string; // Adicionado p/ Identidade Única
     role: 'DEV' | 'ADMIN' | 'USER';
     isActive: boolean;
     modules: UserModules;
-    // ...
 }`,
-    'services/logic.ts': `export const canAccess = (user: User | null, feature: string): boolean => {
+    'services/logic.ts': `// Controle de Acesso Centralizado
+export const canAccess = (user: User | null, feature: string): boolean => {
     if (!user || !user.isActive) return false;
     if (user.role === 'DEV') return true; 
     return !!(user.modules as any)[feature];
 };
 
+// Bootstrap de Produção
 export const bootstrapProductionData = async () => {
-    // Garante Tabelas Iniciais no Firestore
+    // Garante Tabelas e Dados Iniciais no Firestore
 };`,
     'services/auth.ts': `export const reloadSession = async () => {
-    // Autentica via Firebase Auth
+    // Detecta sessão Firebase Auth
     // Recupera Perfil Firestore
-    // Se não existir, auto-gera cargo DEV
+    // AUTO-HEALING: Se perfil não existir, cria como DEV.
 };`,
     'components/Layout.tsx': `const hasAccess = (mod: string) => {
+    // Respeita canAccess da logic.ts
     return canAccess(currentUser, mod);
-};
-
-// Renderiza menus dinâmicos baseados no canAccess`,
+};`,
     'DOCUMENTATION.md': `# Gestor360 v2.5.0 - Firebase Native Architecture
 
-Este sistema utiliza escrita direta no Cloud Firestore para garantir consistência de dados entre múltiplos dispositivos de uma mesma organização.
+Este sistema utiliza escrita direta no Cloud Firestore (AWAIT) para consistência organizacional.
 
 ## Segurança
-- Hierarquia DEV > ADMIN > USER protegida por RLS.
-- Chaves BYOK criptografadas no cliente.`
+- Hierarquia DEV > ADMIN > USER com RLS.
+- Bypass de bloqueios de UI para perfil DEV (Root).`
 };

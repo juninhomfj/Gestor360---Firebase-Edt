@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { CommissionRule, ProductType } from '../types';
+import { CommissionRule, ProductType, User } from '../types';
 import { Save, Plus, Trash2, Lock, Download, Upload } from 'lucide-react';
 
 interface CommissionEditorProps {
@@ -8,13 +8,14 @@ interface CommissionEditorProps {
   type: ProductType;
   onSave: (type: ProductType, rules: CommissionRule[]) => void;
   readOnly?: boolean;
+  currentUser: User;
 }
 
-const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type, onSave, readOnly = false }) => {
+const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type, onSave, readOnly = false, currentUser }) => {
   const [rules, setRules] = useState<{ id: string; minPercent: string; maxPercent: string; commissionRate: string; }[]>([]);
   const [isDirty, setIsDirty] = useState(false);
 
-  // Essencial: Atualizar o estado sempre que o TIPO mudar para evitar "vazamento" de dados
+  // Essencial: Atualizar o estado sempre que o TIPO mudar para evitar "vazamento" de dados entre tabelas
   useEffect(() => {
       if (initialRules) {
           setRules(initialRules.sort((a,b) => a.minPercent - b.minPercent).map(r => ({
@@ -62,7 +63,13 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
           try {
               const imported = JSON.parse(event.target?.result as string);
               if (Array.isArray(imported)) {
-                  setRules(imported);
+                  // Converte para formato local de edição
+                  setRules(imported.map((r: any) => ({
+                      id: r.id || crypto.randomUUID(),
+                      minPercent: (r.minPercent || 0).toString(),
+                      maxPercent: r.maxPercent === null ? '' : (r.maxPercent || '').toString(),
+                      commissionRate: ((r.commissionRate || 0) * 100).toString()
+                  })));
                   setIsDirty(true);
               }
           } catch (err) { alert("Formato inválido."); }
@@ -73,17 +80,26 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
   return (
     <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden relative">
       <div className={`p-4 border-b dark:border-slate-700 bg-gray-50 dark:bg-slate-950 flex justify-between items-center`}>
-        <h3 className="text-lg font-bold">Configurando: {type}</h3>
+        <div className="flex items-center gap-2">
+            <h3 className="text-lg font-bold">Configurando: {type}</h3>
+            {currentUser.role === 'DEV' && <span className="text-[10px] bg-purple-100 text-purple-600 px-2 py-0.5 rounded font-black">ROOT ACCESS</span>}
+        </div>
         <div className="flex gap-2">
             {!readOnly && (
                 <>
-                    <label className="p-2 cursor-pointer hover:bg-white/10 rounded text-gray-600"><Upload size={18}/><input type="file" className="hidden" accept=".json" onChange={handleImport}/></label>
+                    <label className="p-2 cursor-pointer hover:bg-white/10 rounded text-gray-600" title="Importar Tabela"><Upload size={18}/><input type="file" className="hidden" accept=".json" onChange={handleImport}/></label>
                     <button onClick={() => {
-                        const blob = new Blob([JSON.stringify(rules)], {type:'application/json'});
+                        const finalRules = rules.map(r => ({
+                            id: r.id,
+                            minPercent: parseFloat(r.minPercent) || 0,
+                            maxPercent: r.maxPercent === '' ? null : parseFloat(r.maxPercent),
+                            commissionRate: (parseFloat(r.commissionRate) || 0) / 100
+                        }));
+                        const blob = new Blob([JSON.stringify(finalRules)], {type:'application/json'});
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
                         a.href = url; a.download = `comissao_${type.toLowerCase()}.json`; a.click();
-                    }} className="p-2 hover:bg-white/10 rounded text-gray-600"><Download size={18}/></button>
+                    }} className="p-2 hover:bg-white/10 rounded text-gray-600" title="Exportar Tabela"><Download size={18}/></button>
                 </>
             )}
         </div>
