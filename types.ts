@@ -4,7 +4,6 @@ export type AppTheme = 'glass' | 'neutral' | 'rose' | 'cyberpunk' | 'dark';
 export type UserRole = 'ADMIN' | 'USER';
 export type UserStatus = 'ACTIVE' | 'INACTIVE';
 
-// Adding missing type definitions
 export type PersonType = 'PF' | 'PJ';
 export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER';
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'CRASH';
@@ -12,9 +11,52 @@ export type WASpeed = 'FAST' | 'SAFE' | 'SLOW';
 export type WAMediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
 export type WhatsAppErrorCode = 'BLOCKED_BY_USER' | 'PHONE_NOT_REGISTERED' | 'INVALID_PHONE' | 'NETWORK_ERROR' | 'RATE_LIMITED' | 'UNKNOWN_ERROR';
 export type AudioType = 'NOTIFICATION' | 'ALERT' | 'SUCCESS' | 'WARNING';
-export type SyncTable = 'users' | 'sales' | 'accounts' | 'transactions' | 'categories' | 'goals' | 'challenges' | 'challenge_cells' | 'receivables' | 'wa_contacts' | 'wa_tags' | 'wa_campaigns' | 'wa_queue' | 'wa_manual_logs' | 'wa_campaign_stats' | 'internal_messages' | 'clients' | 'client_transfer_requests' | 'config';
+export type SyncTable = 'users' | 'sales' | 'accounts' | 'transactions' | 'categories' | 'goals' | 'challenges' | 'challenge_cells' | 'receivables' | 'wa_contacts' | 'wa_tags' | 'wa_campaigns' | 'wa_queue' | 'wa_manual_logs' | 'wa_campaign_stats' | 'internal_messages' | 'clients' | 'client_transfer_requests' | 'config' | 'sales_goals';
 export type SyncOperation = 'INSERT' | 'UPDATE' | 'DELETE';
 export type ChallengeModel = 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
+
+// --- NOVO MÓDULO CLIENTES & CRM ---
+export type ClientStatus = 'ATIVO' | 'AZINHO' | 'PROSPECÇÃO' | 'INATIVO' | 'IR_RODIZIO';
+export type BenefitProfile = 'BASICA' | 'NATAL' | 'AMBOS';
+
+export interface Client {
+    id: string;
+    // Added missing 'name' property
+    name: string;
+    clientCode?: string;
+    companyName: string;
+    contactName: string;
+    status: ClientStatus;
+    benefitProfile: BenefitProfile;
+    quotationDay?: number;
+    monthlyQuantityDeclared: number;
+    monthlyQuantityAverage: number;
+    isActive: boolean;
+    // Added missing 'deleted' and 'deletedAt' properties for trash bin functionality
+    deleted?: boolean;
+    deletedAt?: string;
+    userId: string;
+    createdAt: string;
+    updatedAt: string;
+    notes?: string;
+}
+
+export interface ProductivityMetrics {
+    totalClients: number;
+    activeClients: number;
+    convertedThisMonth: number;
+    conversionRate: number;
+    productivityStatus: 'GREEN' | 'YELLOW' | 'RED';
+}
+
+export interface SalesGoal {
+    id: string;
+    month: string; // YYYY-MM
+    targetQuantity: number;
+    targetRevenue: number;
+    userId: string;
+    updatedAt: string;
+}
 
 export interface UserModules {
     sales: boolean;
@@ -30,13 +72,10 @@ export interface UserModules {
     imports: boolean;
 }
 
-// SystemModules exported as an extension of UserModules to match component imports
 export interface SystemModules extends UserModules {}
 
-// UserKeys for AI and automation configuration
 export interface UserKeys {
     isGeminiEnabled: boolean;
-    // Fixed: Removed geminiApiKey to satisfy centralized management guidelines.
     aiPermissions?: {
         canCreateTransactions: boolean;
         canSearchWeb: boolean;
@@ -59,8 +98,6 @@ export interface User {
         public_access: boolean;
         private_enabled: boolean;
     };
-    // Fixed: Removed geminiApiKey as keys are now strictly managed via process.env.API_KEY.
-    // Properties used in Layout and Dashboard
     keys?: UserKeys;
     financialProfile?: {
         salaryDays?: number[];
@@ -84,7 +121,7 @@ export interface CommissionRule {
 
 export interface SaleFormData {
   client: string;
-  clientId?: string;
+  clientId?: string; // FK para o novo módulo de clientes
   quantity: number;
   type: ProductType;
   valueProposed: number;
@@ -100,13 +137,14 @@ export interface SaleFormData {
 
 export interface Sale extends SaleFormData {
   id: string;
+  // Added 'userId' to Sale interface for proper ownership filtering
+  userId?: string;
   commissionBaseTotal: number;
   commissionValueTotal: number;
   commissionRateUsed: number;
   deleted?: boolean;
   deletedAt?: string;
-  // Added missing createdAt property
-  createdAt?: Date | string;
+  createdAt?: string;
   boletoStatus?: 'PENDING' | 'SENT' | 'PAID';
 }
 
@@ -138,7 +176,6 @@ export interface Transaction {
     updatedAt?: string;
     deleted?: boolean;
     deletedAt?: string;
-    // Added missing createdAt property
     createdAt?: Date | string;
 }
 
@@ -271,17 +308,6 @@ export interface AppNotification {
     source: 'SYSTEM' | 'SALES' | 'FINANCE' | 'WHATSAPP';
     date: string;
     read: boolean;
-}
-
-export interface Client {
-    id: string;
-    name: string;
-    userId: string;
-    createdAt: string;
-    updatedAt: string;
-    deleted: boolean;
-    deletedAt?: string;
-    notes?: string;
 }
 
 export interface ClientTransferRequest {

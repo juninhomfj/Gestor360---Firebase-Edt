@@ -19,13 +19,12 @@ import {
     Sale, Transaction, FinanceAccount, CreditCard, TransactionCategory, 
     FinanceGoal, Challenge, ChallengeCell, Receivable, ReportConfig, 
     SystemConfig, ProductLabels, ProductType, CommissionRule, ChallengeModel,
-    Client, DuplicateGroup, FinancialPacing, SaleFormData, ImportMapping,
-    User // Added User to imports to resolve logic.ts errors
+    DuplicateGroup, FinancialPacing, SaleFormData, ImportMapping,
+    User, Client, ProductivityMetrics, SalesGoal
 } from '../types';
 import { dbPut, dbBulkPut, dbGetAll, dbGet, saveConfigItem, getConfigItem, dbDelete, dbClear } from '../storage/db';
 
 // --- CONSTANTES ---
-
 export const DEFAULT_PRODUCT_LABELS: ProductLabels = {
     basica: 'Cesta Básica',
     natal: 'Cesta de Natal',
@@ -52,7 +51,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 };
 
 // --- CONFIGURAÇÃO ---
-
 export const getSystemConfig = async (): Promise<SystemConfig> => {
     const local = await getConfigItem('system_config');
     // @ts-ignore
@@ -85,10 +83,8 @@ export const saveReportConfig = async (config: ReportConfig) => {
 };
 
 // --- VENDAS (CORE) ---
-
 export const getStoredSales = async (): Promise<Sale[]> => {
     const local = await dbGetAll('sales');
-    // Filtra vendas não deletadas localmente
     return local.filter(s => !s.deleted);
 };
 
@@ -113,6 +109,10 @@ export const saveSingleSale = async (sale: Sale) => {
             await setDoc(doc(db, "sales", sale.id), { ...sale, userId: auth.currentUser.uid, updatedAt: serverTimestamp() });
         } catch (e) {}
     }
+    // Ao salvar uma venda, recalcula a média do cliente se houver clientId
+    if (sale.clientId) {
+        await recalculateClientAverages(sale.clientId);
+    }
 };
 
 export const deleteSingleSale = async (id: string) => {
@@ -126,10 +126,10 @@ export const deleteSingleSale = async (id: string) => {
                 await updateDoc(doc(db, "sales", id), { deleted: true, deletedAt: serverTimestamp() });
             } catch (e) {}
         }
+        if (sale.clientId) await recalculateClientAverages(sale.clientId);
     }
 };
 
-// Added exported clearAllSales member to resolve BackupModal import error
 export const clearAllSales = async () => {
     await dbClear('sales');
 };
@@ -166,8 +166,126 @@ const findCommissionRate = (margin: number, rules: CommissionRule[]): number => 
     return rule ? rule.commissionRate : 0;
 };
 
-// --- FINANCEIRO ---
+// --- MÓDULO CLIENTES & CRM (NOVO) ---
+export const getClients = async (): Promise<Client[]> => {
+    const local = await dbGetAll('clients');
+    // @ts-ignore
+    if (db && db.type !== 'mock' && auth.currentUser) {
+        try {
+            const q = query(collection(db, "clients"), where("userId", "==", auth.currentUser.uid));
+            const snap = await getDocs(q);
+            const remote = snap.docs.map(d => d.data() as Client);
+            if (remote.length > 0) {
+                await dbBulkPut('clients', remote);
+                return remote;
+            }
+        } catch (e) {}
+    }
+    return local;
+};
 
+export const saveClient = async (client: Client) => {
+    const stamped = { ...client, updatedAt: new Date().toISOString() };
+    await dbPut('clients', stamped);
+    // @ts-ignore
+    if (db && db.type !== 'mock' && auth.currentUser) {
+        try {
+            await setDoc(doc(db, "clients", client.id), { ...stamped, userId: auth.currentUser.uid, updatedAt: serverTimestamp() });
+        } catch (e) {}
+    }
+};
+
+// Fixed: Added functions required by TrashBin component
+export const getDeletedClients = async (): Promise<Client[]> => {
+    const clients = await dbGetAll('clients');
+    return clients.filter(c => c.deleted);
+};
+
+export const restoreClient = async (id: string) => {
+    const client = await dbGet('clients', id);
+    if (client) {
+        const updated = { ...client, deleted: false, deletedAt: undefined };
+        await dbPut('clients', updated);
+    }
+};
+
+export const permanentlyDeleteClient = async (id: string) => {
+    await dbDelete('clients', id);
+};
+
+export const recalculateClientAverages = async (clientId: string) => {
+    const allSales = await getStoredSales();
+    const clientSales = allSales.filter(s => s.clientId === clientId && s.type === ProductType.BASICA && !s.deleted);
+    
+    if (clientSales.length === 0) return;
+
+    // Calcula média baseada nos últimos 6 meses com vendas
+    const totalQty = clientSales.reduce((acc, s) => acc + s.quantity, 0);
+    
+    // Extrai meses únicos
+    const months = new Set(clientSales.map(s => (s.date || s.completionDate).substring(0, 7)));
+    const avg = totalQty / (months.size || 1);
+
+    const client = await dbGet('clients', clientId);
+    if (client) {
+        await saveClient({ ...client, monthlyQuantityAverage: avg });
+    }
+};
+
+export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
+    const clients = await getClients();
+    // Fixed: 'deleted' property now exists on Client
+    const myClients = clients.filter(c => c.userId === userId && !c.deleted);
+    const activeClients = myClients.filter(c => c.isActive && c.status === 'ATIVO');
+    
+    const now = new Date();
+    const monthKey = now.toISOString().substring(0, 7);
+    
+    const sales = await getStoredSales();
+    const monthlySales = sales.filter(s => 
+        !s.deleted && 
+        // Fixed: 'userId' property now exists on Sale
+        s.userId === userId && 
+        (s.date || s.completionDate).startsWith(monthKey) &&
+        s.clientId
+    );
+
+    const convertedIds = new Set(monthlySales.map(s => s.clientId));
+    const convertedCount = Array.from(convertedIds).filter(id => 
+        myClients.some(c => c.id === id && c.status === 'ATIVO')
+    ).length;
+
+    const conversionRate = activeClients.length > 0 ? (convertedCount / activeClients.length) * 100 : 0;
+    
+    let status: 'GREEN' | 'YELLOW' | 'RED' = 'RED';
+    if (conversionRate >= 90) status = 'GREEN';
+    else if (conversionRate >= 70) status = 'YELLOW';
+
+    return {
+        totalClients: myClients.length,
+        activeClients: activeClients.length,
+        convertedThisMonth: convertedCount,
+        conversionRate,
+        productivityStatus: status
+    };
+};
+
+export const saveSalesGoal = async (goal: SalesGoal) => {
+    await dbPut('sales_goals' as any, goal, goal.id);
+    // @ts-ignore
+    if (db && db.type !== 'mock' && auth.currentUser) {
+        try {
+            await setDoc(doc(db, "sales_goals", goal.id), { ...goal, updatedAt: serverTimestamp() });
+        } catch (e) {}
+    }
+};
+
+export const getMonthlyGoal = async (month: string, userId: string): Promise<SalesGoal | null> => {
+    const goals = await dbGetAll('sales_goals' as any);
+    return goals.find((g: SalesGoal) => g.month === month && g.userId === userId) || null;
+};
+
+// --- FINANCEIRO ---
 export const bootstrapDefaultAccountIfMissing = async () => {
     const accounts = await dbGetAll('accounts');
     if (accounts.length === 0) {
@@ -227,14 +345,12 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
 
-    // Encontra o próximo dia de pagamento
     let nextDay = salaryDays.sort((a, b) => a - b).find(d => d > today);
     let nextIncomeDate: Date;
 
     if (nextDay) {
         nextIncomeDate = new Date(currentYear, currentMonth, nextDay);
     } else {
-        // Pega o primeiro dia do próximo mês
         const firstDayNext = salaryDays[0] || 1;
         nextIncomeDate = new Date(currentYear, currentMonth + 1, firstDayNext);
     }
@@ -242,7 +358,6 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
     const diffTime = nextIncomeDate.getTime() - now.getTime();
     const daysRemaining = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
 
-    // Despesas pendentes até a data
     const pendingExpenses = transactions
         .filter(t => !t.isPaid && t.type === 'EXPENSE' && new Date(t.date) <= nextIncomeDate)
         .reduce((acc, t) => acc + t.amount, 0);
@@ -262,11 +377,10 @@ export const getInvoiceMonth = (date: string, closingDay: number): string => {
     if (d.getDate() > closingDay) {
         d.setMonth(d.getMonth() + 1);
     }
-    return d.toISOString().substring(0, 7); // YYYY-MM
+    return d.toISOString().substring(0, 7); 
 };
 
-// --- CRM & ANALYTICS ---
-
+// --- CRM & ANALYTICS LEGADO ---
 export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
     const clientsMap = new Map<string, any>();
     const now = new Date();
@@ -325,7 +439,6 @@ export const analyzeMonthlyVolume = (sales: Sale[], months: number) => {
 };
 
 // --- MANUTENÇÃO & AUDITORIA ---
-
 export const getTrashItems = async () => {
     const sales = await dbGetAll('sales');
     const txs = await dbGetAll('transactions');
@@ -348,22 +461,7 @@ export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: st
     }
 };
 
-export const getDeletedClients = async (): Promise<Client[]> => {
-    const all = await dbGetAll('clients');
-    return all.filter(c => c.deleted);
-};
-
-export const restoreClient = async (id: string) => {
-    const client = await dbGet('clients', id);
-    if (client) await dbPut('clients', { ...client, deleted: false, deletedAt: undefined });
-};
-
-export const permanentlyDeleteClient = async (id: string) => {
-    await dbDelete('clients', id);
-};
-
 export const auditDataDuplicates = (sales: Sale[], transactions: Transaction[]) => {
-    // Implementação simplificada de detecção de duplicatas por valor+data+cliente
     const salesGroups: DuplicateGroup<Sale>[] = [];
     const salesSeen = new Set();
 
@@ -381,7 +479,6 @@ export const auditDataDuplicates = (sales: Sale[], transactions: Transaction[]) 
 };
 
 export const smartMergeSales = (sales: Sale[]): Sale => {
-    // Consolida múltiplas vendas em uma única, somando quantidades
     const master = { ...sales[0] };
     const others = sales.slice(1);
     others.forEach(s => {
@@ -393,7 +490,6 @@ export const smartMergeSales = (sales: Sale[]): Sale => {
 };
 
 // --- IMPORTAÇÃO / EXPORTAÇÃO ---
-
 export const readExcelFile = async (file: File): Promise<any[][]> => {
     const { read, utils } = await import('xlsx');
     const buffer = await file.arrayBuffer();
@@ -403,7 +499,7 @@ export const readExcelFile = async (file: File): Promise<any[][]> => {
 };
 
 export const processSalesImport = (data: any[][], mapping: ImportMapping): SaleFormData[] => {
-    const rows = data.slice(1); // Ignora header
+    const rows = data.slice(1); 
     return rows.map(row => ({
         client: String(row[mapping.client] || 'Sem Nome'),
         quantity: parseFloat(row[mapping.quantity]) || 1,
@@ -428,7 +524,7 @@ export const processFinanceImport = (data: any[][], mapping: ImportMapping): Tra
         type: parseFloat(row[mapping.amount]) < 0 ? 'EXPENSE' : 'INCOME',
         date: String(row[mapping.date] || new Date().toISOString().split('T')[0]),
         categoryId: 'uncategorized',
-        accountId: '', // Precisa ser preenchido pelo usuário ou padrão
+        accountId: '', 
         isPaid: true
     }));
 };
@@ -455,7 +551,6 @@ export const exportReportToCSV = (data: any[], filename: string) => {
 };
 
 // --- OUTROS ---
-
 export const hardResetLocalData = async () => {
     localStorage.clear();
     await dbClear('sales');
@@ -482,7 +577,6 @@ export const generateChallengeCells = (challengeId: string, target: number, coun
             cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: val, status: 'PENDING' });
         }
     } else {
-        // Linear: progressão aritmética
         const sum = (count * (count + 1)) / 2;
         const base = target / sum;
         for (let i = 1; i <= count; i++) {
@@ -501,10 +595,10 @@ export const exportEncryptedBackup = async (pass: string) => {
         sales: await dbGetAll('sales'),
         transactions: await dbGetAll('transactions'),
         accounts: await dbGetAll('accounts'),
+        clients: await dbGetAll('clients'),
         config: await getConfigItem('system_config')
     };
     const content = JSON.stringify(all);
-    // Em uma versão real, usaríamos a pass para encriptar com CryptoJS aqui.
     const blob = new Blob([content], { type: 'application/json' });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -518,12 +612,12 @@ export const importEncryptedBackup = async (file: File, pass: string) => {
     if (data.sales) await dbBulkPut('sales', data.sales);
     if (data.transactions) await dbBulkPut('transactions', data.transactions);
     if (data.accounts) await dbBulkPut('accounts', data.accounts);
+    if (data.clients) await dbBulkPut('clients', data.clients);
     return true;
 };
 
 export const findPotentialDuplicates = (sales: Sale[]) => {
     const names = Array.from(new Set(sales.map(s => s.client)));
     const dups: any[] = [];
-    // Lógica Levenshtein omitida por brevidade, mas o componente espera esta assinatura
     return dups;
 };

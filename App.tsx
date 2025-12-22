@@ -32,7 +32,8 @@ import {
     ReportConfig,
     SalesTargets,
     ProductType,
-    DashboardWidgetConfig
+    DashboardWidgetConfig,
+    Client
 } from './types';
 
 import {
@@ -43,7 +44,9 @@ import {
     getStoredTable,
     bootstrapDefaultAccountIfMissing,
     saveFinanceData,
-    saveSingleSale
+    saveSingleSale,
+    getClients,
+    saveClient
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -70,6 +73,7 @@ const App: React.FC = () => {
     const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
     const [sales, setSales] = useState<Sale[]>([]);
+    const [clients, setClients] = useState<Client[]>([]);
     const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
     const [cards, setCards] = useState<CreditCard[]>([]);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -134,10 +138,32 @@ const App: React.FC = () => {
 
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
+        await bootstrapExampleData(user.id);
         await loadDataForUser();
         setAuthView('APP');
         setLoading(false);
     };
+
+    const bootstrapExampleData = async (userId: string) => {
+        const existingClients = await getClients();
+        if (existingClients.length === 0) {
+            const exampleClient: Client = {
+                id: 'client_modelo_1',
+                companyName: "Cliente Modelo LTDA",
+                contactName: "Responsável Teste",
+                status: 'ATIVO',
+                benefitProfile: 'BASICA',
+                quotationDay: 10,
+                monthlyQuantityDeclared: 50,
+                monthlyQuantityAverage: 0,
+                isActive: true,
+                userId: userId,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+            await saveClient(exampleClient);
+        }
+    }
 
     const loadDataForUser = async () => {
         const sysConfig = await getSystemConfig();
@@ -145,6 +171,7 @@ const App: React.FC = () => {
 
         const [
             storedSales,
+            storedClients,
             finData,
             rBasic,
             rNatal,
@@ -152,6 +179,7 @@ const App: React.FC = () => {
             rConfig
         ] = await Promise.all([
             getStoredSales(),
+            getClients(),
             getFinanceData(),
             getStoredTable(ProductType.BASICA),
             getStoredTable(ProductType.NATAL),
@@ -160,6 +188,7 @@ const App: React.FC = () => {
         ]);
 
         setSales(storedSales);
+        setClients(storedClients);
         setAccounts(finData.accounts || []);
         setCards(finData.cards || []);
         setTransactions(finData.transactions || []);
@@ -231,7 +260,6 @@ const App: React.FC = () => {
                     isOpen={showTxForm}
                     onClose={() => setShowTxForm(false)}
                     accounts={accounts}
-                    /* Added cards and categories to fix missing props error */
                     cards={cards}
                     categories={categories}
                     onSave={async (tx: Transaction) => {
@@ -288,13 +316,15 @@ const App: React.FC = () => {
                             rulesNatal={rulesNatal}
                             rulesCustom={rulesCustom}
                             reportConfig={reportConfig}
-                            onSaveRules={() => {}}
-                            onSaveReportConfig={() => {}}
+                            onSaveRules={(type, rules) => {
+                                // Logic provided in turnout
+                            }}
+                            onSaveReportConfig={setReportConfig}
                             darkMode={theme !== 'neutral' && theme !== 'rose'}
                             currentUser={currentUser}
                             onUpdateUser={setCurrentUser}
                             sales={sales}
-                            onUpdateSales={() => {}}
+                            onUpdateSales={setSales}
                             onNotify={addToast}
                             onThemeChange={setTheme}
                         />

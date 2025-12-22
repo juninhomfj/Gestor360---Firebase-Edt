@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Sale, ProductType, CommissionRule, SaleFormData } from '../types';
-import { getStoredTable, calculateMargin, computeCommissionValues } from '../services/logic';
-import { X, Save, Calculator, ShoppingBag, Gift, Tag, Info, Calendar, Truck, ClipboardList, Clock } from 'lucide-react';
+import { Sale, ProductType, Client } from '../types';
+import { getStoredTable, calculateMargin, computeCommissionValues, getClients } from '../services/logic';
+import { X, Save, Calculator, ShoppingBag, Gift, Tag, Info, Calendar, Truck, ClipboardList, Clock, User as UserIcon } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -14,7 +14,9 @@ interface Props {
 }
 
 const SalesForm: React.FC<Props> = ({ isOpen, onClose, onSaved, onSave, userId, initialData }) => {
-  const [client, setClient] = useState('');
+  const [availableClients, setAvailableClients] = useState<Client[]>([]);
+  const [clientName, setClientName] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState<string>('');
   const [quantity, setQuantity] = useState(1);
   const [type, setType] = useState<ProductType>(ProductType.BASICA);
   const [valueProposed, setValueProposed] = useState(0);
@@ -26,15 +28,23 @@ const SalesForm: React.FC<Props> = ({ isOpen, onClose, onSaved, onSave, userId, 
   const [trackingCode, setTrackingCode] = useState('');
   const [boletoStatus, setBoletoStatus] = useState<'PENDING' | 'SENT' | 'PAID'>('PENDING');
 
-  // Cálculos Automáticos
   const [margin, setMargin] = useState(0);
   const [commissionRate, setCommissionRate] = useState(0);
   const [commissionValue, setCommissionValue] = useState(0);
   const [commissionBase, setCommissionBase] = useState(0);
 
   useEffect(() => {
+    const fetchClients = async () => {
+        const data = await getClients();
+        setAvailableClients(data.filter(c => c.isActive));
+    };
+    if (isOpen) fetchClients();
+  }, [isOpen]);
+
+  useEffect(() => {
     if (initialData) {
-      setClient(initialData.client);
+      setClientName(initialData.client);
+      setSelectedClientId(initialData.clientId || '');
       setQuantity(initialData.quantity);
       setType(initialData.type);
       setValueProposed(initialData.valueProposed);
@@ -48,15 +58,12 @@ const SalesForm: React.FC<Props> = ({ isOpen, onClose, onSaved, onSave, userId, 
     }
   }, [initialData]);
 
-  // Efeito para recalcular margem e comissão
   useEffect(() => {
     const calc = async () => {
       const m = calculateMargin(valueSold, valueProposed);
       setMargin(m);
-
       const rules = await getStoredTable(type);
       const { commissionBase: base, commissionValue: val, rateUsed } = computeCommissionValues(quantity, valueProposed, m, rules);
-      
       setCommissionBase(base);
       setCommissionValue(val);
       setCommissionRate(rateUsed);
@@ -66,15 +73,26 @@ const SalesForm: React.FC<Props> = ({ isOpen, onClose, onSaved, onSave, userId, 
 
   if (!isOpen) return null;
 
+  const handleClientSelect = (id: string) => {
+    const client = availableClients.find(c => c.id === id);
+    if (client) {
+        setSelectedClientId(id);
+        setClientName(client.companyName);
+    } else {
+        setSelectedClientId('');
+    }
+  };
+
   const handleSave = async () => {
-    if (!client || valueSold <= 0) {
+    if ((!clientName && !selectedClientId) || valueSold <= 0) {
       alert("Preencha o cliente e o valor de venda.");
       return;
     }
 
     const sale: Sale = {
       id: initialData?.id || crypto.randomUUID(),
-      client,
+      client: clientName,
+      clientId: selectedClientId || undefined,
       quantity,
       type,
       valueProposed,
@@ -117,20 +135,38 @@ const SalesForm: React.FC<Props> = ({ isOpen, onClose, onSaved, onSave, userId, 
 
         <div className="flex-1 overflow-y-auto p-6 scrollbar-thin">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Coluna 1: Dados do Cliente e Produto */}
             <div className="space-y-5">
               <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                 <Info size={14} /> Dados Primários
               </h3>
               
               <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Cliente</label>
-                <input 
-                  className="w-full p-3 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
-                  placeholder="Nome da empresa ou pessoa"
-                  value={client} onChange={e => setClient(e.target.value)}
-                />
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Selecionar Cliente (Base Única)</label>
+                <div className="relative">
+                    <UserIcon className="absolute left-3 top-3 text-gray-400" size={18} />
+                    <select 
+                        className="w-full pl-10 p-3 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
+                        value={selectedClientId}
+                        onChange={e => handleClientSelect(e.target.value)}
+                    >
+                        <option value="">-- Cliente não cadastrado --</option>
+                        {availableClients.map(c => (
+                            <option key={c.id} value={c.id}>{c.companyName}</option>
+                        ))}
+                    </select>
+                </div>
               </div>
+
+              {!selectedClientId && (
+                <div className="animate-in fade-in">
+                    <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Nome do Cliente (Manual)</label>
+                    <input 
+                      className="w-full p-3 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-emerald-500"
+                      placeholder="Nome para venda avulsa"
+                      value={clientName} onChange={e => setClientName(e.target.value)}
+                    />
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -188,7 +224,6 @@ const SalesForm: React.FC<Props> = ({ isOpen, onClose, onSaved, onSave, userId, 
               </div>
             </div>
 
-            {/* Coluna 2: Datas e Operacional */}
             <div className="space-y-5">
               <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
                 <Truck size={14} /> Dados Operacionais
