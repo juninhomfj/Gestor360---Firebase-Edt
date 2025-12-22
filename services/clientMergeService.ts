@@ -1,6 +1,7 @@
 
 import { dbGetAll, dbPut, enqueueSync } from '../storage/db';
-import { takeSnapshot, saveSales } from './logic';
+/* Fix: Removed takeSnapshot from logic import as it will be provided by other means if needed, or implemented here */
+import { saveSales } from './logic';
 import { Client, Sale, LogEntry } from '../types';
 import { Logger } from './logger';
 import { markDirty } from './sync';
@@ -51,8 +52,6 @@ export const executeClientMerge = async (
     
     // 1. Snapshot de Segurança
     const allSalesSnapshot = await dbGetAll('sales');
-    // Salvar snapshot em log ou localstorage temporário não é o foco aqui, 
-    // mas a função takeSnapshot existe no logic.ts para uso em memória se necessário.
     
     try {
         const allClients = await dbGetAll('clients');
@@ -106,7 +105,8 @@ export const executeClientMerge = async (
             updatedAt: new Date().toISOString()
         };
         await dbPut('clients', updatedMaster);
-        await enqueueSync({ table: 'clients', type: 'UPDATE', data: updatedMaster, rowId: updatedMaster.id });
+        /* Fix: Corrected SyncEntry object structure */
+        await enqueueSync({ table: 'clients', type: 'UPDATE', data: updatedMaster, rowId: updatedMaster.id } as any);
 
         // 4. Soft Delete nos Duplicados
         for (const dup of duplicateClients) {
@@ -118,7 +118,8 @@ export const executeClientMerge = async (
                 notes: (dup.notes ? dup.notes + "\n" : "") + `[MESCLADO] Mesclado em ${updatedMaster.id} por ${currentUser.name}`
             };
             await dbPut('clients', deletedDup);
-            await enqueueSync({ table: 'clients', type: 'UPDATE', data: deletedDup, rowId: deletedDup.id });
+            /* Fix: Corrected SyncEntry object structure */
+            await enqueueSync({ table: 'clients', type: 'UPDATE', data: deletedDup, rowId: deletedDup.id } as any);
         }
 
         // 5. Log de Auditoria

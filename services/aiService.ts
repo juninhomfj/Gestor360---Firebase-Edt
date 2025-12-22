@@ -7,8 +7,8 @@ import { Transaction } from '../types';
  * Segue estritamente as diretrizes da SDK do Gemini 3.
  */
 export const sendMessageToAi = async (message: string, history: any[], userKeys: any, sales: any[] = []) => {
-    // Fixed: Initialize GoogleGenAI with API Key obtained exclusively from process.env.API_KEY.
     // GUIDELINE: Always use `const ai = new GoogleGenAI({apiKey: process.env.API_KEY});`.
+    // obtain API key exclusively from process.env.API_KEY
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     // Converte histórico para o formato esperado pela API
@@ -18,6 +18,7 @@ export const sendMessageToAi = async (message: string, history: any[], userKeys:
     })).concat([{ role: 'user', parts: [{ text: message }] }]);
 
     // Executa geração com grounding de busca (disponível no Gemini 3 Flash)
+    // GUIDELINE: Use gemini-3-flash-preview for text tasks
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: contents,
@@ -49,10 +50,10 @@ export const isAiAvailable = () => !!process.env.API_KEY;
 
 /**
  * Optimizes a message for WhatsApp using AI.
- * Fixed: Obtain API key exclusively from process.env.API_KEY.
+ * obtain API key exclusively from process.env.API_KEY
  */
 export const optimizeMessage = async (text: string, tone: string, userKeys?: any) => {
-    // Fixed: Initialize client with process.env.API_KEY directly.
+    // GUIDELINE: Always use `const ai = new GoogleGenAI({apiKey: process.env.API_KEY});`.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',

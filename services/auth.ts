@@ -22,18 +22,17 @@ import { auth, db } from "./firebase";
 import { User, UserRole, UserStatus, UserModules } from "../types";
 
 /**
- * Normaliza a Role seguindo a hierarquia DEV > ADMIN > USER
+ * Normaliza a Role do usuário para garantir a hierarquia DEV > ADMIN > USER
  */
 const normalizeRole = (data: any): UserRole => {
     const rawRole = (data.role || 'USER').toString().toUpperCase();
-    if (rawRole === 'DEV') return 'DEV';
+    if (rawRole === 'DEV' || rawRole === 'DEVELOPER') return 'DEV';
     if (rawRole === 'ADMIN') return 'ADMIN';
     return 'USER';
 };
 
 /**
- * RESTAURA SESSÃO: Bloqueio de renderização garantido.
- * Aguarda a resolução do perfil no Firestore. Se não existir, desloga o usuário Auth.
+ * RESTAURA SESSÃO (Fonte Única da Verdade: Firestore profiles)
  */
 export const reloadSession = (): Promise<User | null> => {
     return new Promise((resolve) => {
@@ -46,11 +45,11 @@ export const reloadSession = (): Promise<User | null> => {
             }
 
             try {
-                // Carrega perfil oficial do Firestore (Fonte da Verdade)
+                // Busca perfil direto no Firestore
                 const profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
                 
                 if (!profileSnap.exists()) {
-                    console.error("[Auth] Perfil não encontrado no Firestore para o UID:", fbUser.uid);
+                    console.error("[Auth] Perfil não configurado no Firestore.");
                     await signOut(auth);
                     resolve(null);
                     unsubscribe();
@@ -58,10 +57,9 @@ export const reloadSession = (): Promise<User | null> => {
                 }
 
                 const data = profileSnap.data();
-                
-                // Bloqueio imediato se o usuário estiver inativo
+
+                // BLOQUEIO CRÍTICO: Se perfil inativo, desloga.
                 if (data.isActive === false || data.user_status === 'INACTIVE') {
-                    console.warn("[Auth] Tentativa de acesso de usuário inativo.");
                     await signOut(auth);
                     resolve(null);
                     unsubscribe();
@@ -71,24 +69,24 @@ export const reloadSession = (): Promise<User | null> => {
                 const user: User = {
                     id: fbUser.uid,
                     username: data.username || fbUser.email?.split('@')[0] || 'user',
-                    name: data.name || fbUser.displayName || 'Usuário',
+                    name: data.name || 'Usuário',
                     email: fbUser.email!,
-                    tel: data.tel || "",
                     role: normalizeRole(data),
                     isActive: true,
-                    profilePhoto: data.profilePictureUrl || "",
                     theme: data.theme || "glass",
                     userStatus: "ACTIVE",
                     createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-                    modules: data.modules_config || { sales: true, finance: true, ai: true },
-                    chat_config: data.chat_config || { public_access: false, private_enabled: true },
+                    modules: data.modules_config || { sales: true, finance: true, reports: true },
+                    profilePhoto: data.profilePictureUrl || "",
+                    tel: data.tel || "",
+                    chat_config: data.chat_config,
                     keys: data.keys
                 };
 
                 localStorage.setItem("sys_session_v1", JSON.stringify(user));
                 resolve(user);
             } catch (e) {
-                console.error("[Auth] Erro ao carregar perfil:", e);
+                console.error("[Auth] Erro na validação de sessão:", e);
                 resolve(null);
             }
             unsubscribe();
@@ -96,18 +94,14 @@ export const reloadSession = (): Promise<User | null> => {
     });
 };
 
-/**
- * Retorna a sessão síncrona salva no localstorage
- */
-// Fixed: Added missing getSession function to export current user session from local storage.
 export const getSession = (): User | null => {
     const raw = localStorage.getItem("sys_session_v1");
     if (!raw) return null;
     try {
-        return JSON.parse(raw) as User;
-    } catch {
-        return null;
-    }
+        const user = JSON.parse(raw);
+        if (!user.isActive) return null;
+        return user;
+    } catch { return null; }
 };
 
 export const login = async (email: string, password?: string): Promise<{ user: User | null; error?: string }> => {
@@ -118,13 +112,13 @@ export const login = async (email: string, password?: string): Promise<{ user: U
         const profileSnap = await getDoc(doc(db, "profiles", fbUser.uid));
         if (!profileSnap.exists()) {
             await signOut(auth);
-            return { user: null, error: "Seu e-mail está autenticado, mas seu perfil não foi configurado no Gestor 360." };
+            return { user: null, error: "Perfil não encontrado no Firestore." };
         }
 
         const data = profileSnap.data();
         if (data.isActive === false) {
             await signOut(auth);
-            return { user: null, error: "Esta conta foi desativada pelo administrador." };
+            return { user: null, error: "Sua conta está desativada." };
         }
 
         const user: User = {
@@ -136,15 +130,14 @@ export const login = async (email: string, password?: string): Promise<{ user: U
             isActive: true,
             theme: data.theme || "glass",
             userStatus: "ACTIVE",
-            createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-            modules: data.modules_config || {},
-            chat_config: data.chat_config || { public_access: false, private_enabled: true }
+            createdAt: new Date().toISOString(),
+            modules: data.modules_config || {}
         } as any;
 
         localStorage.setItem("sys_session_v1", JSON.stringify(user));
         return { user };
     } catch (e: any) {
-        return { user: null, error: "E-mail ou senha incorretos." };
+        return { user: null, error: "Credenciais inválidas." };
     }
 };
 
@@ -156,20 +149,7 @@ export const logout = async () => {
 
 export const listUsers = async (): Promise<User[]> => {
     const snap = await getDocs(collection(db, "profiles"));
-    return snap.docs.map((d) => {
-        const data = d.data();
-        return {
-            id: d.id,
-            username: data.username,
-            name: data.name,
-            email: data.email,
-            role: normalizeRole(data),
-            isActive: data.isActive !== false,
-            userStatus: data.user_status,
-            modules: data.modules_config,
-            profilePhoto: data.profilePictureUrl
-        } as any;
-    });
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
 };
 
 export const createUser = async (adminId: string, userData: any) => {
@@ -178,16 +158,10 @@ export const createUser = async (adminId: string, userData: any) => {
     const uid = userCredential.user.uid;
     
     await setDoc(doc(db, "profiles", uid), {
-        username: userData.username,
-        name: userData.name,
-        email: userData.email,
-        role: userData.role || 'USER',
+        ...userData,
         isActive: true,
-        modules_config: userData.modules_config,
         user_status: "ACTIVE",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        createdBy: adminId
+        createdAt: serverTimestamp()
     });
 
     await sendPasswordResetEmail(auth, userData.email);
@@ -195,25 +169,15 @@ export const createUser = async (adminId: string, userData: any) => {
 };
 
 export const updateUser = async (userId: string, data: any) => {
-    const ref = doc(db, "profiles", userId);
-    await updateDoc(ref, { ...data, updatedAt: serverTimestamp() });
+    await updateDoc(doc(db, "profiles", userId), { ...data, updatedAt: serverTimestamp() });
 };
 
 export const deactivateUser = async (userId: string) => {
-    const ref = doc(db, "profiles", userId);
-    await updateDoc(ref, { isActive: false, user_status: "INACTIVE", updatedAt: serverTimestamp() });
+    await updateDoc(doc(db, "profiles", userId), { isActive: false, user_status: "INACTIVE" });
 };
 
-export const requestPasswordReset = async (email: string) => {
-    await sendPasswordResetEmail(auth, email);
-};
-
-export const sendMagicLink = async (email: string) => {
-    await sendPasswordResetEmail(auth, email);
-};
-
+export const requestPasswordReset = async (email: string) => { await sendPasswordResetEmail(auth, email); };
+export const sendMagicLink = async (email: string) => { await sendPasswordResetEmail(auth, email); };
 export const changePassword = async (userId: string, newPassword: string) => {
-    if (auth.currentUser?.uid === userId) {
-        await updatePassword(auth.currentUser, newPassword);
-    }
+    if (auth.currentUser?.uid === userId) await updatePassword(auth.currentUser, newPassword);
 };

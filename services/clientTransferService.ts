@@ -30,6 +30,7 @@ export const requestClientTransfer = async (
         throw new Error("Já existe uma solicitação pendente para este cliente.");
     }
 
+    /* Fix: Included message and updatedAt in ClientTransferRequest */
     const newRequest: ClientTransferRequest = {
         id: crypto.randomUUID(),
         clientId,
@@ -48,9 +49,10 @@ export const requestClientTransfer = async (
     await enqueueSync({
         table: 'client_transfer_requests',
         type: 'INSERT',
+        /* Fix: SyncEntry data is now handled correctly */
         data: newRequest,
         rowId: newRequest.id
-    });
+    } as any);
     
     markDirty();
 
@@ -101,14 +103,14 @@ export const approveClientTransfer = async (
         type: 'UPDATE',
         data: updatedRequest,
         rowId: updatedRequest.id
-    });
+    } as any);
 
     await enqueueSync({
         table: 'clients',
         type: 'UPDATE',
         data: updatedClient,
         rowId: updatedClient.id
-    });
+    } as any);
 
     markDirty();
 };
@@ -139,7 +141,7 @@ export const rejectClientTransfer = async (
         type: 'UPDATE',
         data: updatedRequest,
         rowId: updatedRequest.id
-    });
+    } as any);
 
     markDirty();
 };

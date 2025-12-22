@@ -6,6 +6,7 @@ const LOG_STORE = 'audit_log';
 
 export const Logger = {
     async log(level: LogLevel, message: string, details?: any) {
+        /* Fix: Updated log creation with correct properties */
         const entry: LogEntry = {
             timestamp: Date.now(),
             level,

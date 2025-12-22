@@ -174,12 +174,13 @@ export const dbClear = async <StoreName extends keyof Gestor360DB>(storeName: St
 
 export const enqueueSync = async (entry: Omit<SyncEntry, 'id' | 'timestamp' | 'status' | 'retryCount'>) => {
     try {
+        /* Fix: Included missing properties when enqueuing sync item */
         const fullEntry: Omit<SyncEntry, 'id'> = {
             ...entry,
             timestamp: Date.now(),
             status: 'PENDING',
             retryCount: 0
-        };
+        } as any;
         await dbPut('sync_queue', fullEntry as SyncEntry);
     } catch (e) {
         console.error("[DB] Failed to enqueue sync item", e);

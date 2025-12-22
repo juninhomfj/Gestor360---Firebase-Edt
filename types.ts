@@ -4,16 +4,55 @@ export type AppTheme = 'glass' | 'neutral' | 'rose' | 'cyberpunk' | 'dark';
 export type UserRole = 'DEV' | 'ADMIN' | 'USER';
 export type UserStatus = 'ACTIVE' | 'INACTIVE';
 
-export type PersonType = 'PF' | 'PJ';
-export type TransactionType = 'INCOME' | 'EXPENSE' | 'TRANSFER';
-export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'CRASH';
-export type WASpeed = 'FAST' | 'SAFE' | 'SLOW';
-export type WAMediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
-export type WhatsAppErrorCode = 'BLOCKED_BY_USER' | 'PHONE_NOT_REGISTERED' | 'INVALID_PHONE' | 'NETWORK_ERROR' | 'RATE_LIMITED' | 'UNKNOWN_ERROR';
-export type AudioType = 'NOTIFICATION' | 'ALERT' | 'SUCCESS' | 'WARNING';
-export type SyncTable = 'users' | 'sales' | 'accounts' | 'transactions' | 'categories' | 'goals' | 'challenges' | 'challenge_cells' | 'receivables' | 'wa_contacts' | 'wa_tags' | 'wa_campaigns' | 'wa_queue' | 'wa_manual_logs' | 'wa_campaign_stats' | 'internal_messages' | 'clients' | 'client_transfer_requests' | 'config' | 'sales_goals';
-export type SyncOperation = 'INSERT' | 'UPDATE' | 'DELETE';
-export type ChallengeModel = 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
+export interface UserModules {
+    sales: boolean;
+    finance: boolean;
+    whatsapp: boolean;
+    crm: boolean;
+    ai: boolean;
+    dev: boolean;
+    reports: boolean;
+    news: boolean;
+    receivables: boolean;
+    distribution: boolean;
+    imports: boolean;
+}
+
+/* Fix: Added SystemModules as an alias for UserModules to resolve Layout.tsx error */
+export type SystemModules = UserModules;
+
+export interface User {
+    id: string;
+    username: string;
+    name: string;
+    email: string;
+    role: UserRole;
+    isActive: boolean; // Fonte única de bloqueio
+    theme: AppTheme;
+    userStatus: UserStatus;
+    createdAt: string;
+    modules: UserModules;
+    profilePhoto?: string;
+    tel?: string;
+    chat_config?: {
+        public_access: boolean;
+        private_enabled: boolean;
+    };
+    keys?: UserKeys;
+    contactVisibility?: 'PUBLIC' | 'PRIVATE';
+    financialProfile?: {
+        salaryDays?: number[];
+    };
+}
+
+/* Fix: Added UserKeys interface */
+export interface UserKeys {
+    isGeminiEnabled: boolean;
+    aiPermissions?: {
+        canCreateTransactions: boolean;
+        canSearchWeb: boolean;
+    };
+}
 
 // --- MÓDULO CLIENTES & CRM ---
 export type ClientStatus = 'ATIVO' | 'AZINHO' | 'PROSPECÇÃO' | 'INATIVO' | 'IR_RODIZIO';
@@ -31,78 +70,12 @@ export interface Client {
     monthlyQuantityDeclared: number;
     monthlyQuantityAverage: number;
     isActive: boolean;
+    userId: string;
+    createdAt: string;
+    updatedAt: string;
     deleted?: boolean;
     deletedAt?: string;
-    userId: string;
-    createdAt: string;
-    updatedAt: string;
     notes?: string;
-}
-
-export interface ProductivityMetrics {
-    totalClients: number;
-    activeClients: number;
-    convertedThisMonth: number;
-    conversionRate: number;
-    productivityStatus: 'GREEN' | 'YELLOW' | 'RED';
-}
-
-export interface SalesGoal {
-    id: string;
-    month: string; // YYYY-MM
-    targetQuantity: number;
-    targetRevenue: number;
-    userId: string;
-    updatedAt: string;
-}
-
-export interface UserModules {
-    sales: boolean;
-    finance: boolean;
-    whatsapp: boolean;
-    crm: boolean;
-    ai: boolean;
-    dev: boolean;
-    reports: boolean;
-    news: boolean;
-    receivables: boolean;
-    distribution: boolean;
-    imports: boolean;
-}
-
-export interface SystemModules extends UserModules {}
-
-export interface UserKeys {
-    isGeminiEnabled: boolean;
-    aiPermissions?: {
-        canCreateTransactions: boolean;
-        canSearchWeb: boolean;
-    };
-}
-
-export interface User {
-    id: string;
-    username: string;
-    name: string;
-    email: string;
-    tel?: string;
-    role: UserRole;
-    isActive: boolean; 
-    profilePhoto?: string;
-    theme: AppTheme;
-    userStatus: UserStatus;
-    createdAt: string;
-    modules: UserModules;
-    chat_config: {
-        public_access: boolean;
-        private_enabled: boolean;
-    };
-    keys?: UserKeys;
-    financialProfile?: {
-        salaryDays?: number[];
-        salaryDay?: number;
-    };
-    contactVisibility?: 'PUBLIC' | 'PRIVATE';
 }
 
 export enum ProductType {
@@ -113,44 +86,37 @@ export enum ProductType {
 
 export type SaleStatus = 'ORÇAMENTO' | 'PROPOSTA' | 'FATURADO';
 
-export interface CommissionRule {
-  id: string;
-  minPercent: number;
-  maxPercent: number | null;
-  commissionRate: number;
-}
+/* Fix: Added SaleFormData as an alias for Sale to resolve BoletoControl.tsx error */
+export type SaleFormData = Partial<Sale>;
 
-export interface SaleFormData {
+export interface Sale {
+  id: string;
   client: string;
-  clientId?: string; 
+  clientId?: string;
+  userId?: string;
   quantity: number;
   type: ProductType;
   valueProposed: number;
   valueSold: number;
   status: SaleStatus;
-  date?: string; 
-  completionDate: string; 
-  quoteDate?: string; 
-  observations: string;
   marginPercent: number;
-  quoteNumber?: string;
-  trackingCode?: string;
-  nfNumber?: string;
-  hasNF: boolean;
-  isBilled: boolean;
-}
-
-export interface Sale extends SaleFormData {
-  id: string;
-  userId?: string;
-  marketingCampaignId?: string;
   commissionBaseTotal: number;
   commissionValueTotal: number;
   commissionRateUsed: number;
+  date?: string;
+  completionDate: string;
+  quoteDate?: string;
+  isBilled: boolean;
+  hasNF: boolean;
+  observations: string;
   deleted?: boolean;
   deletedAt?: string;
   createdAt?: string;
+  updatedAt?: string;
   boletoStatus?: 'PENDING' | 'SENT' | 'PAID';
+  trackingCode?: string;
+  /* Fix: Added marketingCampaignId property */
+  marketingCampaignId?: string;
 }
 
 export interface FinanceAccount {
@@ -164,31 +130,7 @@ export interface FinanceAccount {
     personType?: 'PF' | 'PJ';
 }
 
-export interface Transaction {
-    id: string;
-    description: string;
-    amount: number;
-    type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
-    date: string;
-    categoryId: string;
-    subcategory?: string;
-    personType?: 'PF' | 'PJ';
-    accountId: string;
-    targetAccountId?: string;
-    isPaid: boolean;
-    attachments?: string[];
-    cardId?: string | null;
-    paymentMethod?: string;
-    installments?: number;
-    costCenter?: string;
-    tags?: string[];
-    saleId?: string; 
-    updatedAt?: string;
-    deleted?: boolean;
-    deletedAt?: string;
-    createdAt?: Date | string;
-}
-
+/* Fix: Added CreditCard interface */
 export interface CreditCard {
     id: string;
     name: string;
@@ -196,8 +138,33 @@ export interface CreditCard {
     currentInvoice: number;
     closingDay: number;
     dueDay: number;
-    color: string;
+    color?: string;
     personType?: 'PF' | 'PJ';
+}
+
+export interface Transaction {
+    id: string;
+    description: string;
+    amount: number;
+    type: 'INCOME' | 'EXPENSE' | 'TRANSFER';
+    date: string;
+    categoryId: string;
+    accountId: string;
+    /* Fix: Added targetAccountId property */
+    targetAccountId?: string;
+    isPaid: boolean;
+    personType?: 'PF' | 'PJ';
+    updatedAt?: string;
+    deleted?: boolean;
+    deletedAt?: string;
+    /* Fix: Added attachments property */
+    attachments?: string[];
+    cardId?: string | null;
+    paymentMethod?: string;
+    installments?: number;
+    costCenter?: string;
+    tags?: string[];
+    createdAt?: string;
 }
 
 export interface TransactionCategory {
@@ -209,72 +176,18 @@ export interface TransactionCategory {
     monthlyBudget?: number;
 }
 
-export interface FinanceGoal {
-    id: string;
-    name: string;
-    description?: string;
-    targetValue: number;
-    currentValue: number;
-    status: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
-}
-
-export interface Challenge {
-    id: string;
-    name: string;
-    targetValue: number;
-    depositCount: number;
-    model: 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
-    createdAt: string;
-    status: 'ACTIVE' | 'COMPLETED';
-}
-
-export interface ChallengeCell {
-    id: string;
-    challengeId: string;
-    number: number;
-    value: number;
-    status: 'PENDING' | 'PAID';
-    paidDate?: string;
-}
-
-export interface Receivable {
-    id: string;
-    description: string;
-    value: number;
-    date: string;
-    status: 'PENDING' | 'EFFECTIVE';
-    distributed: boolean;
-    deductions?: CommissionDeduction[];
-}
-
-export interface CommissionDeduction {
-    id: string;
-    description: string;
-    amount: number;
-}
-
+/* Fix: Updated SystemConfig with missing sound and support properties */
 export interface SystemConfig {
     theme?: AppTheme;
-    customFavicon?: string;
-    appTitle?: string;
+    modules?: UserModules;
+    productLabels?: { basica: string; natal: string; custom: string };
+    includeNonAccountingInTotal?: boolean;
     notificationSound?: string;
     alertSound?: string;
     successSound?: string;
     warningSound?: string;
-    lastBackupDate?: string;
-    includeNonAccountingInTotal?: boolean;
     supportEmail?: string;
     supportTelegram?: string;
-    productLabels?: ProductLabels;
-    modules?: UserModules;
-    globalGoogleClientId?: string;
-    globalGoogleApiKey?: string;
-}
-
-export interface ProductLabels {
-  basica: string;
-  natal: string;
-  custom: string;
 }
 
 export interface ReportConfig {
@@ -291,91 +204,48 @@ export interface DashboardWidgetConfig {
     showBudgets?: boolean;
 }
 
-export interface SalesTargets {
-    basic: number;
-    natal: number;
+export interface SalesTargets { basic: number; natal: number; }
+export interface CommissionRule { id: string; minPercent: number; maxPercent: number | null; commissionRate: number; }
+export interface ProductivityMetrics { totalClients: number; activeClients: number; convertedThisMonth: number; conversionRate: number; productivityStatus: 'GREEN' | 'YELLOW' | 'RED'; }
+export interface SalesGoal { id: string; month: string; targetQuantity: number; targetRevenue: number; userId: string; updatedAt: string; }
+
+/* Fix: Added CommissionDeduction interface */
+export interface CommissionDeduction {
+    id: string;
+    description: string;
+    amount: number;
 }
 
-export interface InternalMessage {
+export interface Receivable {
     id: string;
-    senderId: string;
-    senderName: string;
-    recipientId: string;
-    content: string;
-    image?: string;
-    type: 'CHAT' | 'ACCESS_REQUEST' | 'BROADCAST';
-    timestamp: string;
-    read: boolean;
-    relatedModule?: 'sales' | 'finance' | 'ai';
-    readBy?: string[];
-}
-
-export interface AppNotification {
-    id: string;
-    title: string;
-    message: string;
-    type: 'INFO' | 'WARNING' | 'ALERT' | 'MESSAGE';
-    source: 'SYSTEM' | 'SALES' | 'FINANCE' | 'WHATSAPP';
+    description: string;
+    value: number;
     date: string;
-    read: boolean;
+    status: 'PENDING' | 'EFFECTIVE';
+    distributed: boolean;
+    deductions?: CommissionDeduction[];
 }
 
-export interface ClientTransferRequest {
-    id: string;
-    clientId: string;
-    fromUserId: string;
-    toUserId: string;
-    status: 'PENDING' | 'APPROVED' | 'REJECTED';
-    message: string | null;
-    createdAt: string;
-    updatedAt: string;
-}
+export interface FinancialPacing { daysRemaining: number; safeDailySpend: number; pendingExpenses: number; nextIncomeDate: Date; }
+export interface DuplicateGroup<T> { id: string; items: T[]; }
 
-export interface ClientMetric {
-    name: string;
-    status: 'ACTIVE' | 'NEW' | 'INACTIVE' | 'LOST';
-    totalOrders: number;
-    totalSpent: number;
-    lastPurchaseDate: string;
-    daysSinceLastPurchase: number;
-}
-
-export interface FinancialPacing {
-    daysRemaining: number;
-    safeDailySpend: number;
-    pendingExpenses: number;
-    nextIncomeDate: Date;
-}
-
-export interface ImportMapping {
-    [key: string]: number;
-}
-
-export interface AiUsageStats {
-    date: string;
-    requestsCount: number;
-    inputTokensApprox: number;
-    outputTokensApprox: number;
-    lastRequestTime: number;
-}
-
-export interface DuplicateGroup<T> {
-    id: string;
-    items: T[];
-}
+/* Fix: Updated SyncEntry and related types */
+export type SyncOperation = 'INSERT' | 'UPDATE' | 'DELETE';
+export type SyncTable = 'users' | 'sales' | 'accounts' | 'transactions' | 'config' | 'clients' | 'client_transfer_requests' | 'wa_contacts' | 'wa_campaigns' | 'wa_manual_logs' | 'wa_campaign_stats' | 'internal_messages';
 
 export interface SyncEntry {
-    id?: number;
-    table: SyncTable;
-    type: SyncOperation;
+    id: number;
+    table: string;
+    type: string;
+    status: 'PENDING' | 'SYNCED' | 'FAILED';
+    timestamp: number;
     data: any;
     rowId: string;
-    status: 'PENDING' | 'SYNCED' | 'ERROR';
-    timestamp: number;
     retryCount: number;
-    error?: string;
 }
 
+/* Fix: Updated LogEntry and LogLevel */
+export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'CRASH';
 export interface LogEntry {
     timestamp: number;
     level: LogLevel;
@@ -389,38 +259,31 @@ export interface WAContact {
     name: string;
     phone: string;
     tags: string[];
-    variables?: Record<string, string>;
     createdAt: string;
     updatedAt: string;
     deleted?: boolean;
     deletedAt?: string;
-    source?: 'MANUAL' | 'IMPORT';
+    source?: string;
+    /* Fix: Added variables property */
+    variables?: Record<string, string>;
 }
 
-export interface WATag {
-    id: string;
-    name: string;
-    deleted?: boolean;
-    updatedAt?: string;
-}
+export interface WATag { id: string; name: string; deleted?: boolean; updatedAt: string; }
 
+/* Fix: Updated WACampaign with missing properties */
 export interface WACampaign {
     id: string;
     name: string;
-    messageTemplate: string;
-    targetTags: string[];
-    status: 'DRAFT' | 'ACTIVE' | 'COMPLETED';
+    status: string;
     totalContacts: number;
     sentCount: number;
+    messageTemplate: string;
+    targetTags: string[];
     config: {
         speed: WASpeed;
         startTime: string;
         endTime: string;
     };
-    createdAt: string;
-    updatedAt: string;
-    archived?: boolean;
-    deleted?: boolean;
     abTest?: {
         enabled: boolean;
         templateB: string;
@@ -430,8 +293,13 @@ export interface WACampaign {
         type: WAMediaType;
         name: string;
     };
+    archived?: boolean;
+    deleted?: boolean;
+    createdAt: string;
+    updatedAt: string;
 }
 
+/* Fix: Updated WAMessageQueue with missing properties */
 export interface WAMessageQueue {
     id: string;
     campaignId: string;
@@ -440,15 +308,18 @@ export interface WAMessageQueue {
     message: string;
     status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
     variant: 'A' | 'B';
-    sentAt?: string;
-    deleted?: boolean;
     media?: {
         data: string;
         type: WAMediaType;
         name: string;
     };
+    sentAt?: string;
+    deleted?: boolean;
 }
 
+export interface WAManualLog extends ManualInteractionLog {}
+
+/* Fix: Updated ManualInteractionLog with many missing properties */
 export interface ManualInteractionLog {
     id: string;
     campaignId: string;
@@ -464,26 +335,27 @@ export interface ManualInteractionLog {
         platform: string;
         isMobile: boolean;
     };
+    completedAt?: string;
     messageCopiedAt?: string;
+    mediaCopiedAt?: string;
     whatsappOpenedAt?: string;
     messagePastedAt?: string;
     messageSentAt?: string;
-    completedAt?: string;
     timeToOpenWhatsApp?: number;
     timeToPaste?: number;
     timeToSend?: number;
     totalInteractionTime?: number;
-    userNotes?: string;
-    rating?: 1 | 2 | 3 | 4 | 5;
-    variant?: 'A' | 'B';
     userReportedError?: {
         type: WhatsAppErrorCode;
         description: string;
         screenshot?: string;
     };
-    mediaCopiedAt?: string;
+    userNotes?: string;
+    rating?: 1 | 2 | 3 | 4 | 5;
+    variant?: 'A' | 'B';
 }
 
+/* Fix: Updated CampaignStatistics with missing properties */
 export interface CampaignStatistics {
     campaignId: string;
     generatedAt: string;
@@ -505,7 +377,7 @@ export interface CampaignStatistics {
     errorAnalysis: {
         totalErrors: number;
         byType: Record<string, number>;
-        mostCommonError?: WhatsAppErrorCode;
+        mostCommonError?: string;
         errorRate: number;
     };
     userRatings: {
@@ -518,7 +390,7 @@ export interface CampaignStatistics {
         priority: 'LOW' | 'MEDIUM' | 'HIGH';
     }>;
     performanceBySpeed: Record<string, any>;
-    financialImpact: {
+    financialImpact?: {
         revenue: number;
         salesCount: number;
         conversionRate: number;
@@ -529,6 +401,45 @@ export interface CampaignStatistics {
         winner: 'A' | 'B' | 'TIE' | 'INCONCLUSIVE';
     };
 }
+
+export interface WAInstance { id: string; name: string; status: string; batteryLevel?: number; createdAt: string; phone?: string; profilePicUrl?: string; }
+
+/* Fix: Updated InternalMessage with senderName property */
+export interface InternalMessage {
+    id: string;
+    senderId: string;
+    senderName: string;
+    recipientId: string;
+    content: string;
+    timestamp: string;
+    read: boolean;
+    readBy?: string[];
+    image?: string;
+    type?: 'CHAT' | 'ACCESS_REQUEST' | 'BROADCAST';
+    relatedModule?: 'sales' | 'finance' | 'ai';
+}
+
+export interface AppNotification { id: string; title: string; message: string; type: string; source: string; date: string; }
+
+/* Fix: Updated ClientTransferRequest with missing properties */
+export interface ClientTransferRequest {
+    id: string;
+    clientId: string;
+    fromUserId: string;
+    toUserId: string;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED';
+    message: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
+/* Fix: Added missing types */
+export type ImportMapping = Record<string, number>;
+export type PersonType = 'PF' | 'PJ';
+export type AudioType = 'NOTIFICATION' | 'ALERT' | 'SUCCESS' | 'WARNING';
+export type WAMediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
+export type WASpeed = 'FAST' | 'SAFE' | 'SLOW';
+export type WhatsAppErrorCode = 'BLOCKED_BY_USER' | 'PHONE_NOT_REGISTERED' | 'INVALID_PHONE' | 'NETWORK_ERROR' | 'RATE_LIMITED' | 'UNKNOWN_ERROR';
 
 export interface WASyncConfig {
     tablesToSync: string[];
@@ -551,14 +462,48 @@ export interface WASyncPayload {
     };
 }
 
-export interface WAInstance {
-    id: string;
-    name: string;
-    status: 'CONNECTED' | 'DISCONNECTED' | 'PAIRING';
-    batteryLevel?: number;
-    createdAt: string;
-    phone?: string;
-    profilePicUrl?: string;
+/* Fix: Added AiUsageStats interface */
+export interface AiUsageStats {
+    date: string;
+    requestsCount: number;
+    inputTokensApprox: number;
+    outputTokensApprox: number;
+    lastRequestTime: number;
 }
 
-export type WAManualLog = ManualInteractionLog;
+/* Fix: Added ProductLabels type */
+export type ProductLabels = {
+    basica: string;
+    natal: string;
+    custom: string;
+};
+
+/* Fix: Added FinanceGoal interface */
+export interface FinanceGoal {
+    id: string;
+    name: string;
+    description: string;
+    targetValue: number;
+    currentValue: number;
+    status: 'ACTIVE' | 'COMPLETED';
+}
+
+/* Fix: Added Challenge and ChallengeCell interfaces */
+export type ChallengeModel = 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
+export interface Challenge {
+    id: string;
+    name: string;
+    targetValue: number;
+    depositCount: number;
+    model: ChallengeModel;
+    createdAt: string;
+    status: 'ACTIVE' | 'COMPLETED';
+}
+export interface ChallengeCell {
+    id: string;
+    challengeId: string;
+    number: number;
+    value: number;
+    status: 'PENDING' | 'PAID';
+    paidDate?: string;
+}

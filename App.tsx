@@ -16,39 +16,16 @@ import SnowOverlay from './components/SnowOverlay';
 import DevRoadmap from './components/DevRoadmap';
 
 import {
-    User,
-    Sale,
-    AppMode,
-    AppTheme,
-    FinanceAccount,
-    Transaction,
-    CreditCard,
-    TransactionCategory,
-    FinanceGoal,
-    Challenge,
-    ChallengeCell,
-    Receivable,
-    CommissionRule,
-    ReportConfig,
-    SalesTargets,
-    ProductType,
-    DashboardWidgetConfig,
-    Client
+    User, Sale, AppMode, AppTheme, FinanceAccount, Transaction, CreditCard,
+    TransactionCategory, FinanceGoal, Challenge, ChallengeCell, Receivable,
+    CommissionRule, ReportConfig, SalesTargets, ProductType,
+    DashboardWidgetConfig, Client
 } from './types';
 
 import {
-    getStoredSales,
-    getFinanceData,
-    getSystemConfig,
-    getReportConfig,
-    getStoredTable,
-    bootstrapDefaultAccountIfMissing,
-    saveFinanceData,
-    saveSingleSale,
-    getClients,
-    saveClient,
-    saveCommissionRules,
-    bootstrapProductionData
+    getStoredSales, getFinanceData, getSystemConfig, getReportConfig,
+    getStoredTable, saveFinanceData, saveSingleSale, getClients,
+    saveCommissionRules, bootstrapProductionData
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -65,9 +42,6 @@ const App: React.FC = () => {
     const [authView, setAuthView] = useState<AuthView>('LOGIN');
     const [authError, setAuthError] = useState<string | null>(null);
 
-    /**
-     * Flags de permissão derivadas diretamente do usuário logado e resolvido.
-     */
     const { isDev, isAdmin } = useMemo(() => {
         if (!currentUser) return { isDev: false, isAdmin: false };
         return {
@@ -103,28 +77,17 @@ const App: React.FC = () => {
     const [rulesCustom, setRulesCustom] = useState<CommissionRule[]>([]);
 
     const [reportConfig, setReportConfig] = useState<ReportConfig>({
-        daysForNewClient: 30,
-        daysForInactive: 60,
-        daysForLost: 180
+        daysForNewClient: 30, daysForInactive: 60, daysForLost: 180
     });
 
-    const [salesTargets, setSalesTargets] = useState<SalesTargets>({
-        basic: 0,
-        natal: 0
-    });
-
+    const [salesTargets, setSalesTargets] = useState<SalesTargets>({ basic: 0, natal: 0 });
     const [showSalesForm, setShowSalesForm] = useState(false);
     const [showTxForm, setShowTxForm] = useState(false);
+    const [hideValues, setHideValues] = useState(false);
 
     const [dashboardConfig, setDashboardConfig] = useState<DashboardWidgetConfig>({
-        showStats: true,
-        showCharts: true,
-        showRecents: true,
-        showPacing: true,
-        showBudgets: true
+        showStats: true, showCharts: true, showRecents: true, showPacing: true, showBudgets: true
     });
-
-    const [hideValues, setHideValues] = useState(false);
 
     useEffect(() => {
         if (initRun.current) return;
@@ -132,19 +95,15 @@ const App: React.FC = () => {
 
         const init = async () => {
             try {
-                // 1. Pré-carga de sons e ativos
                 await AudioService.preload();
-
-                // 2. Aguarda a resolução estrita do par AUTH + PROFILE (Firestore)
+                // 1. Aguarda validação estrita do Perfil Firestore
                 const sessionUser = await reloadSession();
                 
                 if (sessionUser) {
                     await handleLoginSuccess(sessionUser);
                 } else {
-                    // Se reloadSession retornou null mas o Auth ainda tem usuário, 
-                    // significa que o perfil Firestore está faltando ou inativo.
                     if (fbAuth.currentUser) {
-                        setAuthError("Sua conta Auth está ativa, mas seu perfil Gestor 360 não foi encontrado ou está inativo. Contate o suporte.");
+                        setAuthError("Perfil não validado ou inativo. Contate o administrador.");
                         setAuthView('ERROR');
                     } else {
                         setAuthView('LOGIN');
@@ -152,25 +111,20 @@ const App: React.FC = () => {
                     setLoading(false);
                 }
             } catch (e: any) {
-                console.error('[INIT ERROR]', e);
-                setAuthError(e.message || "Erro crítico na inicialização do sistema.");
+                setAuthError(e.message || "Erro crítico de inicialização.");
                 setAuthView('ERROR');
                 setLoading(false);
             }
         };
-
         init();
     }, []);
 
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
-        
-        // 3. BOOTSTRAP DE PRODUÇÃO: Garante dados iniciais no Firestore ANTES do render
+        // 2. Garante Tabelas e Dados de Produção
         await bootstrapProductionData();
-        
-        // 4. Carrega os dados reais do banco
+        // 3. Carrega Dados Reais
         await loadDataForUser();
-        
         setAuthView('APP');
         setLoading(false);
     };
@@ -179,21 +133,9 @@ const App: React.FC = () => {
         const sysConfig = await getSystemConfig();
         if (sysConfig.theme) setTheme(sysConfig.theme);
 
-        const [
-            storedSales,
-            storedClients,
-            finData,
-            rBasic,
-            rNatal,
-            rCustom,
-            rConfig
-        ] = await Promise.all([
-            getStoredSales(),
-            getClients(),
-            getFinanceData(),
-            getStoredTable(ProductType.BASICA),
-            getStoredTable(ProductType.NATAL),
-            getStoredTable(ProductType.CUSTOM),
+        const [storedSales, storedClients, finData, rBasic, rNatal, rCustom, rConfig] = await Promise.all([
+            getStoredSales(), getClients(), getFinanceData(),
+            getStoredTable(ProductType.BASICA), getStoredTable(ProductType.NATAL), getStoredTable(ProductType.CUSTOM),
             getReportConfig()
         ]);
 
@@ -207,7 +149,6 @@ const App: React.FC = () => {
         setChallenges(finData.challenges || []);
         setCells(finData.cells || []);
         setReceivables(finData.receivables || []);
-
         setRulesBasic(rBasic);
         setRulesNatal(rNatal);
         setRulesCustom(rCustom);
@@ -219,8 +160,7 @@ const App: React.FC = () => {
         setSortedToasts(prev => [...prev, { id, type, message }]);
     };
 
-    const removeToast = (id: string) =>
-        setSortedToasts(prev => prev.filter(t => t.id !== id));
+    const removeToast = (id: string) => setSortedToasts(prev => prev.filter(t => t.id !== id));
 
     if (loading) return <LoadingScreen />;
 
@@ -229,39 +169,18 @@ const App: React.FC = () => {
             <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-center">
                 <div className="max-w-md bg-slate-900 border border-red-500/50 p-8 rounded-3xl shadow-2xl">
                     <h1 className="text-2xl font-bold text-red-500 mb-4">Acesso Bloqueado</h1>
-                    <p className="text-slate-400 mb-8">{authError || "Seu perfil não pôde ser validado."}</p>
+                    <p className="text-slate-400 mb-8">{authError}</p>
                     <button onClick={() => logout()} className="px-6 py-3 bg-white text-black rounded-lg font-bold">Voltar ao Login</button>
                 </div>
             </div>
         );
     }
 
-    if (authView === 'LOGIN')
-        return (
-            <Login
-                onLoginSuccess={handleLoginSuccess}
-                onRequestReset={() => setAuthView('REQUEST_RESET')}
-            />
-        );
+    if (authView === 'LOGIN' || !currentUser)
+        return <Login onLoginSuccess={handleLoginSuccess} onRequestReset={() => setAuthView('REQUEST_RESET')} />;
 
     if (authView === 'REQUEST_RESET')
         return <RequestReset onBack={() => setAuthView('LOGIN')} />;
-
-    if (authView === 'RESET_PASSWORD' && currentUser)
-        return (
-            <PasswordReset
-                userId={currentUser.id}
-                onSuccess={() => setAuthView('APP')}
-            />
-        );
-
-    if (!currentUser)
-        return (
-            <Login
-                onLoginSuccess={handleLoginSuccess}
-                onRequestReset={() => setAuthView('REQUEST_RESET')}
-            />
-        );
 
     return (
         <div className={theme}>
@@ -286,16 +205,7 @@ const App: React.FC = () => {
                     cards={cards}
                     categories={categories}
                     onSave={async (tx: Transaction) => {
-                        await saveFinanceData(
-                            accounts,
-                            cards,
-                            [...transactions, tx],
-                            categories,
-                            goals,
-                            challenges,
-                            cells,
-                            receivables
-                        );
+                        await saveFinanceData(accounts, cards, [...transactions, tx], categories, goals, challenges, cells, receivables);
                     }}
                     onSaved={loadDataForUser}
                 />
@@ -303,81 +213,57 @@ const App: React.FC = () => {
 
             <Layout
                 currentUser={currentUser}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                appMode={appMode}
-                setAppMode={setAppMode}
-                currentTheme={theme}
-                setTheme={setTheme}
+                activeTab={activeTab} setActiveTab={setActiveTab}
+                appMode={appMode} setAppMode={setAppMode}
+                currentTheme={theme} setTheme={setTheme}
                 darkMode={theme !== 'neutral' && theme !== 'rose'}
                 onLogout={logout}
                 onNewSale={() => setShowSalesForm(true)}
                 onNewIncome={() => setShowTxForm(true)}
                 onNewExpense={() => setShowTxForm(true)}
                 onNewTransfer={() => setShowTxForm(true)}
-                notifications={[]}
-                isAdmin={isAdmin}
-                isDev={isDev}
+                isAdmin={isAdmin} isDev={isDev}
             >
                 <div className="p-4">
                     {activeTab === 'dashboard' && (
                         <Dashboard
-                            sales={sales}
-                            onNewSale={() => setShowSalesForm(true)}
+                            sales={sales} onNewSale={() => setShowSalesForm(true)}
                             darkMode={theme !== 'neutral' && theme !== 'rose'}
-                            config={dashboardConfig}
-                            hideValues={hideValues}
+                            config={dashboardConfig} hideValues={hideValues}
                             onToggleHide={() => setHideValues(!hideValues)}
                             onUpdateConfig={setDashboardConfig}
                             currentUser={currentUser}
-                            salesTargets={salesTargets}
-                            onUpdateTargets={setSalesTargets}
-                            isAdmin={isAdmin}
-                            isDev={isDev}
+                            salesTargets={salesTargets} onUpdateTargets={setSalesTargets}
+                            isAdmin={isAdmin} isDev={isDev}
                         />
                     )}
 
                     {activeTab === 'settings' && (
                         <SettingsHub
-                            rulesBasic={rulesBasic}
-                            rulesNatal={rulesNatal}
-                            rulesCustom={rulesCustom}
+                            rulesBasic={rulesBasic} rulesNatal={rulesNatal} rulesCustom={rulesCustom}
                             reportConfig={reportConfig}
                             onSaveRules={async (type, rules) => {
                                 try {
                                     await saveCommissionRules(type, rules);
-                                    addToast('SUCCESS', `Tabela ${type} atualizada com sucesso!`);
+                                    addToast('SUCCESS', `Tabela ${type} atualizada!`);
                                     await loadDataForUser();
-                                } catch (e) {
-                                    addToast('ERROR', 'Erro ao salvar tabela.');
-                                }
+                                } catch (e) { addToast('ERROR', 'Erro ao salvar.'); }
                             }}
-                            onSaveReportConfig={async (config) => {
-                                setReportConfig(config);
-                            }}
+                            onSaveReportConfig={async (config) => setReportConfig(config)}
                             darkMode={theme !== 'neutral' && theme !== 'rose'}
-                            currentUser={currentUser}
-                            onUpdateUser={setCurrentUser}
-                            sales={sales}
-                            onUpdateSales={setSales}
-                            onNotify={addToast}
-                            onThemeChange={setTheme}
-                            isAdmin={isAdmin}
-                            isDev={isDev}
+                            currentUser={currentUser} onUpdateUser={setCurrentUser}
+                            sales={sales} onUpdateSales={setSales}
+                            onNotify={addToast} onThemeChange={setTheme}
+                            isAdmin={isAdmin} isDev={isDev}
                         />
                     )}
 
                     {activeTab === 'fin_dashboard' && (
                         <FinanceDashboard
-                            accounts={accounts}
-                            transactions={transactions}
-                            cards={cards}
-                            hideValues={hideValues}
-                            onToggleHide={() => setHideValues(!hideValues)}
-                            config={dashboardConfig}
-                            onUpdateConfig={setDashboardConfig}
-                            onNavigate={setActiveTab}
-                            darkMode={theme !== 'neutral' && theme !== 'rose'}
+                            accounts={accounts} transactions={transactions} cards={cards}
+                            hideValues={hideValues} onToggleHide={() => setHideValues(!hideValues)}
+                            config={dashboardConfig} onUpdateConfig={setDashboardConfig}
+                            onNavigate={setActiveTab} darkMode={theme !== 'neutral' && theme !== 'rose'}
                         />
                     )}
 
