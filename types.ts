@@ -15,13 +15,12 @@ export type SyncTable = 'users' | 'sales' | 'accounts' | 'transactions' | 'categ
 export type SyncOperation = 'INSERT' | 'UPDATE' | 'DELETE';
 export type ChallengeModel = 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
 
-// --- NOVO MÓDULO CLIENTES & CRM ---
+// --- MÓDULO CLIENTES & CRM ---
 export type ClientStatus = 'ATIVO' | 'AZINHO' | 'PROSPECÇÃO' | 'INATIVO' | 'IR_RODIZIO';
 export type BenefitProfile = 'BASICA' | 'NATAL' | 'AMBOS';
 
 export interface Client {
     id: string;
-    // Added missing 'name' property
     name: string;
     clientCode?: string;
     companyName: string;
@@ -32,7 +31,6 @@ export interface Client {
     monthlyQuantityDeclared: number;
     monthlyQuantityAverage: number;
     isActive: boolean;
-    // Added missing 'deleted' and 'deletedAt' properties for trash bin functionality
     deleted?: boolean;
     deletedAt?: string;
     userId: string;
@@ -112,6 +110,8 @@ export enum ProductType {
   CUSTOM = 'CUSTOM'
 }
 
+export type SaleStatus = 'ORÇAMENTO' | 'PROPOSTA' | 'FATURADO';
+
 export interface CommissionRule {
   id: string;
   minPercent: number;
@@ -121,24 +121,29 @@ export interface CommissionRule {
 
 export interface SaleFormData {
   client: string;
-  clientId?: string; // FK para o novo módulo de clientes
+  clientId?: string; 
   quantity: number;
   type: ProductType;
   valueProposed: number;
   valueSold: number;
-  date: string;
-  completionDate: string;
+  status: SaleStatus;
+  date?: string; // Data de Faturamento
+  completionDate: string; // Data do Pedido / Fechamento
+  quoteDate?: string; // Data de Cotação
   observations: string;
   marginPercent: number;
-  marketingCampaignId?: string;
   quoteNumber?: string;
   trackingCode?: string;
+  nfNumber?: string;
+  hasNF: boolean;
+  isBilled: boolean;
 }
 
 export interface Sale extends SaleFormData {
   id: string;
-  // Added 'userId' to Sale interface for proper ownership filtering
   userId?: string;
+  // Fix: Added marketingCampaignId property required by whatsappLogger.ts
+  marketingCampaignId?: string;
   commissionBaseTotal: number;
   commissionValueTotal: number;
   commissionRateUsed: number;
@@ -173,6 +178,11 @@ export interface Transaction {
     isPaid: boolean;
     attachments?: string[];
     cardId?: string | null;
+    paymentMethod?: string;
+    installments?: number;
+    costCenter?: string;
+    tags?: string[];
+    saleId?: string; // Vínculo opcional com venda
     updatedAt?: string;
     deleted?: boolean;
     deletedAt?: string;

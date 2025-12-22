@@ -498,21 +498,29 @@ export const readExcelFile = async (file: File): Promise<any[][]> => {
     return utils.sheet_to_json(ws, { header: 1 });
 };
 
+// Fix: Updated processSalesImport to include required properties for SaleFormData
 export const processSalesImport = (data: any[][], mapping: ImportMapping): SaleFormData[] => {
     const rows = data.slice(1); 
-    return rows.map(row => ({
-        client: String(row[mapping.client] || 'Sem Nome'),
-        quantity: parseFloat(row[mapping.quantity]) || 1,
-        type: String(row[mapping.type]).toUpperCase().includes('NATAL') ? ProductType.NATAL : ProductType.BASICA,
-        valueProposed: parseFloat(row[mapping.valueProposed]) || 0,
-        valueSold: parseFloat(row[mapping.valueSold]) || 0,
-        date: String(row[mapping.date] || ''),
-        completionDate: String(row[mapping.completionDate] || new Date().toISOString().split('T')[0]),
-        observations: String(row[mapping.obs] || ''),
-        marginPercent: parseFloat(row[mapping.margin]) || 0,
-        quoteNumber: String(row[mapping.quote] || ''),
-        trackingCode: String(row[mapping.tracking] || '')
-    }));
+    return rows.map(row => {
+        const rowDate = mapping.date !== undefined && mapping.date !== -1 ? String(row[mapping.date] || '') : '';
+        return {
+            client: mapping.client !== -1 ? String(row[mapping.client] || 'Sem Nome') : 'Sem Nome',
+            quantity: mapping.quantity !== -1 ? (parseFloat(row[mapping.quantity]) || 1) : 1,
+            type: mapping.type !== -1 && String(row[mapping.type]).toUpperCase().includes('NATAL') ? ProductType.NATAL : ProductType.BASICA,
+            valueProposed: mapping.valueProposed !== -1 ? (parseFloat(row[mapping.valueProposed]) || 0) : 0,
+            valueSold: mapping.valueSold !== -1 ? (parseFloat(row[mapping.valueSold]) || 0) : 0,
+            date: rowDate,
+            completionDate: mapping.completionDate !== -1 ? String(row[mapping.completionDate] || new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0],
+            observations: mapping.obs !== -1 ? String(row[mapping.obs] || '') : '',
+            marginPercent: mapping.margin !== -1 ? (parseFloat(row[mapping.margin]) || 0) : 0,
+            quoteNumber: mapping.quote !== -1 ? String(row[mapping.quote] || '') : '',
+            trackingCode: mapping.tracking !== -1 ? String(row[mapping.tracking] || '') : '',
+            // Fix: Added missing required properties for SaleFormData type
+            status: rowDate.length > 0 ? 'FATURADO' as const : 'ORÇAMENTO' as const,
+            hasNF: false,
+            isBilled: rowDate.length > 0
+        };
+    });
 };
 
 export const processFinanceImport = (data: any[][], mapping: ImportMapping): Transaction[] => {

@@ -70,7 +70,7 @@ const App: React.FC = () => {
     );
 
     const [theme, setTheme] = useState<AppTheme>('glass');
-    const [toasts, setToasts] = useState<ToastMessage[]>([]);
+    const [toasts, setSortedToasts] = useState<ToastMessage[]>([]); // Changed name to avoid conflict with state variable if needed
 
     const [sales, setSales] = useState<Sale[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
@@ -144,11 +144,13 @@ const App: React.FC = () => {
         setLoading(false);
     };
 
+    // Fix: Updated bootstrapExampleData to include required 'name' property for Client type
     const bootstrapExampleData = async (userId: string) => {
         const existingClients = await getClients();
         if (existingClients.length === 0) {
             const exampleClient: Client = {
                 id: 'client_modelo_1',
+                name: "Cliente Modelo LTDA", // Added missing required property
                 companyName: "Cliente Modelo LTDA",
                 contactName: "Responsável Teste",
                 status: 'ATIVO',
@@ -206,11 +208,11 @@ const App: React.FC = () => {
 
     const addToast = (type: 'SUCCESS' | 'ERROR' | 'INFO', message: string) => {
         const id = crypto.randomUUID();
-        setToasts(prev => [...prev, { id, type, message }]);
+        setSortedToasts(prev => [...prev, { id, type, message }]);
     };
 
     const removeToast = (id: string) =>
-        setToasts(prev => prev.filter(t => t.id !== id));
+        setSortedToasts(prev => prev.filter(t => t.id !== id));
 
     if (loading) return <LoadingScreen />;
 
