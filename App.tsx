@@ -47,7 +47,8 @@ import {
     saveSingleSale,
     getClients,
     saveClient,
-    saveCommissionRules // Nova função
+    saveCommissionRules,
+    bootstrapProductionData // Importação necessária
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -130,7 +131,7 @@ const App: React.FC = () => {
 
         const init = async () => {
             try {
-                await bootstrapDefaultAccountIfMissing();
+                // Preload de áudio
                 await AudioService.preload();
 
                 const session = await reloadSession();
@@ -151,32 +152,13 @@ const App: React.FC = () => {
 
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
-        await bootstrapExampleData(user.id);
+        
+        // BOOTSTRAP DE PRODUÇÃO: Garante dados iniciais no Firestore
+        await bootstrapProductionData();
+        
         await loadDataForUser();
         setAuthView('APP');
         setLoading(false);
-    };
-
-    const bootstrapExampleData = async (userId: string) => {
-        const existingClients = await getClients();
-        if (existingClients.length === 0) {
-            const exampleClient: Client = {
-                id: 'client_modelo_1',
-                name: "Cliente Modelo LTDA",
-                companyName: "Cliente Modelo LTDA",
-                contactName: "Responsável Teste",
-                status: 'ATIVO',
-                benefitProfile: 'BASICA',
-                quotationDay: 10,
-                monthlyQuantityDeclared: 50,
-                monthlyQuantityAverage: 0,
-                isActive: true,
-                userId: userId,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            };
-            await saveClient(exampleClient);
-        }
     };
 
     const loadDataForUser = async () => {
@@ -344,7 +326,6 @@ const App: React.FC = () => {
                                 }
                             }}
                             onSaveReportConfig={async (config) => {
-                                // Implementar salvamento de config de relatório se necessário
                                 setReportConfig(config);
                             }}
                             darkMode={theme !== 'neutral' && theme !== 'rose'}

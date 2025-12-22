@@ -1,4 +1,3 @@
-
 import { 
     collection, 
     doc, 
@@ -48,6 +47,80 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
     productLabels: DEFAULT_PRODUCT_LABELS,
     includeNonAccountingInTotal: false
+};
+
+/**
+ * BOOTSTRAP DE PRODUÇÃO: Cria dados fundamentais se as coleções estiverem vazias.
+ * Essencial para que os modais (SalesForm, FinanceForm) tenham itens selecionáveis.
+ */
+export const bootstrapProductionData = async (): Promise<void> => {
+    if (!auth.currentUser) return;
+    const userId = auth.currentUser.uid;
+
+    console.info("[Bootstrap] Iniciando verificação de dados de produção...");
+
+    try {
+        // 1. Verificação de Clientes
+        const clientsSnap = await getDocs(query(collection(db, "clients"), limit(1)));
+        if (clientsSnap.empty) {
+            console.log("[Bootstrap] Criando cliente modelo...");
+            // Added missing 'name' property to fix TypeScript error where 'name' is required in Client interface
+            const modelClient: Client = {
+                id: crypto.randomUUID(),
+                name: "Cliente Modelo LTDA",
+                clientCode: "CLI-0001",
+                companyName: "Cliente Modelo LTDA",
+                contactName: "Contato Administrativo",
+                status: "ATIVO",
+                benefitProfile: "BASICA",
+                quotationDay: 5,
+                monthlyQuantityDeclared: 10,
+                monthlyQuantityAverage: 0,
+                isActive: true,
+                userId: userId,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+            await setDoc(doc(db, "clients", modelClient.id), { ...modelClient, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+            await dbPut('clients', modelClient);
+        }
+
+        // 2. Verificação de Contas Financeiras
+        const accountsSnap = await getDocs(query(collection(db, "accounts"), limit(1)));
+        if (accountsSnap.empty) {
+            console.log("[Bootstrap] Criando conta bancária padrão...");
+            const modelAccount: FinanceAccount = {
+                id: "default_main",
+                name: "Conta Principal (Caixa)",
+                type: "CASH",
+                balance: 0,
+                isAccounting: true,
+                includeInDistribution: true,
+                personType: "PF"
+            };
+            await setDoc(doc(db, "accounts", modelAccount.id), modelAccount);
+            await dbPut('accounts', modelAccount);
+        }
+
+        // 3. Verificação de Categorias
+        const categoriesSnap = await getDocs(query(collection(db, "categories"), limit(1)));
+        if (categoriesSnap.empty) {
+            console.log("[Bootstrap] Criando categorias financeiras base...");
+            const baseCategories: TransactionCategory[] = [
+                { id: "cat_receita_vendas", name: "Receita de Vendas", type: "INCOME", personType: "PJ", subcategories: [] },
+                { id: "cat_despesa_op", name: "Despesas Operacionais", type: "EXPENSE", personType: "PJ", subcategories: [] },
+                { id: "cat_pessoal_fixo", name: "Gastos Pessoais", type: "EXPENSE", personType: "PF", subcategories: [] }
+            ];
+            for (const cat of baseCategories) {
+                await setDoc(doc(db, "categories", cat.id), cat);
+                await dbPut('categories', cat);
+            }
+        }
+
+        console.info("[Bootstrap] Processo concluído com sucesso.");
+    } catch (e) {
+        console.error("[Bootstrap] Erro ao popular dados iniciais:", e);
+    }
 };
 
 // --- CONFIGURAÇÃO ---
