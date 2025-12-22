@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 
 import Layout from './components/Layout';
@@ -230,6 +231,9 @@ const App: React.FC = () => {
                     isOpen={showTxForm}
                     onClose={() => setShowTxForm(false)}
                     accounts={accounts}
+                    /* Added cards and categories to fix missing props error */
+                    cards={cards}
+                    categories={categories}
                     onSave={async (tx: Transaction) => {
                         await saveFinanceData(
                             accounts,
