@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 import Layout from './components/Layout';
 import Login from './components/Login';
@@ -61,6 +61,20 @@ const App: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [authView, setAuthView] = useState<AuthView>('LOGIN');
 
+    /**
+     * Resolvendo flags de permissão com herança:
+     * DEV herda TUDO.
+     * ADMIN herda USER.
+     */
+    const { isDev, isAdmin } = useMemo(() => {
+        if (!currentUser) return { isDev: false, isAdmin: false };
+        const role = currentUser.role || 'USER';
+        return {
+            isDev: role === 'DEV',
+            isAdmin: role === 'DEV' || role === 'ADMIN'
+        };
+    }, [currentUser]);
+
     const [appMode, setAppMode] = useState<AppMode>(
         () => (localStorage.getItem('sys_last_mode') as AppMode) || 'SALES'
     );
@@ -70,7 +84,7 @@ const App: React.FC = () => {
     );
 
     const [theme, setTheme] = useState<AppTheme>('glass');
-    const [toasts, setSortedToasts] = useState<ToastMessage[]>([]); // Changed name to avoid conflict with state variable if needed
+    const [toasts, setSortedToasts] = useState<ToastMessage[]>([]);
 
     const [sales, setSales] = useState<Sale[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
@@ -144,13 +158,12 @@ const App: React.FC = () => {
         setLoading(false);
     };
 
-    // Fix: Updated bootstrapExampleData to include required 'name' property for Client type
     const bootstrapExampleData = async (userId: string) => {
         const existingClients = await getClients();
         if (existingClients.length === 0) {
             const exampleClient: Client = {
                 id: 'client_modelo_1',
-                name: "Cliente Modelo LTDA", // Added missing required property
+                name: "Cliente Modelo LTDA",
                 companyName: "Cliente Modelo LTDA",
                 contactName: "Responsável Teste",
                 status: 'ATIVO',
@@ -165,7 +178,7 @@ const App: React.FC = () => {
             };
             await saveClient(exampleClient);
         }
-    }
+    };
 
     const loadDataForUser = async () => {
         const sysConfig = await getSystemConfig();
@@ -295,6 +308,8 @@ const App: React.FC = () => {
                 onNewExpense={() => setShowTxForm(true)}
                 onNewTransfer={() => setShowTxForm(true)}
                 notifications={[]}
+                isAdmin={isAdmin}
+                isDev={isDev}
             >
                 <div className="p-4">
                     {activeTab === 'dashboard' && (
@@ -309,6 +324,8 @@ const App: React.FC = () => {
                             currentUser={currentUser}
                             salesTargets={salesTargets}
                             onUpdateTargets={setSalesTargets}
+                            isAdmin={isAdmin}
+                            isDev={isDev}
                         />
                     )}
 
@@ -319,7 +336,7 @@ const App: React.FC = () => {
                             rulesCustom={rulesCustom}
                             reportConfig={reportConfig}
                             onSaveRules={(type, rules) => {
-                                // Logic provided in turnout
+                                // Logic
                             }}
                             onSaveReportConfig={setReportConfig}
                             darkMode={theme !== 'neutral' && theme !== 'rose'}
@@ -329,6 +346,8 @@ const App: React.FC = () => {
                             onUpdateSales={setSales}
                             onNotify={addToast}
                             onThemeChange={setTheme}
+                            isAdmin={isAdmin}
+                            isDev={isDev}
                         />
                     )}
 
@@ -346,7 +365,7 @@ const App: React.FC = () => {
                         />
                     )}
 
-                    {activeTab === 'dev_roadmap' && <DevRoadmap />}
+                    {activeTab === 'dev_roadmap' && isDev && <DevRoadmap />}
                 </div>
             </Layout>
         </div>

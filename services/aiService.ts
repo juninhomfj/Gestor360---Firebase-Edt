@@ -7,14 +7,9 @@ import { Transaction } from '../types';
  * Segue estritamente as diretrizes da SDK do Gemini 3.
  */
 export const sendMessageToAi = async (message: string, history: any[], userKeys: any, sales: any[] = []) => {
-    // Fixed: Obtain API key exclusively from process.env.API_KEY as per strict guideline.
-    const apiKey = process.env.API_KEY;
-    
-    if (!apiKey) {
-        throw new Error("API Key da IA não configurada.");
-    }
-
-    const ai = new GoogleGenAI({ apiKey });
+    // Fixed: Initialize GoogleGenAI with API Key obtained exclusively from process.env.API_KEY.
+    // GUIDELINE: Always use `const ai = new GoogleGenAI({apiKey: process.env.API_KEY});`.
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     // Converte histórico para o formato esperado pela API
     const contents = history.map(h => ({
@@ -32,6 +27,7 @@ export const sendMessageToAi = async (message: string, history: any[], userKeys:
         },
     });
 
+    // Fix: Access .text property directly from GenerateContentResponse as per guidelines.
     const text = response.text || "Desculpe, não consegui processar sua resposta no momento.";
     
     // Grounding Metadata conforme diretrizes
@@ -56,14 +52,13 @@ export const isAiAvailable = () => !!process.env.API_KEY;
  * Fixed: Obtain API key exclusively from process.env.API_KEY.
  */
 export const optimizeMessage = async (text: string, tone: string, userKeys?: any) => {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) return text;
-
-    const ai = new GoogleGenAI({ apiKey: apiKey });
+    // Fixed: Initialize client with process.env.API_KEY directly.
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `Refine o texto abaixo para WhatsApp com tom ${tone}: "${text}"`
     });
+    // Fix: Access .text property instead of text() method.
     return response.text || text;
 };
 

@@ -35,11 +35,16 @@ interface SettingsHubProps {
   sales: Sale[]; 
   onUpdateSales: (sales: Sale[]) => void;
   onNotify: (type: 'SUCCESS' | 'ERROR' | 'INFO', msg: string) => void; 
+  // Fix: Added missing isAdmin and isDev props to match App.tsx usage
+  isAdmin: boolean;
+  isDev: boolean;
 }
 
 const SettingsHub: React.FC<SettingsHubProps> = ({ 
   rulesBasic, rulesNatal, rulesCustom, reportConfig, onSaveRules, onSaveReportConfig,
-  darkMode, defaultTab, onThemeChange, currentUser, onUpdateUser, sales, onUpdateSales, onNotify
+  darkMode, defaultTab, onThemeChange, currentUser, onUpdateUser, sales, onUpdateSales, onNotify,
+  // Fix: Destructure isAdmin and isDev from props
+  isAdmin, isDev
 }) => {
   const [activeTab, setActiveTab] = useState<'PROFILE' | 'SYSTEM' | 'USERS' | 'CLOUD' | 'COMMISSIONS' | 'DATA' | 'ROADMAP' | 'SOUNDS' | 'TRASH' | 'CLIENTS'>('PROFILE');
   const [commissionTab, setCommissionTab] = useState<ProductType>(ProductType.BASICA); 
@@ -56,7 +61,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
   const [alertSound, setAlertSound] = useState('');
   const [successSound, setSuccessSound] = useState('');
   const [warningSound, setWarningSound] = useState('');
-  const audioInputRef = useRef<HTMLInputElement>(null);
+  audioInputRef = useRef<HTMLInputElement>(null);
   const [targetAudioField, setTargetAudioField] = useState<string | null>(null);
 
   useEffect(() => {
@@ -121,7 +126,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
       setShowMobileContent(true);
   };
 
-  const isAdmin = currentUser.role === 'ADMIN';
+  // Fix: Use isAdmin from props instead of local calculation
   const hasSalesModule = currentUser.modules?.sales || isAdmin;
   const hasFinanceModule = currentUser.modules?.finance || isAdmin;
 

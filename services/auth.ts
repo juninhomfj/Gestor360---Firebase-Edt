@@ -24,6 +24,22 @@ import { auth, db } from "./firebase";
 import { User, UserRole, UserStatus, UserModules } from "../types";
 
 /**
+ * Normaliza a Role do usuário vinda do banco para o padrão DEV | ADMIN | USER
+ */
+const normalizeRole = (data: any): UserRole => {
+    const rawRole = (
+        data.role || 
+        data.profile || 
+        data.permissions?.role || 
+        'USER'
+    ).toString().toUpperCase();
+
+    if (rawRole === 'DEV' || rawRole === 'DEVELOPER') return 'DEV';
+    if (rawRole === 'ADMIN') return 'ADMIN';
+    return 'USER';
+};
+
+/**
  * Retorna o usuário logado do cache local.
  */
 export const getSession = (): User | null => {
@@ -71,7 +87,7 @@ export const login = async (
             name: data.name,
             email: fbUser.email!,
             tel: data.tel || "",
-            role: data.role as UserRole,
+            role: normalizeRole(data),
             profilePhoto: data.profilePictureUrl || "",
             theme: data.theme || "glass",
             userStatus: data.user_status as UserStatus,
@@ -125,7 +141,7 @@ export const reloadSession = (): Promise<User | null> => {
                 name: data.name,
                 email: fbUser.email!,
                 tel: data.tel || "",
-                role: data.role as UserRole,
+                role: normalizeRole(data),
                 profilePhoto: data.profilePictureUrl || "",
                 theme: data.theme || "glass",
                 userStatus: data.user_status as UserStatus,
@@ -158,7 +174,7 @@ export const listUsers = async (): Promise<User[]> => {
             username: data.username,
             name: data.name,
             email: data.email,
-            role: data.role,
+            role: normalizeRole(data),
             userStatus: data.user_status,
             modules: data.modules_config,
             chat_config: data.chat_config,
@@ -170,7 +186,6 @@ export const listUsers = async (): Promise<User[]> => {
 /**
  * ETAPA 3: Criar usuário (Admin) vinculando UID do Auth ao ID do Doc
  */
-// Fixed: Using UserModules instead of Record<string, boolean> to satisfy index signature requirements.
 export const createUser = async (
     adminId: string,
     userData: {
@@ -238,8 +253,6 @@ export const requestPasswordReset = async (email: string) => {
     await sendPasswordResetEmail(auth, email);
 };
 
-// Fixed: Added sendMagicLink as a required export for Login.tsx. 
-// For this context, it utilizes sendPasswordResetEmail to provide authenticated entry instructions.
 export const sendMagicLink = async (email: string) => {
     await sendPasswordResetEmail(auth, email);
 };

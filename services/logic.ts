@@ -569,13 +569,23 @@ export const hardResetLocalData = async () => {
     window.location.reload();
 };
 
+/**
+ * Helper de Acesso Hierárquico
+ */
 export const canAccess = (user: User, mod: string): boolean => {
-    if (user.role === 'ADMIN') return true;
+    const role = user.role || 'USER';
+    if (role === 'DEV') return true; // Super-acesso
+    if (role === 'ADMIN') {
+        if (mod === 'dev') return false; // Bloqueio manual de módulos DEV para Admin
+        return true;
+    }
     return !!(user.modules as any)[mod];
 };
 
 export const getUserPlanLabel = (user: User) => {
-    return user.role === 'ADMIN' ? 'Plano Master 360' : 'Plano Profissional';
+    const role = user.role || 'USER';
+    if (role === 'DEV') return 'Engenheiro de Sistema';
+    return role === 'ADMIN' ? 'Plano Master 360' : 'Plano Profissional';
 };
 
 export const generateChallengeCells = (challengeId: string, target: number, count: number, model: ChallengeModel): ChallengeCell[] => {

@@ -31,6 +31,8 @@ interface LayoutProps {
   notifications?: AppNotification[];
   onNotificationClick?: (notif: AppNotification) => void;
   onClearNotifications?: () => void;
+  isAdmin: boolean;
+  isDev: boolean;
 }
 
 const THEME_CONFIG: Record<AppTheme, { background: string; sidebar: string; navActive: (mode: AppMode) => string; navInactive: string }> = {
@@ -72,14 +74,12 @@ const Layout: React.FC<LayoutProps> = ({
     children, activeTab, setActiveTab, appMode, setAppMode, darkMode, currentTheme, setTheme,
     currentUser, onLogout,
     onNewSale, onNewIncome, onNewExpense, onNewTransfer,
-    notifications = [], onNotificationClick = (_: AppNotification) => {}, onClearNotifications
+    notifications = [], onNotificationClick = (_: AppNotification) => {}, onClearNotifications,
+    isAdmin, isDev
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
-  // Fixed: Added missing 'crm' and 'dev' properties to satisfy the SystemModules type requirement
   const [sysModules, setSysModules] = React.useState<SystemModules>({ sales: true, finance: true, ai: true, imports: true, receivables: true, distribution: true, whatsapp: false, reports: true, news: true, crm: true, dev: false });
-  const [logoClicks, setLogoClicks] = useState(0);
   const [requestModal, setRequestModal] = useState<{ isOpen: boolean, module: string }>({ isOpen: false, module: '' });
-  const [successModal, setSuccessModal] = useState(false); 
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isSandbox, setIsSandbox] = useState(false);
@@ -96,7 +96,7 @@ const Layout: React.FC<LayoutProps> = ({
   useEffect(() => {
       const loadMsgs = async () => {
           if (!currentUser) return;
-          const msgs = await getMessages(currentUser.id, currentUser.role === 'ADMIN');
+          const msgs = await getMessages(currentUser.id, isAdmin);
           const unread = msgs.filter(m => {
               if (!m.read && m.recipientId === currentUser.id) return true;
               if (m.recipientId === 'BROADCAST' && (!m.readBy || !m.readBy.includes(currentUser.id))) return true;
@@ -107,15 +107,20 @@ const Layout: React.FC<LayoutProps> = ({
       loadMsgs();
       const interval = setInterval(loadMsgs, 10000); 
       return () => clearInterval(interval);
-  }, [currentUser]);
+  }, [currentUser, isAdmin]);
 
   const currentStyle = THEME_CONFIG[currentTheme] || THEME_CONFIG['glass'];
+  
+  /**
+   * Helper de permissão que respeita a hierarquia normalizada
+   */
   const hasAccess = (mod: any) => {
-      if (currentUser.role === 'ADMIN') return true;
+      if (isDev) return true; // DEV acessa tudo
+      if (isAdmin) return true; // ADMIN acessa quase tudo (filtros manuais por módulo)
       return sysModules[mod as keyof SystemModules] !== false && canAccess(currentUser, mod);
   };
 
-  const isUserAiEnabled = (currentUser.keys?.isGeminiEnabled === true && hasAccess('ai')) || currentUser.role === 'ADMIN';
+  const isUserAiEnabled = (currentUser.keys?.isGeminiEnabled === true && hasAccess('ai')) || isAdmin;
 
   const handleSmartNotificationClick = (notif: AppNotification) => {
       if (onNotificationClick) onNotificationClick(notif);
@@ -187,12 +192,14 @@ const Layout: React.FC<LayoutProps> = ({
                       <MessageCircle size={18} className="mr-3" /> <span className="font-bold text-sm">WhatsApp 360</span>
                   </button>
               )}
-              {currentUser.role === 'ADMIN' && (
+              {isDev && (
                   <button onClick={() => setActiveTab('dev_roadmap')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${activeTab === 'dev_roadmap' ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}>
                       <Terminal size={20} className="text-amber-500" /> <span className="font-bold text-sm text-amber-500">Engenharia Admin</span>
                   </button>
               )}
-              <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${activeTab === 'settings' ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}><Settings size={20} /> <span className="font-medium text-sm">Configurações</span></button>
+              {isAdmin && (
+                <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${activeTab === 'settings' ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}><Settings size={20} /> <span className="font-medium text-sm">Configurações</span></button>
+              )}
           </div>
         </nav>
 
@@ -208,6 +215,7 @@ const Layout: React.FC<LayoutProps> = ({
                 <div className="overflow-hidden">
                     <p className="text-sm font-bold truncate">{currentUser.name}</p>
                     <p className="text-[10px] text-gray-500 truncate">@{currentUser.username}</p>
+                    <span className="text-[9px] font-black uppercase text-indigo-500">{currentUser.role}</span>
                 </div>
             </div>
             <button onClick={toggleAppMode} className={`w-full py-2 rounded-xl font-bold text-sm border ${appMode === 'SALES' ? 'bg-blue-600 text-white' : 'bg-emerald-600 text-white'}`}>{`Ir para ${appMode === 'SALES' ? 'Finanças' : 'Vendas'}`}</button>
@@ -242,8 +250,8 @@ const Layout: React.FC<LayoutProps> = ({
                     ))}
                     <div className="pt-4 border-t border-white/10 space-y-4">
                         {hasAccess('whatsapp') && <button onClick={() => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); setIsMobileMenuOpen(false); }} className="w-full flex items-center p-4 bg-emerald-600/10 text-emerald-500 rounded-xl font-bold"><MessageCircle size={20} className="mr-3"/> WhatsApp 360</button>}
-                        {currentUser.role === 'ADMIN' && <button onClick={() => { setActiveTab('dev_roadmap'); setIsMobileMenuOpen(false); }} className="w-full flex items-center p-4 bg-amber-600/10 text-amber-500 rounded-xl font-bold"><Terminal size={20} className="mr-3"/> Engenharia Admin</button>}
-                        <button onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }} className="w-full flex items-center p-4 text-slate-400"><Settings size={20} className="mr-3"/> Configurações</button>
+                        {isDev && <button onClick={() => { setActiveTab('dev_roadmap'); setIsMobileMenuOpen(false); }} className="w-full flex items-center p-4 bg-amber-600/10 text-amber-500 rounded-xl font-bold"><Terminal size={20} className="mr-3"/> Engenharia Admin</button>}
+                        {isAdmin && <button onClick={() => { setActiveTab('settings'); setIsMobileMenuOpen(false); }} className="w-full flex items-center p-4 text-slate-400"><Settings size={20} className="mr-3"/> Configurações</button>}
                         <button onClick={onLogout} className="w-full flex items-center p-4 text-red-500 font-bold border border-red-500/20 rounded-xl mt-4"><LogOut size={20} className="mr-3"/> Sair</button>
                     </div>
                 </div>
@@ -266,7 +274,7 @@ const Layout: React.FC<LayoutProps> = ({
                   </div>
                   <div className="flex gap-3">
                       <button onClick={() => setRequestModal({isOpen: false, module: ''})} className="flex-1 py-3 border border-slate-700 rounded-lg font-bold text-gray-400">Cancelar</button>
-                      <button onClick={() => { setRequestModal({isOpen: false, module: ''}); setSuccessModal(true); }} className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-bold">Solicitar</button>
+                      <button onClick={() => { setRequestModal({isOpen: false, module: ''}); }} className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-bold">Solicitar</button>
                   </div>
               </div>
           </div>

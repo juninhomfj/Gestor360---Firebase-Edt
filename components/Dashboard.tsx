@@ -17,6 +17,9 @@ interface DashboardProps {
   currentUser?: User;
   salesTargets?: SalesTargets; // New prop
   onUpdateTargets?: (targets: SalesTargets) => void; // New prop
+  // Fix: Added missing isAdmin and isDev props to match App.tsx usage
+  isAdmin: boolean;
+  isDev: boolean;
 }
 
 const formatCurrency = (val: number, hidden: boolean) => {
@@ -43,7 +46,12 @@ const StatCard: React.FC<{ title: string; value: string; sub: string; icon: Reac
   );
 };
 
-const Dashboard: React.FC<DashboardProps> = ({ sales, onNewSale, darkMode, hideValues, config, onToggleHide, onUpdateConfig, currentUser, salesTargets, onUpdateTargets }) => {
+const Dashboard: React.FC<DashboardProps> = ({ 
+  sales, onNewSale, darkMode, hideValues, config, onToggleHide, onUpdateConfig, 
+  currentUser, salesTargets, onUpdateTargets,
+  // Fix: Destructure isAdmin and isDev from props
+  isAdmin, isDev 
+}) => {
   const [showConfig, setShowConfig] = useState(false);
   const [showAi, setShowAi] = useState(false); // AI State
   const [transactions, setTransactions] = useState<Transaction[]>([]); // Data for AI

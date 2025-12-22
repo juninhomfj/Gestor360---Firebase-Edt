@@ -1,7 +1,7 @@
 
 export type AppMode = 'SALES' | 'FINANCE' | 'WHATSAPP';
 export type AppTheme = 'glass' | 'neutral' | 'rose' | 'cyberpunk' | 'dark';
-export type UserRole = 'ADMIN' | 'USER';
+export type UserRole = 'DEV' | 'ADMIN' | 'USER';
 export type UserStatus = 'ACTIVE' | 'INACTIVE';
 
 export type PersonType = 'PF' | 'PJ';
@@ -87,6 +87,10 @@ export interface User {
     email: string;
     tel?: string;
     role: UserRole;
+    profile?: string; // Fallback para perfil
+    permissions?: {
+        role: string;
+    };
     profilePhoto?: string;
     theme: AppTheme;
     userStatus: UserStatus;
@@ -142,7 +146,6 @@ export interface SaleFormData {
 export interface Sale extends SaleFormData {
   id: string;
   userId?: string;
-  // Fix: Added marketingCampaignId property required by whatsappLogger.ts
   marketingCampaignId?: string;
   commissionBaseTotal: number;
   commissionValueTotal: number;
