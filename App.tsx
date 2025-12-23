@@ -11,7 +11,6 @@ import FinanceDashboard from './components/FinanceDashboard';
 import FinanceTransactionForm from './components/FinanceTransactionForm';
 import SettingsHub from './components/SettingsHub';
 import ToastContainer, { ToastMessage } from './components/Toast';
-import PasswordReset from './components/PasswordReset';
 import SnowOverlay from './components/SnowOverlay';
 import DevRoadmap from './components/DevRoadmap';
 
@@ -32,7 +31,7 @@ import { reloadSession, logout } from './services/auth';
 import { AudioService } from './services/audioService';
 import { auth as fbAuth } from './services/firebase';
 
-type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'RESET_PASSWORD' | 'APP' | 'ERROR';
+type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'APP' | 'ERROR';
 
 const App: React.FC = () => {
     const initRun = useRef(false);
@@ -97,14 +96,12 @@ const App: React.FC = () => {
             try {
                 await AudioService.preload();
                 
-                // PASSO 1: Aguarda validação estrita do Perfil Firestore
+                // PASSO 1: Aguarda validação estrita do Perfil Firestore com Auto-healing
                 const sessionUser = await reloadSession();
                 
                 if (sessionUser) {
-                    // Se temos um usuário, carregamos os dados
                     await handleLoginSuccess(sessionUser);
                 } else {
-                    // Se logado no Firebase mas sem perfil validado, mostrar erro amigável
                     if (fbAuth.currentUser) {
                         setAuthError("Não foi possível carregar seu perfil. Tente novamente ou contate o administrador.");
                         setAuthView('ERROR');
@@ -126,13 +123,8 @@ const App: React.FC = () => {
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
         
-        // PASSO 2: Garante Tabelas e Dados de Produção APÓS carregar o perfil
-        // Envolvemos em try-catch para que erros de permissão em tabelas específicas não matem o login
-        try {
-            await bootstrapProductionData();
-        } catch (bootstrapErr) {
-            console.warn("Bootstrap ignorado por restrição de acesso temporária.");
-        }
+        // PASSO 2: Executa Bootstrap Nível 2 (Seed de Infraestrutura)
+        await bootstrapProductionData();
 
         // PASSO 3: Carrega Dados Reais
         await loadDataForUser();
@@ -171,7 +163,6 @@ const App: React.FC = () => {
             setReportConfig(rConfig);
         } catch (e) {
             console.error("Erro ao carregar dados do usuário:", e);
-            // Fallback para arrays vazios para não quebrar a UI
         }
     };
 
@@ -225,7 +216,7 @@ const App: React.FC = () => {
                     cards={cards}
                     categories={categories}
                     onSave={async (tx: Transaction) => {
-                        await saveFinanceData(accounts, cards, [...transactions, tx], categories, goals, challenges, cells, receivables);
+                        await saveFinanceData(accounts, cards, [...transactions, tx], categories);
                     }}
                     onSaved={loadDataForUser}
                 />

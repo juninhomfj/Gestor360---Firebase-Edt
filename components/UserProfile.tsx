@@ -14,7 +14,6 @@ interface UserProfileProps {
 }
 
 const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }) => {
-  // DEV ignora qualquer bloqueio de UI para gestão total
   const isSuper = currentUser.role === 'DEV' || currentUser.role === 'ADMIN';
   const isRoot = currentUser.role === 'DEV';
   
@@ -23,7 +22,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
   const [tel, setTel] = useState(currentUser.tel || '');
   const [profilePhoto, setProfilePhoto] = useState(currentUser.profilePhoto || '');
   const [contactVisibility, setContactVisibility] = useState(currentUser.contactVisibility || 'PUBLIC');
-  const [modules, setModules] = useState(currentUser.modules);
+  
+  // GARANTIA: Inicializa como objeto vazio se currentUser.modules for nulo/undefined
+  const [modules, setModules] = useState(currentUser.modules || {});
   
   const [isSaving, setIsSaving] = useState(false);
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
@@ -115,19 +116,20 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                     <Lock size={14} /> Módulos Disponíveis
                 </h3>
                 <div className="space-y-2">
-                    {Object.keys(modules).map((mod) => (
+                    {/* GUARD: Verifica se modules é um objeto válido antes de iterar */}
+                    {modules && typeof modules === 'object' ? Object.keys(modules).map((mod) => (
                         <label key={mod} className={`flex items-center justify-between p-2 rounded text-xs cursor-pointer transition-all ${modules[mod as keyof typeof modules] ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20' : 'bg-gray-50 text-gray-400 opacity-50'}`}>
                             <span className="capitalize font-bold">{mod}</span>
                             <input 
                                 type="checkbox" 
                                 className="hidden" 
-                                checked={modules[mod as keyof typeof modules]} 
+                                checked={!!modules[mod as keyof typeof modules]} 
                                 disabled={!isSuper}
                                 onChange={(e) => isSuper && setModules({...modules, [mod]: e.target.checked})}
                             />
                             {modules[mod as keyof typeof modules] ? <CheckCircle size={14}/> : <Lock size={14}/>}
                         </label>
-                    ))}
+                    )) : <p className="text-xs text-gray-500 italic">Nenhum módulo disponível.</p>}
                 </div>
                 {(!isSuper) && <p className="text-[10px] text-gray-400 mt-4 italic text-center">Permissões gerenciadas pelo administrador.</p>}
                 {(isRoot) && <p className="text-[10px] text-purple-500 mt-4 font-bold text-center">Modo Engenheiro: Acesso Total Liberado.</p>}

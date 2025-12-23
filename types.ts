@@ -4,7 +4,7 @@ export type AppTheme = 'glass' | 'neutral' | 'rose' | 'cyberpunk' | 'dark';
 export type UserRole = 'DEV' | 'ADMIN' | 'USER';
 export type UserStatus = 'ACTIVE' | 'INACTIVE';
 
-export interface UserModules {
+export interface UserPermissions {
     sales: boolean;
     finance: boolean;
     whatsapp: boolean;
@@ -16,13 +16,37 @@ export interface UserModules {
     receivables: boolean;
     distribution: boolean;
     imports: boolean;
+    settings: boolean;
 }
 
-export type SystemModules = UserModules;
+/**
+ * Added UserKeys interface for AI configuration
+ */
+export interface UserKeys {
+    isGeminiEnabled: boolean;
+    aiPermissions?: {
+        canCreateTransactions: boolean;
+        canSearchWeb: boolean;
+    };
+}
+
+/**
+ * Added FinancialProfile interface for user finance settings
+ */
+export interface FinancialProfile {
+    salaryDays: number[];
+    salaryDay?: number;
+}
+
+/**
+ * Added UserModules as an alias for UserPermissions
+ */
+export type UserModules = UserPermissions;
 
 export interface User {
     id: string;
-    username: string; // Login alternativo único
+    uid: string; // Firebase Auth UID
+    username: string;
     name: string;
     email: string;
     role: UserRole;
@@ -30,27 +54,23 @@ export interface User {
     theme: AppTheme;
     userStatus: UserStatus;
     createdAt: string;
-    modules: UserModules;
+    updatedAt: string;
+    permissions: UserPermissions;
     profilePhoto?: string;
     tel?: string;
     chat_config?: {
         public_access: boolean;
         private_enabled: boolean;
     };
-    keys?: {
-        isGeminiEnabled: boolean;
-        aiPermissions?: {
-            canCreateTransactions: boolean;
-            canSearchWeb: boolean;
-        };
-    };
+    keys?: UserKeys;
+    // Added missing properties found in components
+    modules?: UserModules;
+    financialProfile?: FinancialProfile;
     contactVisibility?: 'PUBLIC' | 'PRIVATE';
-    financialProfile?: {
-        salaryDays?: number[];
-    };
 }
 
-export type UserKeys = User['keys'];
+// Interfaces auxiliares mantidas para compatibilidade
+export type SystemModules = Partial<UserPermissions>;
 
 // --- MÓDULO CLIENTES & CRM ---
 export type ClientStatus = 'ATIVO' | 'AZINHO' | 'PROSPECÇÃO' | 'INATIVO' | 'IR_RODIZIO';
@@ -58,11 +78,13 @@ export type BenefitProfile = 'BASICA' | 'NATAL' | 'AMBOS';
 
 export interface Client {
     id: string;
+    clientCode?: string;
     name: string;
     companyName: string;
     contactName: string;
     status: ClientStatus;
     benefitProfile: BenefitProfile;
+    quotationDay?: number;
     monthlyQuantityDeclared: number;
     monthlyQuantityAverage: number;
     isActive: boolean;
@@ -110,6 +132,9 @@ export interface Sale {
   marketingCampaignId?: string;
 }
 
+/**
+ * Added SaleFormData for bulk import operations
+ */
 export type SaleFormData = Partial<Sale>;
 
 export interface FinanceAccount {
@@ -121,6 +146,8 @@ export interface FinanceAccount {
     includeInDistribution: boolean;
     personType?: 'PF' | 'PJ';
     color?: string;
+    deleted?: boolean;
+    createdAt?: any;
 }
 
 export interface CreditCard {
@@ -131,7 +158,7 @@ export interface CreditCard {
     closingDay: number;
     dueDay: number;
     color: string;
-    personType: PersonType;
+    personType: 'PF' | 'PJ';
 }
 
 export interface Transaction {
@@ -161,10 +188,11 @@ export interface Transaction {
 export interface TransactionCategory {
     id: string;
     name: string;
-    type: 'INCOME' | 'EXPENSE';
+    type: 'INCOME' | 'EXPENSE' | 'GENERIC';
     personType?: 'PF' | 'PJ';
     subcategories: string[];
     monthlyBudget?: number;
+    deleted?: boolean;
 }
 
 export interface ProductLabels {
@@ -175,13 +203,17 @@ export interface ProductLabels {
 
 export interface SystemConfig {
     theme?: AppTheme;
-    modules?: UserModules;
+    modules?: UserPermissions;
     productLabels?: ProductLabels;
     notificationSound?: string;
     alertSound?: string;
     successSound?: string;
     warningSound?: string;
     includeNonAccountingInTotal?: boolean;
+    bootstrapVersion?: number;
+    environment?: string;
+    initializedAt?: any;
+    // Added missing properties found in components
     supportEmail?: string;
     supportTelegram?: string;
 }
@@ -224,6 +256,12 @@ export interface FinanceGoal {
 export interface Receivable { id: string; description: string; value: number; date: string; status: 'PENDING' | 'EFFECTIVE'; distributed: boolean; deductions?: CommissionDeduction[]; }
 export interface FinancialPacing { daysRemaining: number; safeDailySpend: number; pendingExpenses: number; nextIncomeDate: Date; }
 export interface DuplicateGroup<T> { id: string; items: T[]; }
+
+/**
+ * Added SyncTable type for database operations
+ */
+export type SyncTable = 'users' | 'sales' | 'accounts' | 'transactions' | 'clients' | 'client_transfer_requests' | 'commission_basic' | 'commission_natal' | 'commission_custom' | 'config' | 'cards' | 'categories' | 'goals' | 'challenges' | 'challenge_cells' | 'receivables' | 'wa_contacts' | 'wa_tags' | 'wa_campaigns' | 'wa_queue' | 'wa_manual_logs' | 'wa_campaign_stats' | 'internal_messages' | 'audit_log';
+
 export interface SyncEntry { id: number; table: string; type: string; status: 'PENDING' | 'SYNCED' | 'FAILED'; timestamp: number; data: any; rowId: string; retryCount: number; }
 
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'CRASH';
@@ -231,7 +269,7 @@ export interface LogEntry { timestamp: number; level: LogLevel; message: string;
 
 export interface WAContact { id: string; name: string; phone: string; tags: string[]; createdAt: string; updatedAt: string; deleted?: boolean; source?: string; variables?: Record<string, string>; deletedAt?: string; }
 export interface WATag { id: string; name: string; deleted?: boolean; updatedAt: string; }
-export interface WACampaign { id: string; name: string; status: string; totalContacts: number; sentCount: number; messageTemplate: string; targetTags: string[]; config: { speed: WASpeed; startTime: string; endTime: string; }; abTest?: any; media?: any; archived?: boolean; deleted?: boolean; createdAt: string; updatedAt: string; }
+export interface WACampaign { id: string; name: string; status: string; totalContacts: number; sentCount: number; messageTemplate: string; targetTags: string[]; config: { speed: 'FAST' | 'SAFE' | 'SLOW'; startTime: string; endTime: string; }; abTest?: any; media?: any; archived?: boolean; deleted?: boolean; createdAt: string; updatedAt: string; }
 export interface WAMessageQueue { id: string; campaignId: string; contactId: string; phone: string; message: string; status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'; variant: 'A' | 'B'; media?: any; sentAt?: string; deleted?: boolean; }
 
 export interface ManualInteractionLog { 
@@ -267,26 +305,42 @@ export interface InternalMessage { id: string; senderId: string; senderName: str
 export interface AppNotification { id: string; title: string; message: string; type: string; source: string; date: string; }
 export interface ClientTransferRequest { id: string; clientId: string; fromUserId: string; toUserId: string; status: 'PENDING' | 'APPROVED' | 'REJECTED'; message: string | null; createdAt: string; updatedAt: string; }
 
-export interface AiUsageStats {
-    date: string;
-    requestsCount: number;
-    inputTokensApprox: number;
-    outputTokensApprox: number;
-    lastRequestTime: number;
-}
+export type ImportMapping = Record<string, number>;
+export type PersonType = 'PF' | 'PJ';
 
+/**
+ * Added WASpeed type for WhatsApp campaigns
+ */
+export type WASpeed = 'FAST' | 'SAFE' | 'SLOW';
+
+/**
+ * Added WhatsAppErrorCode for feedback reporting
+ */
+export type WhatsAppErrorCode = 'BLOCKED_BY_USER' | 'PHONE_NOT_REGISTERED' | 'INVALID_PHONE' | 'NETWORK_ERROR' | 'RATE_LIMITED' | 'UNKNOWN_ERROR';
+
+/**
+ * Added WAMediaType for campaign media attachments
+ */
+export type WAMediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
+
+/**
+ * Added WASyncConfig for WhatsApp settings
+ */
 export interface WASyncConfig {
-  tablesToSync: string[];
-  syncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY' | 'MANUAL';
-  includeErrorDetails: boolean;
-  compressLogsOlderThan: number;
+    tablesToSync: string[];
+    syncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY' | 'MANUAL';
+    includeErrorDetails: boolean;
+    compressLogsOlderThan: number;
 }
 
+/**
+ * Added WASyncPayload for sync operations
+ */
 export interface WASyncPayload {
-    contacts: any[];
-    campaigns: any[];
+    contacts: WAContact[];
+    campaigns: WACampaign[];
     deliveryLogs: any[];
-    campaignStats: any[];
+    campaignStats: CampaignStatistics[];
     syncMetadata: {
         timestamp: string;
         deviceId: string;
@@ -296,14 +350,22 @@ export interface WASyncPayload {
     };
 }
 
-export type ImportMapping = Record<string, number>;
-export type PersonType = 'PF' | 'PJ';
+/**
+ * Added AudioType for system events
+ */
 export type AudioType = 'NOTIFICATION' | 'ALERT' | 'SUCCESS' | 'WARNING';
-export type WAMediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
-export type WASpeed = 'FAST' | 'SAFE' | 'SLOW';
-export type WhatsAppErrorCode = 'BLOCKED_BY_USER' | 'PHONE_NOT_REGISTERED' | 'INVALID_PHONE' | 'NETWORK_ERROR' | 'RATE_LIMITED' | 'UNKNOWN_ERROR';
+
 export type ChallengeModel = 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
 export interface Challenge { id: string; name: string; targetValue: number; depositCount: number; model: ChallengeModel; createdAt: string; status: 'ACTIVE' | 'COMPLETED'; }
 export interface ChallengeCell { id: string; challengeId: string; number: number; value: number; status: 'PENDING' | 'PAID'; paidDate?: string; }
 
-export type SyncTable = 'users' | 'sales' | 'accounts' | 'transactions' | 'clients' | 'client_transfer_requests' | 'commission_basic' | 'commission_natal' | 'commission_custom' | 'config' | 'cards' | 'categories' | 'goals' | 'challenges' | 'challenge_cells' | 'receivables' | 'wa_contacts' | 'wa_tags' | 'wa_campaigns' | 'wa_queue' | 'wa_manual_logs' | 'wa_campaign_stats';
+/**
+ * Added AiUsageStats for tracking AI quotas
+ */
+export interface AiUsageStats {
+    date: string;
+    requestsCount: number;
+    inputTokensApprox: number;
+    outputTokensApprox: number;
+    lastRequestTime: number;
+}
