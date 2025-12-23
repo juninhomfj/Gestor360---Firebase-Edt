@@ -24,6 +24,8 @@ const DEFAULT_MODULES: UserModules = {
     receivables: true,
     distribution: true,
     imports: true,
+    /* Fixed: Added missing settings permission */
+    settings: true,
 };
 
 const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {

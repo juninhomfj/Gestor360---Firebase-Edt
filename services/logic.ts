@@ -74,8 +74,9 @@ export const canAccess = (user: User | null, feature: string): boolean => {
  * Garante que 21 coleções existam com dados mínimos.
  */
 export const bootstrapProductionData = async (): Promise<any> => {
-    if (!fbAuth.currentUser) return { success: false, msg: "Usuário não autenticado." };
-    const uid = fbAuth.currentUser.uid;
+    /* Fixed: Changed fbAuth to auth */
+    if (!auth.currentUser) return { success: false, msg: "Usuário não autenticado." };
+    const uid = auth.currentUser.uid;
     const stats: any = { created: [], docs: {} };
 
     console.info("[Bootstrap V2] Iniciando sincronização de infraestrutura...");
@@ -164,7 +165,8 @@ export const bootstrapProductionData = async (): Promise<any> => {
 // --- CONFIGURAÇÃO ---
 export const getSystemConfig = async (): Promise<SystemConfig> => {
     const local = await getConfigItem('system_config');
-    if (fbAuth.currentUser) {
+    /* Fixed: Changed fbAuth to auth */
+    if (auth.currentUser) {
         try {
             const snap = await getDoc(doc(db, "config", "system"));
             if (snap.exists()) return snap.data() as SystemConfig;
@@ -175,14 +177,16 @@ export const getSystemConfig = async (): Promise<SystemConfig> => {
 
 export const saveSystemConfig = async (config: SystemConfig) => {
     await saveConfigItem('system_config', config);
-    if (fbAuth.currentUser) {
+    /* Fixed: Changed fbAuth to auth */
+    if (auth.currentUser) {
         await setDoc(doc(db, "config", "system"), { ...config, updatedAt: serverTimestamp() }, { merge: true });
     }
 };
 
 export const getReportConfig = async (): Promise<ReportConfig> => {
     const local = await getConfigItem('report_config');
-    if (fbAuth.currentUser) {
+    /* Fixed: Changed fbAuth to auth */
+    if (auth.currentUser) {
         try {
             const snap = await getDoc(doc(db, "config", "reports"));
             if (snap.exists()) return snap.data() as ReportConfig;
@@ -193,16 +197,18 @@ export const getReportConfig = async (): Promise<ReportConfig> => {
 
 export const saveReportConfig = async (config: ReportConfig) => {
     await saveConfigItem('report_config', config);
-    if (fbAuth.currentUser) {
+    /* Fixed: Changed fbAuth to auth */
+    if (auth.currentUser) {
         await setDoc(doc(db, "config", "reports"), { ...config, updatedAt: serverTimestamp() }, { merge: true });
     }
 };
 
 // --- VENDAS ---
 export const getStoredSales = async (): Promise<Sale[]> => {
-    if (fbAuth.currentUser) {
+    /* Fixed: Changed fbAuth to auth */
+    if (auth.currentUser) {
         try {
-            const q = query(collection(db, "sales"), where("userId", "==", fbAuth.currentUser.uid));
+            const q = query(collection(db, "sales"), where("userId", "==", auth.currentUser.uid));
             const snap = await getDocs(q);
             return snap.docs.map(d => ({ id: d.id, ...d.data() } as Sale)).filter(s => !s.deleted);
         } catch (e) { return []; }
@@ -211,8 +217,9 @@ export const getStoredSales = async (): Promise<Sale[]> => {
 };
 
 export const saveSingleSale = async (sale: Sale) => {
-    if (fbAuth.currentUser) {
-        await setDoc(doc(db, "sales", sale.id), { ...sale, userId: fbAuth.currentUser.uid, updatedAt: serverTimestamp() });
+    /* Fixed: Changed fbAuth to auth */
+    if (auth.currentUser) {
+        await setDoc(doc(db, "sales", sale.id), { ...sale, userId: auth.currentUser.uid, updatedAt: serverTimestamp() });
     }
 };
 
@@ -222,8 +229,9 @@ export const saveSales = async (sales: Sale[]) => {
 
 // --- FINANCEIRO ---
 export const getFinanceData = async () => {
-    if (fbAuth.currentUser) {
-        const uid = fbAuth.currentUser.uid;
+    /* Fixed: Changed fbAuth to auth */
+    if (auth.currentUser) {
+        const uid = auth.currentUser.uid;
         try {
             const [accS, txS, catS] = await Promise.all([
                 getDocs(query(collection(db, "accounts"), where("userId", "==", uid))),
@@ -254,7 +262,8 @@ export const saveFinanceData = async (
     cells?: ChallengeCell[],
     receivables?: Receivable[]
 ) => {
-    const uid = fbAuth.currentUser?.uid;
+    /* Fixed: Changed fbAuth to auth */
+    const uid = auth.currentUser?.uid;
     if (!uid) return;
 
     for (const a of acc) await setDoc(doc(db, "accounts", a.id), { ...a, userId: uid });
@@ -294,17 +303,19 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
 
 // --- CLIENTES ---
 export const getClients = async (): Promise<Client[]> => {
-    if (!fbAuth.currentUser) return [];
+    /* Fixed: Changed fbAuth to auth */
+    if (!auth.currentUser) return [];
     try {
-        const q = query(collection(db, "clients"), where("userId", "==", fbAuth.currentUser.uid));
+        const q = query(collection(db, "clients"), where("userId", "==", auth.currentUser.uid));
         const snap = await getDocs(q);
         return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(c => !c.deleted);
     } catch (e) { return []; }
 };
 
 export const saveClient = async (client: Client) => {
-    if (fbAuth.currentUser) {
-        await setDoc(doc(db, "clients", client.id), { ...client, userId: fbAuth.currentUser.uid, updatedAt: serverTimestamp() });
+    /* Fixed: Changed fbAuth to auth */
+    if (auth.currentUser) {
+        await setDoc(doc(db, "clients", client.id), { ...client, userId: auth.currentUser.uid, updatedAt: serverTimestamp() });
     }
 };
 
