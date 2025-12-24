@@ -36,7 +36,7 @@ import {
     getStoredSales, getFinanceData, getSystemConfig, getReportConfig,
     getStoredTable, saveFinanceData, saveSingleSale, getClients,
     saveCommissionRules, bootstrapProductionData, saveReportConfig,
-    saveSales
+    saveSales, canAccess
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -130,10 +130,35 @@ const App: React.FC = () => {
         init();
     }, []);
 
+    const requestModulePermissions = async () => {
+        try {
+            // Solicita permissões de mídia apenas se o navegador suportar e for necessário
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+                    .then(stream => {
+                        // Fecha o stream imediatamente, queremos apenas garantir a permissão
+                        stream.getTracks().forEach(track => track.stop());
+                        console.info("[Permissions] Mídia autorizada para o módulo WhatsApp.");
+                    })
+                    .catch(err => {
+                        console.warn("[Permissions] Usuário negou ou falha na permissão de mídia:", err);
+                    });
+            }
+        } catch (e) {
+            console.error("[Permissions] Erro ao solicitar permissões:", e);
+        }
+    };
+
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
         await bootstrapProductionData();
         await loadDataForUser();
+        
+        // Regra Granular: Solicitar permissão de câmera/mic apenas se tiver acesso ao WhatsApp
+        if (canAccess(user, 'whatsapp')) {
+            await requestModulePermissions();
+        }
+
         setAuthView('APP');
         setLoading(false);
     };

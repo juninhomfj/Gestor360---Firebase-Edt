@@ -1,13 +1,16 @@
 
 import React, { useState, useEffect } from 'react';
-import { MessageCircle, Users, Send, Play, CheckCircle, Plus, ExternalLink, Copy, ArrowRight, BarChart2, Wand2, Smartphone, Volume2, Loader2, Sparkles, TrendingUp, DollarSign } from 'lucide-react';
+import { MessageCircle, Users, Send, Play, CheckCircle, Plus, ExternalLink, Copy, ArrowRight, BarChart2, Wand2, Smartphone, Volume2, Loader2, Sparkles, TrendingUp, DollarSign, CloudUpload } from 'lucide-react';
 import { WAContact, WATag, WACampaign, WAMessageQueue, Sale } from '../types';
-import { getWAContacts, getWATags, getWACampaigns, saveWACampaign, createCampaignQueue, getWAQueue, updateQueueStatus, copyToClipboard, openWhatsAppWeb, copyImageToClipboard } from '../services/whatsappService';
+import { getWAContacts, getWATags, getWACampaigns, saveWACampaign, createCampaignQueue, getWAQueue, updateQueueStatus, copyToClipboard, openWhatsAppWeb, copyImageToClipboard, exportWAContactsToServer, createWACampaignRemote } from '../services/whatsappService';
 import { WhatsAppManualLogger } from '../services/whatsappLogger';
 import { generateAudioMessage } from '../services/aiService';
 import WhatsAppPreview from './WhatsAppPreview';
 import WhatsAppCampaignWizard from './WhatsAppCampaignWizard';
 import WhatsAppDashboard from './WhatsAppDashboard';
+import WhatsAppConnection from './WhatsAppConnection';
+// Fix: Added missing import for WhatsAppContacts component
+import WhatsAppContacts from './WhatsAppContacts';
 import { auth } from '../services/firebase';
 
 interface WhatsAppModuleProps {
@@ -16,7 +19,7 @@ interface WhatsAppModuleProps {
 }
 
 const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'DASHBOARD' | 'CONTACTS' | 'PLAYER' | 'STATS'>('DASHBOARD');
+  const [activeSubTab, setActiveSubTab] = useState<'DASHBOARD' | 'CONTACTS' | 'PLAYER' | 'STATS' | 'CONNECTION'>('DASHBOARD');
   const [contacts, setContacts] = useState<WAContact[]>([]);
   const [tags, setTags] = useState<WATag[]>([]);
   const [campaigns, setCampaigns] = useState<WACampaign[]>([]);
@@ -27,6 +30,7 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
   const [showWizard, setShowWizard] = useState(false);
   const [mediaCopied, setMediaCopied] = useState(false);
   const [generatingAudio, setGeneratingAudio] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
@@ -49,6 +53,18 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
       setActiveLogId(logId);
   };
 
+  const handleExportToServer = async () => {
+      setExporting(true);
+      try {
+          await exportWAContactsToServer();
+          alert("Contatos exportados com sucesso!");
+      } catch (e: any) {
+          alert("Erro ao exportar: " + e.message);
+      } finally {
+          setExporting(false);
+      }
+  };
+
   const handleAction = async (action: 'COPY_TEXT' | 'COPY_IMAGE' | 'OPEN_WA' | 'CONFIRM' | 'TTS') => {
       if (!currentItem || !activeLogId) return;
 
@@ -56,7 +72,6 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
           if (currentItem.media?.data) {
               const success = await copyImageToClipboard(currentItem.media.data);
               if (success) setMediaCopied(true);
-              // Corrected: Removed 'as any' as mediaCopiedAt is now in ManualInteractionLog
               await WhatsAppManualLogger.logStep(activeLogId, 'mediaCopiedAt');
           }
       } else if (action === 'COPY_TEXT') {
@@ -109,6 +124,14 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                         deleted: false,
                         userId: auth.currentUser?.uid || ''
                     };
+                    
+                    // Create remote campaign first
+                    try {
+                        await createWACampaignRemote(newCamp, target);
+                    } catch (e) {
+                        console.warn("Falha ao criar campanha remota, salvando local.");
+                    }
+
                     await saveWACampaign(newCamp);
                     await createCampaignQueue(newCamp.id, newCamp.messageTemplate, target, newCamp.targetTags, data.abTest, data.media);
                     setShowWizard(false);
@@ -123,7 +146,7 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                 <MessageCircle className="text-emerald-500" /> WhatsApp <span className="text-emerald-500">Marketing</span>
             </h1>
             <div className="flex p-1 rounded-xl bg-gray-100 dark:bg-slate-800">
-                {['DASHBOARD', 'CONTACTS', 'STATS'].map(tab => (
+                {['DASHBOARD', 'CONTACTS', 'CONNECTION', 'STATS'].map(tab => (
                     <button 
                         key={tab} 
                         onClick={() => setActiveSubTab(tab as any)} 
@@ -144,7 +167,13 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                         </div>
                         <h3 className="text-2xl font-black mb-2">Novo Disparo Estratégico</h3>
                         <p className="text-sm text-gray-500 max-w-md mx-auto mb-8">Segmente seu público, utilize IA para copy persuasiva e execute com segurança anti-bloqueio.</p>
-                        <button onClick={() => setShowWizard(true)} className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-xl shadow-indigo-900/30 hover:scale-105 transition-all">Iniciar Wizard</button>
+                        <div className="flex gap-4">
+                          <button onClick={() => setShowWizard(true)} className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-xl shadow-indigo-900/30 hover:scale-105 transition-all">Iniciar Wizard</button>
+                          <button onClick={handleExportToServer} disabled={exporting} className="px-6 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all disabled:opacity-50">
+                            {exporting ? <Loader2 className="animate-spin" size={20}/> : <CloudUpload size={20}/>}
+                            Exportar p/ Servidor
+                          </button>
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -163,6 +192,8 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                     </div>
                 </div>
             )}
+
+            {activeSubTab === 'CONNECTION' && <WhatsAppConnection darkMode={darkMode} />}
 
             {activeSubTab === 'PLAYER' && currentItem && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-full">
@@ -215,6 +246,10 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                         <div className="p-20 text-center opacity-50">Sem dados para exibir.</div>
                     )}
                 </div>
+            )}
+            
+            {activeSubTab === 'CONTACTS' && (
+              <WhatsAppContacts contacts={contacts} tags={tags} onUpdate={loadData} darkMode={darkMode} sales={sales} />
             )}
         </div>
     </div>

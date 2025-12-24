@@ -22,7 +22,17 @@
     "vite": "^7.2.7",
     "canvas-confetti": "^1.9.4",
     "@supabase/supabase-js": "^2.87.1",
-    "firebase": "^12.7.0"
+    "firebase": "^12.7.0",
+    "uuid": "^13.0.0",
+    "express": "^5.2.1",
+    "cors": "^2.8.5",
+    "crypto": "^1.0.1",
+    "dotenv": "^17.2.3",
+    "firebase-admin": "^13.6.0",
+    "multer": "^2.0.2",
+    "qrcode": "^1.5.4",
+    "@hapi/boom": "^10.0.1",
+    "@adiwajshing/baileys": "^5.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

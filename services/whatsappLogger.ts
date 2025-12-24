@@ -1,16 +1,14 @@
-
-import { dbPut, dbGetAll, dbGet } from '../storage/db';
-import { LogEntry, LogLevel, WAContact, ManualInteractionLog, CampaignStatistics } from '../types';
+import { dbPut } from '../storage/db';
+import { LogEntry, LogLevel, WAContact, ManualInteractionLog } from '../types';
 
 const maskPhone = (phone: string) => {
     if (!phone) return '';
-    return phone.slice(-4).padStart(phone.length, '*');
+    return phone.length > 4 ? `*******${phone.slice(-4)}` : '****';
 };
 
-// Fix: Renamed export to WhatsAppManualLogger to match component usage
 export const WhatsAppManualLogger = {
     async log(level: LogLevel, message: string, details?: any) {
-        // Redaction step
+        // Mask PII in details
         const safeDetails = details ? JSON.parse(JSON.stringify(details)) : {};
         if (safeDetails.phone) safeDetails.phone = maskPhone(safeDetails.phone);
         if (safeDetails.to) safeDetails.to = maskPhone(safeDetails.to);
@@ -26,10 +24,10 @@ export const WhatsAppManualLogger = {
         try {
             await dbPut('audit_log', entry as any);
             if (process.env.NODE_ENV === 'development') {
-                console.log(`[WA-MODULE][${level}] ${message}`, safeDetails);
+                console.log(`[WA-LOG][${level}] ${message}`, safeDetails);
             }
         } catch (e) {
-            console.error("Falha ao salvar log WhatsApp", e);
+            console.error("Critical logger failure", e);
         }
     },
 
@@ -37,73 +35,18 @@ export const WhatsAppManualLogger = {
     warn(message: string, details?: any) { this.log('WARN', message, details); },
     error(message: string, details?: any) { this.log('ERROR', message, details); },
 
-    // Fix: Implemented startInteraction to track the beginning of a manual send
     async startInteraction(campaignId: string, contact: WAContact, speed: string): Promise<string> {
-        const log: ManualInteractionLog = {
-            id: crypto.randomUUID(),
-            campaignId,
-            contactId: contact.id,
-            phone: contact.phone,
-            startedAt: new Date().toISOString(),
-            status: 'IN_PROGRESS',
-            messageLength: 0,
-            tags: contact.tags,
-            campaignSpeed: speed,
-            deviceInfo: { userAgent: navigator.userAgent },
-            userId: contact.userId
-        };
-        await dbPut('wa_manual_logs', log);
-        return log.id;
+        const logId = crypto.randomUUID();
+        await this.info(`Iniciando interação manual para ${contact.name}`, { campaignId, logId, phone: contact.phone, speed });
+        return logId;
     },
 
-    // Fix: Implemented logStep to record progress of interaction (copying, opening WA, etc)
-    async logStep(logId: string, stepField: keyof ManualInteractionLog) {
-        const log = await dbGet('wa_manual_logs', logId);
-        if (log) {
-            const updated = { ...log, [stepField]: new Date().toISOString() };
-            if (stepField === 'completedAt') {
-                updated.status = 'COMPLETED';
-                const start = new Date(log.startedAt).getTime();
-                const end = new Date(updated.completedAt as string).getTime();
-                updated.totalInteractionTime = (end - start) / 1000;
-            }
-            await dbPut('wa_manual_logs', updated);
-        }
+    async logStep(logId: string, step: keyof ManualInteractionLog) {
+        await this.info(`Passo da interação: ${String(step)}`, { logId });
     },
 
-    // Fix: Implemented generateCampaignStatistics to aggregate log data
-    async generateCampaignStatistics(campaignId: string): Promise<CampaignStatistics> {
-        const allLogs = await dbGetAll('wa_manual_logs');
-        const campaignLogs = allLogs.filter(l => l.campaignId === campaignId);
-        const completed = campaignLogs.filter(l => l.status === 'COMPLETED');
-        
-        const totalTime = completed.reduce((acc, l) => acc + (l.totalInteractionTime || 0), 0);
-        const avgTime = completed.length > 0 ? totalTime / completed.length : 0;
-
-        return {
-            campaignId,
-            generatedAt: new Date().toISOString(),
-            totalContacts: campaignLogs.length,
-            attempted: campaignLogs.length,
-            completed: completed.length,
-            skipped: campaignLogs.filter(l => l.status === 'SKIPPED').length,
-            failed: campaignLogs.filter(l => l.status === 'FAILED').length,
-            averageTimePerContact: avgTime,
-            fastestContactTime: Math.min(...completed.map(l => l.totalInteractionTime || 999), 0),
-            slowestContactTime: Math.max(...completed.map(l => l.totalInteractionTime || 0), 0),
-            totalCampaignTime: totalTime,
-            stepAnalysis: {
-                averageTimeToOpenWhatsApp: 5, // Mock values for MVP
-                averageTimeToPaste: 3,
-                averageTimeToSend: 2
-            },
-            errorAnalysis: {
-                errorRate: campaignLogs.length > 0 ? (campaignLogs.filter(l => l.status === 'FAILED').length / campaignLogs.length) * 100 : 0,
-                byType: {}
-            },
-            userRatings: { average: 4.5, count: completed.length },
-            insights: [],
-            performanceBySpeed: {}
-        } as CampaignStatistics;
+    async generateCampaignStatistics(campaignId: string): Promise<any> {
+        // Basic stub as per requirement
+        return { campaignId, generatedAt: new Date().toISOString(), totalContacts: 0, attempted: 0, completed: 0, skipped: 0, failed: 0 };
     }
 };

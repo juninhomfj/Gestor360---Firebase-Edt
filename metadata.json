@@ -9,5 +9,8 @@
     "Security: Regras de segurança de nível de produção",
     "Architecture: Remoção completa da Sync Queue legada"
   ],
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
 }

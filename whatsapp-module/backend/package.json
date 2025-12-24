@@ -7,30 +7,35 @@
   "scripts": {
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn src/server.ts",
-    "worker": "ts-node-dev src/worker.ts",
+    "worker:redis": "ts-node-dev src/worker-redis.ts",
     "build": "tsc",
     "test": "jest"
   },
   "dependencies": {
+    "@whiskeysockets/baileys": "^6.6.0",
     "express": "^4.18.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
+    "firebase-admin": "^11.11.0",
+    "multer": "^1.4.5-lts.1",
     "bullmq": "^4.12.0",
     "ioredis": "^5.3.2",
-    "pg": "^8.11.3",
-    "multer": "^1.4.5-lts.1",
-    "crypto-js": "^4.2.0",
-    "@whiskeysockets/baileys": "^6.5.0",
+    "@google-cloud/tasks": "^4.0.1",
+    "pino": "^8.16.0",
     "qrcode": "^1.5.3",
-    "pino": "^8.16.2"
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/cors": "^2.8.17",
     "@types/multer": "^1.4.11",
-    "@types/pg": "^8.10.9",
+    "@types/node": "^20.10.0",
+    "@types/qrcode": "^1.5.5",
+    "@types/uuid": "^9.0.7",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.3.3",
-    "jest": "^29.7.0"
+    "typescript": "^5.3.2",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.10",
+    "ts-jest": "^29.1.1"
   }
 }
