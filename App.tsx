@@ -95,15 +95,13 @@ const App: React.FC = () => {
         const init = async () => {
             try {
                 await AudioService.preload();
-                
-                // PASSO 1: Aguarda validação estrita do Perfil Firestore com Auto-healing
                 const sessionUser = await reloadSession();
                 
                 if (sessionUser) {
                     await handleLoginSuccess(sessionUser);
                 } else {
                     if (fbAuth.currentUser) {
-                        setAuthError("Não foi possível carregar seu perfil. Tente novamente ou contate o administrador.");
+                        setAuthError("Sua conta está em processamento ou inativa.");
                         setAuthView('ERROR');
                     } else {
                         setAuthView('LOGIN');
@@ -112,7 +110,7 @@ const App: React.FC = () => {
                 }
             } catch (e: any) {
                 console.error("Crash na inicialização:", e);
-                setAuthError("Falha na conexão com o banco de dados.");
+                setAuthError("Conexão com o servidor falhou.");
                 setAuthView('ERROR');
                 setLoading(false);
             }
@@ -122,11 +120,7 @@ const App: React.FC = () => {
 
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
-        
-        // PASSO 2: Executa Bootstrap Nível 2 (Seed de Infraestrutura)
         await bootstrapProductionData();
-
-        // PASSO 3: Carrega Dados Reais
         await loadDataForUser();
         setAuthView('APP');
         setLoading(false);
@@ -134,18 +128,18 @@ const App: React.FC = () => {
 
     const loadDataForUser = async () => {
         try {
-            const sysConfig = await getSystemConfig();
-            if (sysConfig.theme) setTheme(sysConfig.theme);
-
-            const [storedSales, storedClients, finData, rBasic, rNatal, rCustom, rConfig] = await Promise.all([
+            const [storedSales, storedClients, finData, rBasic, rNatal, rCustom, sysCfg, rConfig] = await Promise.all([
                 getStoredSales(), 
                 getClients(), 
                 getFinanceData(),
                 getStoredTable(ProductType.BASICA), 
                 getStoredTable(ProductType.NATAL), 
                 getStoredTable(ProductType.CUSTOM),
+                getSystemConfig(),
                 getReportConfig()
             ]);
+
+            if (sysCfg.theme) setTheme(sysCfg.theme);
 
             setSales(storedSales || []);
             setClients(storedClients || []);
@@ -181,7 +175,7 @@ const App: React.FC = () => {
                 <div className="max-w-md bg-slate-900 border border-red-500/50 p-8 rounded-3xl shadow-2xl">
                     <h1 className="text-2xl font-bold text-red-500 mb-4">Acesso Restrito</h1>
                     <p className="text-slate-400 mb-8">{authError}</p>
-                    <button onClick={() => logout()} className="px-6 py-3 bg-white text-black rounded-lg font-bold hover:bg-gray-100 transition-colors">Tentar Novamente</button>
+                    <button onClick={() => logout()} className="px-6 py-3 bg-white text-black rounded-lg font-bold hover:bg-gray-100 transition-colors">Voltar ao Login</button>
                 </div>
             </div>
         );
@@ -235,7 +229,7 @@ const App: React.FC = () => {
                 onNewTransfer={() => setShowTxForm(true)}
                 isAdmin={isAdmin} isDev={isDev}
             >
-                <div className="p-4">
+                <div className="p-4 h-full overflow-hidden">
                     {activeTab === 'dashboard' && (
                         <Dashboard
                             sales={sales} onNewSale={() => setShowSalesForm(true)}
@@ -265,9 +259,7 @@ const App: React.FC = () => {
                                     await saveReportConfig(config);
                                     setReportConfig(config);
                                     addToast('SUCCESS', 'Parâmetros de relatório atualizados!');
-                                } catch (e) {
-                                    addToast('ERROR', 'Falha ao salvar configurações de relatório.');
-                                }
+                                } catch (e) { addToast('ERROR', 'Falha ao salvar configurações.'); }
                             }}
                             darkMode={theme !== 'neutral' && theme !== 'rose'}
                             currentUser={currentUser} onUpdateUser={setCurrentUser}

@@ -2,23 +2,14 @@
 import { GoogleGenAI } from "@google/genai";
 import { Transaction } from '../types';
 
-/**
- * Envia uma mensagem para o Gemini AI e retorna texto, histórico atualizado e grounding.
- * Segue estritamente as diretrizes da SDK do Gemini 3.
- */
 export const sendMessageToAi = async (message: string, history: any[], userKeys: any, sales: any[] = []) => {
-    // GUIDELINE: Always use `const ai = new GoogleGenAI({apiKey: process.env.API_KEY});`.
-    // obtain API key exclusively from process.env.API_KEY
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // Converte histórico para o formato esperado pela API
     const contents = history.map(h => ({
         role: h.role,
         parts: h.parts || [{ text: h.text }]
     })).concat([{ role: 'user', parts: [{ text: message }] }]);
 
-    // Executa geração com grounding de busca (disponível no Gemini 3 Flash)
-    // GUIDELINE: Use gemini-3-flash-preview for text tasks
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: contents,
@@ -28,10 +19,7 @@ export const sendMessageToAi = async (message: string, history: any[], userKeys:
         },
     });
 
-    // Fix: Access .text property directly from GenerateContentResponse as per guidelines.
     const text = response.text || "Desculpe, não consegui processar sua resposta no momento.";
-    
-    // Grounding Metadata conforme diretrizes
     const grounding = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
 
     const newHistory = history.concat([
@@ -48,18 +36,12 @@ export const sendMessageToAi = async (message: string, history: any[], userKeys:
 
 export const isAiAvailable = () => !!process.env.API_KEY;
 
-/**
- * Optimizes a message for WhatsApp using AI.
- * obtain API key exclusively from process.env.API_KEY
- */
 export const optimizeMessage = async (text: string, tone: string, userKeys?: any) => {
-    // GUIDELINE: Always use `const ai = new GoogleGenAI({apiKey: process.env.API_KEY});`.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `Refine o texto abaixo para WhatsApp com tom ${tone}: "${text}"`
     });
-    // Fix: Access .text property instead of text() method.
     return response.text || text;
 };
 

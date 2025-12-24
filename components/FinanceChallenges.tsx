@@ -1,9 +1,9 @@
 
-
 import React, { useState, useEffect } from 'react';
 import { Challenge, ChallengeCell, ChallengeModel } from '../types';
 import { generateChallengeCells } from '../services/logic';
 import { Plus, Trophy, Calendar, Grid, CheckCircle, HelpCircle, Shuffle, Clock, TrendingUp, DollarSign } from 'lucide-react';
+import { auth } from '../services/firebase';
 
 interface FinanceChallengesProps {
   challenges: Challenge[];
@@ -35,6 +35,7 @@ const FinanceChallenges: React.FC<FinanceChallengesProps> = ({ challenges, cells
 
   const handleCreate = () => {
       const id = crypto.randomUUID();
+      // Fix: Included missing required properties for Challenge
       const newChallenge: Challenge = {
           id,
           name: newChalData.name,
@@ -42,7 +43,9 @@ const FinanceChallenges: React.FC<FinanceChallengesProps> = ({ challenges, cells
           depositCount: Number(newChalData.count),
           model: newChalData.model,
           createdAt: new Date().toISOString(),
-          status: 'ACTIVE'
+          status: 'ACTIVE',
+          userId: auth.currentUser?.uid || '',
+          deleted: false
       };
       const newCells = generateChallengeCells(id, newChallenge.targetValue, newChallenge.depositCount, newChallenge.model);
       

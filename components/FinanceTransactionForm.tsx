@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { FinanceAccount, CreditCard, Transaction, TransactionCategory, PersonType } from '../types';
 import { X, Save, TrendingUp, TrendingDown, ArrowLeftRight, CreditCard as CardIcon, Wallet, Tag, Calendar, Building2, User, CheckCircle, Clock, Hash, AlignLeft } from 'lucide-react';
+import { auth } from '../services/firebase';
 
 interface Props {
   isOpen: boolean;
@@ -62,6 +63,7 @@ const FinanceTransactionForm: React.FC<Props> = ({
         if (accountId === targetAccountId) { alert("As contas de origem e destino devem ser diferentes."); return; }
     }
 
+    // Fix: Included missing required properties for Transaction
     const tx: Transaction = {
       id: crypto.randomUUID(),
       type,
@@ -80,7 +82,9 @@ const FinanceTransactionForm: React.FC<Props> = ({
       costCenter,
       tags: tags ? tags.split(',').map(t => t.trim()) : [],
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      deleted: false,
+      userId: auth.currentUser?.uid || ''
     };
 
     if (onSave) await onSave(tx);

@@ -15,6 +15,7 @@ import WhatsAppPreview from './WhatsAppPreview';
 import WhatsAppConnection from './WhatsAppConnection';
 import WhatsAppContacts from './WhatsAppContacts';
 import WhatsAppCampaignWizard from './WhatsAppCampaignWizard'; // New Import
+import { auth } from '../services/firebase';
 
 interface WhatsAppModuleProps {
     darkMode: boolean;
@@ -59,7 +60,7 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
   };
 
   const handleCreateCampaign = async (campaignData: Partial<WACampaign>, targetContacts: WAContact[]) => {
-      /* Fixed: Initialized all required fields including updatedAt */
+      // Fix: Included all required fields for WACampaign
       const newCamp: WACampaign = {
           id: crypto.randomUUID(),
           name: campaignData.name!,
@@ -72,7 +73,9 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           abTest: campaignData.abTest,
-          media: campaignData.media
+          media: campaignData.media,
+          deleted: false,
+          userId: auth.currentUser?.uid || ''
       };
       
       await saveWACampaign(newCamp);
@@ -452,7 +455,7 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                                         className={`w-full p-5 rounded-xl font-bold text-left flex items-center gap-4 shadow-lg transition-all relative overflow-hidden group transform hover:scale-[1.02] active:scale-[0.98] ${
                                             (currentItem.media && !mediaCopied) 
                                             ? 'bg-gray-100 dark:bg-slate-800 border-2 border-gray-200 dark:border-slate-700 text-gray-400 cursor-not-allowed' 
-                                            : 'bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white border-2 border-transparent shadow-emerald-500/20'
+                                            : 'bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white border-2 border-transparent shadow-emerald-500/20'
                                         }`}
                                         disabled={!!currentItem.media && !mediaCopied}
                                     >

@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Receivable, Sale, FinanceAccount, CommissionDeduction } from '../types';
 import { Plus, CheckCircle, Clock, Trash2, Download, AlertTriangle, Edit2, X, DollarSign, Calendar, FileText } from 'lucide-react';
 import ImportCommissionsModal from './ImportCommissionsModal';
+import { auth } from '../services/firebase';
 
 interface FinanceReceivablesProps {
   receivables: Receivable[]; 
@@ -35,6 +36,7 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
 
   const handleSaveNew = () => {
       if (!formData.description || !formData.value) return;
+      // Fix: Included missing required properties for Receivable
       const newItem: Receivable = {
           id: crypto.randomUUID(),
           description: formData.description,
@@ -42,7 +44,9 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
           date: formData.date || new Date().toISOString().split('T')[0],
           status: formData.status as 'PENDING' | 'EFFECTIVE',
           distributed: false,
-          deductions: [] 
+          deductions: [],
+          userId: auth.currentUser?.uid || '',
+          deleted: false
       };
       onUpdate([...receivables, newItem]);
       setIsFormOpen(false);
@@ -52,6 +56,7 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
   const handleImport = (description: string, totalValue: number, deductions: CommissionDeduction[]) => {
       const dateStr = new Date().toISOString().split('T')[0];
       if (totalValue > 0) {
+          // Fix: Included missing required properties for Receivable
           const newRec: Receivable = {
               id: crypto.randomUUID(),
               description: description,
@@ -59,7 +64,9 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
               date: dateStr,
               status: 'PENDING',
               distributed: false,
-              deductions: deductions 
+              deductions: deductions,
+              userId: auth.currentUser?.uid || '',
+              deleted: false
           };
           onUpdate([...receivables, newRec]);
       }
@@ -117,6 +124,7 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
 
       // If Partial, create NEW PENDING item for remaining
       if (remaining > 0.01) {
+          // Fix: Included missing required properties for Receivable
           updatedReceivables.push({
               id: crypto.randomUUID(),
               description: item.description + ' (Restante)',
@@ -124,7 +132,9 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
               date: item.date, 
               status: 'PENDING',
               distributed: false,
-              deductions: [] 
+              deductions: [],
+              userId: auth.currentUser?.uid || '',
+              deleted: false
           });
       }
 

@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { FinanceGoal } from '../types';
 import { Plus, Target, Pencil, Trash2, TrendingUp } from 'lucide-react';
+import { auth } from '../services/firebase';
 
 interface FinanceGoalsProps {
   goals: FinanceGoal[];
@@ -51,13 +52,16 @@ const FinanceGoals: React.FC<FinanceGoalsProps> = ({ goals, onUpdate, darkMode }
     if (editingGoal) {
         newGoals = goals.map(g => g.id === editingGoal.id ? { ...g, name, targetValue: targetNum, currentValue: currentNum, description } as FinanceGoal : g);
     } else {
+        // Fix: Included missing required properties for FinanceGoal
         const newGoal: FinanceGoal = {
             id: crypto.randomUUID(),
             name,
             description,
             targetValue: targetNum,
             currentValue: currentNum,
-            status: 'ACTIVE'
+            status: 'ACTIVE',
+            userId: auth.currentUser?.uid || '',
+            deleted: false
         };
         newGoals.push(newGoal);
     }

@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { FinanceAccount, CreditCard, Transaction, PersonType } from '../types';
 import { CreditCard as CardIcon, Wallet, Plus, Trash2, Edit2, CheckCircle, X, EyeOff, Save, Building2, User, ArrowLeftRight, Calendar } from 'lucide-react';
 import { getInvoiceMonth } from '../services/logic';
+import { auth } from '../services/firebase';
 
 interface FinanceManagerProps {
   accounts: FinanceAccount[];
@@ -90,6 +91,7 @@ const FinanceManager: React.FC<FinanceManagerProps> = ({
           if(onNotify) onNotify('SUCCESS', 'Conta atualizada!');
       } else {
           // Create
+          // Fix: Included missing required properties for FinanceAccount
           const newAcc: FinanceAccount = {
               id: crypto.randomUUID(),
               name: newAccName,
@@ -98,7 +100,11 @@ const FinanceManager: React.FC<FinanceManagerProps> = ({
               color: 'blue',
               isAccounting: newAccIsAccounting,
               includeInDistribution: newAccDistribution,
-              personType: newAccPersonType
+              personType: newAccPersonType,
+              isActive: true,
+              deleted: false,
+              createdAt: new Date().toISOString(),
+              userId: auth.currentUser?.uid || ''
           };
           onUpdate([...accounts, newAcc], transactions, cards);
           if(onNotify) onNotify('SUCCESS', 'Conta adicionada!');
@@ -162,6 +168,7 @@ const FinanceManager: React.FC<FinanceManagerProps> = ({
           if(onNotify) onNotify('SUCCESS', 'Cartão atualizado!');
       } else {
           // Create
+          // Fix: Included missing required properties for CreditCard
           const newCard: CreditCard = {
               id: crypto.randomUUID(),
               name: newCardName,
@@ -170,7 +177,10 @@ const FinanceManager: React.FC<FinanceManagerProps> = ({
               closingDay: parseInt(newCardClosing) || 10,
               dueDay: parseInt(newCardDue) || 15,
               color: 'purple',
-              personType: newCardPersonType
+              personType: newCardPersonType,
+              isActive: true,
+              deleted: false,
+              userId: auth.currentUser?.uid || ''
           };
           onUpdate(accounts, transactions, [...cards, newCard]);
           if(onNotify) onNotify('SUCCESS', 'Cartão adicionado!');
@@ -391,7 +401,7 @@ const FinanceManager: React.FC<FinanceManagerProps> = ({
                     <button 
                         onClick={() => openCardForm()}
                         className="p-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 shadow-sm transition-colors"
-                        title="Novo Cartão"
+                        title="Nova Cartão"
                     >
                         <Plus size={20} />
                     </button>

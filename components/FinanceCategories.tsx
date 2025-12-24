@@ -22,13 +22,16 @@ const FinanceCategories: React.FC<FinanceCategoriesProps> = ({ categories, onUpd
 
   const handleAdd = () => {
       if (newCatName) {
+          // Fix: Included missing required properties for TransactionCategory
           const newCat: TransactionCategory = {
               id: crypto.randomUUID(),
               name: newCatName,
               type: newCatType,
               personType: activeTab, 
               subcategories: [],
-              monthlyBudget: 0
+              monthlyBudget: 0,
+              isActive: true,
+              deleted: false
           };
           onUpdate([...categories, newCat]);
           setNewCatName('');

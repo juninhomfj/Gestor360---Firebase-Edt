@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Transaction, TransactionCategory, FinanceAccount, ImportMapping } from '../types';
 import { Filter, Trash2, CheckCircle2, Clock, PlayCircle, TrendingUp, TrendingDown, ArrowLeftRight, Paperclip, X, FileText, Image as ImageIcon, ChevronLeft, ChevronRight, Upload, Download, Loader2 } from 'lucide-react';
@@ -172,7 +171,8 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
           
           const currentAll = await import('../services/logic').then(m => m.getFinanceData());
           const merged = [...(currentAll.transactions || []), ...processedTx];
-          await saveFinanceData(currentAll.accounts || [], currentAll.cards || [], merged, currentAll.categories || [], currentAll.goals, currentAll.challenges, currentAll.cells, currentAll.receivables);
+          // Fixed saveFinanceData call to provide only the 4 expected arguments
+          await saveFinanceData(currentAll.accounts || [], currentAll.cards || [], merged, currentAll.categories || []);
           
           alert(`${processedTx.length} transações importadas! A página será atualizada.`);
           window.location.reload();

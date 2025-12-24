@@ -4,6 +4,7 @@ import { WAContact, WATag, WACampaign, WAMessageQueue, WAMediaType } from '../ty
 import { dbGetAll, dbPut, dbDelete, dbBulkPut } from '../storage/db';
 import { markDirty } from './sync';
 import { base64ToBlob } from '../utils/fileHelper';
+import { auth } from './firebase';
 
 // --- CONTACTS ---
 
@@ -93,6 +94,7 @@ export const createCampaignQueue = async (
             templateToUse = variant === 'A' ? messageTemplate : abTest.templateB;
         }
 
+        // Fix: Included missing required property deleted for WAMessageQueue
         return {
             id: crypto.randomUUID(),
             campaignId,
@@ -102,7 +104,8 @@ export const createCampaignQueue = async (
             status: 'PENDING', // Explicit status
             variant,
             media: media, // Anexa mídia se houver
-            sentAt: undefined // Nullable
+            sentAt: undefined, // Nullable
+            deleted: false
         };
     });
     
@@ -255,7 +258,7 @@ export const parseCSVContacts = (content: string): WAContact[] => {
         }
         
         if (phone) {
-            /* Fixed: Added missing updatedAt property */
+            // Fix: Included missing required properties for WAContact
             contacts.push({
                 id: crypto.randomUUID(),
                 name: name || 'Sem Nome',
@@ -263,7 +266,9 @@ export const parseCSVContacts = (content: string): WAContact[] => {
                 tags: tagsStr ? tagsStr.split(';').map(t => t.trim()) : [],
                 variables: Object.keys(variables).length > 0 ? variables : undefined,
                 createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
+                updatedAt: new Date().toISOString(),
+                deleted: false,
+                userId: auth.currentUser?.uid || ''
             });
         }
     }

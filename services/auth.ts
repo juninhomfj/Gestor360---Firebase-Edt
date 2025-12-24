@@ -31,20 +31,15 @@ const DEV_PERMISSIONS: UserPermissions = {
     ...DEFAULT_PERMISSIONS, whatsapp: true, dev: true
 };
 
-/**
- * Sincroniza o perfil do Firestore com o usuário autenticado.
- * REGRA: Esta função só pode ser chamada APÓS o Firebase Auth retornar sucesso.
- */
-async function syncAndFetchProfile(fbUser: FirebaseUser): Promise<User | null> {
+async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null> {
     try {
         const profileRef = doc(db, "profiles", fbUser.uid);
         let profileSnap = await getDoc(profileRef);
 
-        // AUTO-HEALING (Pós-Auth): Cria documento de perfil se ausente
+        const isRoot = fbUser.email === 'admin@admin.com' || fbUser.email === 'dev@gestor360.com';
+
         if (!profileSnap.exists()) {
-            console.warn(`[Auth] Criando documento de perfil no Firestore para ${fbUser.email}`);
-            const isRoot = fbUser.email === 'admin@admin.com' || fbUser.email === 'dev@gestor360.com';
-            
+            console.warn(`[Auth] Auto-healing: Criando perfil para ${fbUser.email}`);
             const newProfile = {
                 uid: fbUser.uid,
                 username: fbUser.email?.split('@')[0] || 'user',
@@ -58,38 +53,39 @@ async function syncAndFetchProfile(fbUser: FirebaseUser): Promise<User | null> {
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
             };
-            
             await setDoc(profileRef, newProfile);
             profileSnap = await getDoc(profileRef);
         }
 
         const data = profileSnap.data()!;
+        
+        // Auto-healing logic: if permissions are missing, add defaults
+        if (!data.permissions) {
+            await setDoc(profileRef, { permissions: isRoot ? DEV_PERMISSIONS : DEFAULT_PERMISSIONS }, { merge: true });
+        }
+
         return {
             id: fbUser.uid,
             uid: fbUser.uid,
-            username: data.username,
-            name: data.name,
-            email: data.email,
-            role: data.role || 'USER',
+            username: data.username || fbUser.email?.split('@')[0],
+            name: data.name || 'Usuário',
+            email: data.email || fbUser.email,
+            role: data.role || (isRoot ? 'DEV' : 'USER'),
             isActive: data.isActive !== false,
             theme: data.theme || "glass",
             userStatus: data.userStatus || "ACTIVE",
             createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
             updatedAt: data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-            permissions: data.permissions || DEFAULT_PERMISSIONS,
+            permissions: data.permissions || (isRoot ? DEV_PERMISSIONS : DEFAULT_PERMISSIONS),
             profilePhoto: data.profilePhoto || "",
             tel: data.tel || ""
         } as User;
     } catch (e) {
-        console.error("[Auth] Erro ao carregar perfil do Firestore:", e);
+        console.error("[Auth] Erro crítico ao carregar perfil:", e);
         return null;
     }
 }
 
-/**
- * Escuta o estado do Auth e retorna a sessão processada.
- * Respeita a ordem: Auth Check -> Firestore Read.
- */
 export const reloadSession = (): Promise<User | null> => {
     return new Promise((resolve) => {
         const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
@@ -99,9 +95,7 @@ export const reloadSession = (): Promise<User | null> => {
                 unsubscribe();
                 return;
             }
-            
-            // Autenticado com sucesso via Persistence/Refresh -> Busca Perfil
-            const user = await syncAndFetchProfile(fbUser);
+            const user = await getProfileFromFirebase(fbUser);
             if (user) {
                 localStorage.setItem("sys_session_v1", JSON.stringify(user));
             }
@@ -117,33 +111,24 @@ export const getSession = (): User | null => {
     try { return JSON.parse(raw); } catch { return null; }
 };
 
-/**
- * Login principal: fluxo direto signIn -> syncProfile.
- * O erro invalid-credential agora é isolado e tratado.
- */
 export const login = async (email: string, password?: string): Promise<{ user: User | null; error?: string }> => {
     try {
-        // PASSO 1: Autenticação Direta (Isole o Firestore aqui para evitar concorrência)
         const userCredential = await signInWithEmailAndPassword(auth, email, password || "");
+        const user = await getProfileFromFirebase(userCredential.user);
         
-        // PASSO 2: Sincronização de Perfil APÓS Sucesso Garantido
-        const user = await syncAndFetchProfile(userCredential.user);
-        
-        if (!user) return { user: null, error: "Usuário autenticado, mas erro ao sincronizar perfil." };
-        if (!user.isActive) {
+        if (!user) return { user: null, error: "Erro ao sincronizar perfil corporativo." };
+        if (!user.isActive && user.role !== 'DEV') {
             await signOut(auth);
-            return { user: null, error: "Acesso bloqueado: Conta inativa." };
+            return { user: null, error: "Acesso bloqueado. Contate o administrador." };
         }
 
         localStorage.setItem("sys_session_v1", JSON.stringify(user));
         return { user };
     } catch (e: any) {
         console.error("[Auth] Falha no login:", e.code);
-        let msg = "E-mail ou senha inválidos.";
+        let msg = "Falha na autenticação.";
         if (e.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
-        if (e.code === 'auth/user-not-found') msg = "E-mail não cadastrado.";
-        if (e.code === 'auth/wrong-password') msg = "Senha incorreta.";
-        if (e.code === 'auth/network-request-failed') msg = "Falha de rede. Verifique sua conexão.";
+        if (e.code === 'auth/user-not-found') msg = "Usuário não cadastrado.";
         return { user: null, error: msg };
     }
 };
@@ -164,7 +149,6 @@ export const listUsers = async (): Promise<User[]> => {
 export const createUser = async (adminId: string, userData: any) => {
     const userCredential = await createUserWithEmailAndPassword(auth, userData.email, "Gestor360!");
     const fbUser = userCredential.user;
-    
     const role: UserRole = userData.role || 'USER';
     const profile = {
         uid: fbUser.uid,
@@ -179,7 +163,6 @@ export const createUser = async (adminId: string, userData: any) => {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
     };
-
     await setDoc(doc(db, "profiles", fbUser.uid), profile);
     return { success: true };
 };
@@ -187,10 +170,8 @@ export const createUser = async (adminId: string, userData: any) => {
 export const updateUser = async (userId: string, data: any) => {
     const profileRef = doc(db, "profiles", userId);
     await setDoc(profileRef, { ...data, updatedAt: serverTimestamp() }, { merge: true });
-    
-    // Sincroniza sessão local se for o próprio usuário logado
     const currentSession = getSession();
-    if (currentSession && (currentSession.id === userId || currentSession.uid === userId)) {
+    if (currentSession && currentSession.id === userId) {
         localStorage.setItem("sys_session_v1", JSON.stringify({ ...currentSession, ...data }));
     }
 };
@@ -199,10 +180,7 @@ export const deactivateUser = async (userId: string) => {
     await updateUser(userId, { isActive: false, userStatus: 'INACTIVE' });
 };
 
-export const sendMagicLink = async (email: string) => {
-    await requestPasswordReset(email);
-};
-
+export const sendMagicLink = async (email: string) => { await sendPasswordResetEmail(auth, email); };
 export const requestPasswordReset = async (email: string) => { await sendPasswordResetEmail(auth, email); };
 export const changePassword = async (userId: string, newPassword: string) => {
     if (auth.currentUser?.uid === userId) await updatePassword(auth.currentUser, newPassword);

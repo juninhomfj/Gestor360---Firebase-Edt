@@ -3,27 +3,22 @@ import {
     collection, 
     doc, 
     setDoc, 
-    getDoc,
     getDocs, 
+    getDoc, 
     query, 
     where, 
     writeBatch,
     serverTimestamp,
-    limit,
-    deleteDoc,
-    updateDoc
+    limit
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 import { 
     Sale, Transaction, FinanceAccount, TransactionCategory, 
     Receivable, ReportConfig, SystemConfig, ProductType, CommissionRule, 
-    User, Client, ProductivityMetrics, SalesGoal, ChallengeCell, Challenge, CreditCard, FinanceGoal, ProductLabels
+    User, Client, CreditCard
 } from '../types';
-import { dbPut, dbBulkPut, dbGetAll, dbGet, saveConfigItem, getConfigItem, dbDelete, dbClear } from '../storage/db';
-// Added missing getSession import
-import { getSession } from './auth';
 
-export const DEFAULT_PRODUCT_LABELS: ProductLabels = { basica: 'Cesta Básica', natal: 'Cesta de Natal', custom: 'Personalizado' };
+export const DEFAULT_PRODUCT_LABELS = { basica: 'Cesta Básica', natal: 'Cesta de Natal', custom: 'Personalizado' };
 
 export const DEFAULT_REPORT_CONFIG: ReportConfig = {
     daysForNewClient: 30,
@@ -31,72 +26,49 @@ export const DEFAULT_REPORT_CONFIG: ReportConfig = {
     daysForLost: 180
 };
 
-// Added missing DEFAULT_SYSTEM_CONFIG export
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     theme: 'glass',
     modules: {
-        sales: true,
-        finance: true,
-        crm: true,
-        whatsapp: false,
-        reports: true,
-        ai: true,
-        dev: false,
-        settings: true,
-        news: true,
-        receivables: true,
-        distribution: true,
-        imports: true
+        sales: true, finance: true, crm: true, whatsapp: false,
+        reports: true, ai: true, dev: false, settings: true,
+        news: true, receivables: true, distribution: true, imports: true
     }
 };
 
-/**
- * Controle de Acesso Centralizado (Garantia Nível 2)
- */
 export const canAccess = (user: User | null, feature: string): boolean => {
-    if (!user || !user.isActive) return false;
-    
-    // DEV: Acesso Total
+    if (!user) return false;
     if (user.role === 'DEV') return true; 
-    
-    // ADMIN: Acesso Total exceto módulos de Engenharia DEV
-    if (user.role === 'ADMIN') {
-        if (feature === 'dev') return false;
-        return true;
-    }
-    
-    // USER: Segue o objeto de permissões explicitamente
+    if (!user.isActive) return false;
+    if (user.role === 'ADMIN') return feature !== 'dev';
     return !!(user.permissions as any)[feature];
 };
 
-/**
- * Bootstrap Nível 2 - Inicialização de Infraestrutura Firebase
- * Garante que 21 coleções existam com dados mínimos.
- */
 export const bootstrapProductionData = async (): Promise<any> => {
-    /* Fixed: Changed fbAuth to auth */
     if (!auth.currentUser) return { success: false, msg: "Usuário não autenticado." };
     const uid = auth.currentUser.uid;
     const stats: any = { created: [], docs: {} };
 
-    console.info("[Bootstrap V2] Iniciando sincronização de infraestrutura...");
-
-    const checkAndSeed = async (collName: string, seedDoc: any, userScoped: boolean = false) => {
+    const checkAndSeed = async (collName: string, seedData: any, userScoped: boolean = false) => {
         try {
             const collRef = collection(db, collName);
             const q = query(collRef, limit(1));
             const snap = await getDocs(q);
             
             if (snap.empty) {
-                const docId = seedDoc.id || "seed_" + Date.now();
+                const docId = seedData.id || `seed_${collName}_${Date.now()}`;
                 const docRef = doc(db, collName, docId);
+                
                 const finalData = { 
-                    ...seedDoc, 
+                    ...seedData, 
                     id: docId,
                     userId: userScoped ? uid : "system",
+                    isActive: true,
+                    deleted: false,
+                    isSeed: true,
                     createdAt: serverTimestamp(),
                     updatedAt: serverTimestamp()
                 };
+                
                 await setDoc(docRef, finalData);
                 stats.created.push(collName);
                 stats.docs[collName] = 1;
@@ -104,190 +76,122 @@ export const bootstrapProductionData = async (): Promise<any> => {
                 stats.docs[collName] = snap.size;
             }
         } catch (e) {
-            console.error(`[Bootstrap] Erro na coleção ${collName}:`, e);
+            console.error(`[Bootstrap] Erro em ${collName}:`, e);
         }
     };
 
-    // --- CORE COLLECTIONS ---
-    await checkAndSeed("config", { id: "system", bootstrapVersion: 2, environment: "production" });
-    await checkAndSeed("audit_log", { message: "Sistema inicializado", level: "INFO" });
-    await checkAndSeed("sync_queue", { table: "bootstrap", type: "INIT", status: "SYNCED" });
+    const tables = [
+        { name: "config", data: { id: "system", bootstrapVersion: 3 }, scoped: false },
+        { name: "profiles", data: { id: uid, role: "USER", isActive: true }, scoped: false },
+        { name: "accounts", data: { name: "Conta Principal", balance: 0, isAccounting: true, includeInDistribution: true, type: 'CHECKING' }, scoped: true },
+        { name: "categories", data: { name: "Geral", type: "GENERIC", subcategories: [] }, scoped: false },
+        { name: "cards", data: { name: "Cartão Padrão", limit: 0, currentInvoice: 0, closingDay: 10, dueDay: 15, color: 'blue', personType: 'PF' }, scoped: true },
+        { name: "transactions", data: { description: "Lançamento Inicial", amount: 0, type: "EXPENSE", isPaid: true, date: new Date().toISOString(), categoryId: 'uncategorized', accountId: 'seed' }, scoped: true },
+        { name: "receivables", data: { description: "Previsão Inicial", value: 0, status: "PENDING", date: new Date().toISOString(), distributed: false }, scoped: true },
+        { name: "clients", data: { name: "Cliente Exemplo", companyName: "Exemplo S/A", status: "ATIVO", benefitProfile: 'AMBOS', monthlyQuantityDeclared: 0, monthlyQuantityAverage: 0, isActive: true }, scoped: true },
+        { name: "sales", data: { client: "Cliente Exemplo", quantity: 1, valueSold: 0, valueProposed: 0, type: ProductType.BASICA, status: 'ORÇAMENTO', marginPercent: 0, commissionBaseTotal: 0, commissionValueTotal: 0, commissionRateUsed: 0, completionDate: new Date().toISOString(), isBilled: false, hasNF: false, observations: 'Seed' }, scoped: true },
+        { name: "commission_basic", data: { minPercent: 0, maxPercent: null, commissionRate: 0.05 }, scoped: false },
+        { name: "commission_natal", data: { minPercent: 0, maxPercent: null, commissionRate: 0.07 }, scoped: false },
+        { name: "commission_custom", data: { minPercent: 0, maxPercent: null, commissionRate: 0.10 }, scoped: false },
+        { name: "goals", data: { name: "Meta Exemplo", targetValue: 1000, currentValue: 0, status: 'ACTIVE', description: 'Meta inicial' }, scoped: true },
+        { name: "challenges", data: { name: "Desafio 52 Semanas", targetValue: 1378, depositCount: 52, model: 'LINEAR', status: 'ACTIVE' }, scoped: true },
+        { name: "challenge_cells", data: { challengeId: "seed", number: 1, value: 1, status: "PENDING" }, scoped: true }
+    ];
 
-    // --- FINANCEIRO ---
-    await checkAndSeed("accounts", { 
-        id: "account_main", name: "Conta Principal", type: "CASH", 
-        balance: 0, isAccounting: true, includeInDistribution: true, 
-        personType: "PF", deleted: false 
-    }, true);
-    await checkAndSeed("categories", { id: "category_default", name: "Categoria Padrão", type: "GENERIC", subcategories: [], deleted: false });
-    await checkAndSeed("cards", { active: true });
-    await checkAndSeed("transactions", { 
-        description: "Lançamento Inicial", accountId: "account_main", 
-        categoryId: "category_default", type: "EXPENSE", amount: 0, 
-        isPaid: true, date: new Date().toISOString(), deleted: false 
-    }, true);
-    await checkAndSeed("receivables", { active: true });
-
-    // --- VENDAS / CRM ---
-    await checkAndSeed("clients", { 
-        clientCode: "0001", companyName: "Cliente Modelo LTDA", 
-        name: "Cliente Modelo", contactName: "Administrador", 
-        status: "ATIVO", benefitProfile: "BASICA", isActive: true, deleted: false 
-    }, true);
-    await checkAndSeed("sales", { 
-        clientId: "client_model", client: "Cliente Modelo", 
-        type: "BASICA", quantity: 0, valueProposed: 0, valueSold: 0, 
-        commissionValueTotal: 0, isBilled: false, deleted: false 
-    }, true);
-    await checkAndSeed("sales_goals", { active: true }, true);
-    await checkAndSeed("client_transfer_requests", { active: true });
-
-    // --- WHATSAPP ---
-    const waTables = ["wa_contacts", "wa_tags", "wa_campaigns", "wa_queue", "wa_manual_logs", "wa_campaign_stats"];
-    for (const table of waTables) await checkAndSeed(table, { active: true }, true);
-
-    // --- OUTROS ---
-    await checkAndSeed("challenges", { active: true }, true);
-    await checkAndSeed("challenge_cells", { active: true });
-    await checkAndSeed("internal_messages", { content: "Bem-vindo ao Gestor 360", senderId: "system", recipientId: "BROADCAST", type: "BROADCAST" });
-
-    // --- LOG FINAL ---
-    const logData = {
-        timestamp: new Date().toISOString(),
-        user: { uid, role: getSession()?.role },
-        collectionsStats: stats.docs,
-        newlyCreated: stats.created
-    };
-    console.table(logData);
-    return logData;
-};
-
-// --- CONFIGURAÇÃO ---
-export const getSystemConfig = async (): Promise<SystemConfig> => {
-    const local = await getConfigItem('system_config');
-    /* Fixed: Changed fbAuth to auth */
-    if (auth.currentUser) {
-        try {
-            const snap = await getDoc(doc(db, "config", "system"));
-            if (snap.exists()) return snap.data() as SystemConfig;
-        } catch (e) {}
+    for (const table of tables) {
+        await checkAndSeed(table.name, table.data, table.scoped);
     }
-    return local || DEFAULT_SYSTEM_CONFIG;
+
+    return stats;
 };
 
-export const saveSystemConfig = async (config: SystemConfig) => {
-    await saveConfigItem('system_config', config);
-    /* Fixed: Changed fbAuth to auth */
-    if (auth.currentUser) {
-        await setDoc(doc(db, "config", "system"), { ...config, updatedAt: serverTimestamp() }, { merge: true });
-    }
-};
-
-export const getReportConfig = async (): Promise<ReportConfig> => {
-    const local = await getConfigItem('report_config');
-    /* Fixed: Changed fbAuth to auth */
-    if (auth.currentUser) {
-        try {
-            const snap = await getDoc(doc(db, "config", "reports"));
-            if (snap.exists()) return snap.data() as ReportConfig;
-        } catch (e) {}
-    }
-    return local || DEFAULT_REPORT_CONFIG;
-};
-
-export const saveReportConfig = async (config: ReportConfig) => {
-    await saveConfigItem('report_config', config);
-    /* Fixed: Changed fbAuth to auth */
-    if (auth.currentUser) {
-        await setDoc(doc(db, "config", "reports"), { ...config, updatedAt: serverTimestamp() }, { merge: true });
-    }
-};
-
-// --- VENDAS ---
 export const getStoredSales = async (): Promise<Sale[]> => {
-    /* Fixed: Changed fbAuth to auth */
-    if (auth.currentUser) {
-        try {
-            const q = query(collection(db, "sales"), where("userId", "==", auth.currentUser.uid));
-            const snap = await getDocs(q);
-            return snap.docs.map(d => ({ id: d.id, ...d.data() } as Sale)).filter(s => !s.deleted);
-        } catch (e) { return []; }
-    }
-    return [];
+    if (!auth.currentUser) return [];
+    const uid = auth.currentUser.uid;
+    const q = query(collection(db, "sales"), where("userId", "==", uid));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => {
+        const data = d.data();
+        return { 
+            id: d.id, 
+            ...data,
+            deleted: data.deleted === true 
+        } as Sale;
+    }).filter(s => !s.deleted);
+};
+
+export const getFinanceData = async () => {
+    if (!auth.currentUser) return { accounts: [], transactions: [], categories: [], cards: [], goals: [], challenges: [], receivables: [], cells: [] };
+    const uid = auth.currentUser.uid;
+    
+    const fetchColl = async (name: string, userScoped = true) => {
+        const collRef = collection(db, name);
+        const q = userScoped ? query(collRef, where("userId", "==", uid)) : query(collRef);
+        const snap = await getDocs(q);
+        return snap.docs.map(d => {
+            const data = d.data();
+            return { id: d.id, ...data, deleted: data.deleted === true, isActive: data.isActive !== false };
+        });
+    };
+
+    const [acc, tx, cat, card, goal, chal, rec, cells] = await Promise.all([
+        fetchColl("accounts"),
+        fetchColl("transactions"),
+        fetchColl("categories", false),
+        fetchColl("cards"),
+        fetchColl("goals"),
+        fetchColl("challenges"),
+        fetchColl("receivables"),
+        fetchColl("challenge_cells")
+    ]);
+
+    return { 
+        accounts: acc as FinanceAccount[], 
+        transactions: (tx as Transaction[]).filter(t => !t.deleted), 
+        categories: cat as TransactionCategory[], 
+        cards: card as CreditCard[], 
+        goals: goal as any[], 
+        challenges: chal as any[], 
+        receivables: rec as Receivable[], 
+        cells: cells as any[] 
+    };
 };
 
 export const saveSingleSale = async (sale: Sale) => {
-    /* Fixed: Changed fbAuth to auth */
-    if (auth.currentUser) {
-        await setDoc(doc(db, "sales", sale.id), { ...sale, userId: auth.currentUser.uid, updatedAt: serverTimestamp() });
-    }
+    if (!auth.currentUser) return;
+    const docRef = doc(db, "sales", sale.id);
+    await setDoc(docRef, { 
+        ...sale, 
+        userId: auth.currentUser.uid, 
+        deleted: sale.deleted || false,
+        updatedAt: serverTimestamp() 
+    });
 };
 
 export const saveSales = async (sales: Sale[]) => {
-    for (const s of sales) await saveSingleSale(s);
-};
-
-// --- FINANCEIRO ---
-export const getFinanceData = async () => {
-    /* Fixed: Changed fbAuth to auth */
-    if (auth.currentUser) {
-        const uid = auth.currentUser.uid;
-        try {
-            const [accS, txS, catS] = await Promise.all([
-                getDocs(query(collection(db, "accounts"), where("userId", "==", uid))),
-                getDocs(query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", false))),
-                getDocs(query(collection(db, "categories"), where("deleted", "==", false)))
-            ]);
-            return {
-                accounts: accS.docs.map(d => ({ id: d.id, ...d.data() } as any)),
-                transactions: txS.docs.map(d => ({ id: d.id, ...d.data() } as any)),
-                categories: catS.docs.map(d => ({ id: d.id, ...d.data() } as any)),
-                cards: [], goals: [], challenges: [], cells: [], receivables: []
-            };
-        } catch (e) {
-            return { accounts: [], transactions: [], categories: [], cards: [], goals: [], challenges: [], cells: [], receivables: [] };
-        }
-    }
-    return { accounts: [], transactions: [], categories: [], cards: [], goals: [], challenges: [], cells: [], receivables: [] };
-};
-
-// Updated saveFinanceData signature to accept all arguments passed from components
-export const saveFinanceData = async (
-    acc: FinanceAccount[], 
-    cards: CreditCard[], 
-    txs: Transaction[], 
-    cats: TransactionCategory[],
-    goals?: FinanceGoal[],
-    challenges?: Challenge[],
-    cells?: ChallengeCell[],
-    receivables?: Receivable[]
-) => {
-    /* Fixed: Changed fbAuth to auth */
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
-
-    for (const a of acc) await setDoc(doc(db, "accounts", a.id), { ...a, userId: uid });
-    for (const t of txs) await setDoc(doc(db, "transactions", t.id), { ...t, userId: uid, updatedAt: serverTimestamp() });
-    // Save additional fields if provided
-    if (goals) for (const g of goals) await setDoc(doc(db, "goals", g.id), { ...g, userId: uid });
-    if (challenges) for (const c of challenges) await setDoc(doc(db, "challenges", c.id), { ...c, userId: uid });
-    if (receivables) for (const r of receivables) await setDoc(doc(db, "receivables", r.id), { ...r, userId: uid });
-};
-
-// --- COMISSÕES ---
-export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
-    const colName = type === ProductType.BASICA ? "commission_basic" : (type === ProductType.NATAL ? "commission_natal" : "commission_custom");
-    try {
-        const snap = await getDocs(collection(db, colName));
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
-    } catch (e) { return []; }
-};
-
-export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
-    const colName = type === ProductType.BASICA ? "commission_basic" : (type === ProductType.NATAL ? "commission_natal" : "commission_custom");
+    if (!auth.currentUser) return;
     const batch = writeBatch(db);
-    rules.forEach(r => batch.set(doc(db, colName, r.id), r));
+    const uid = auth.currentUser.uid;
+    sales.forEach(sale => {
+        const saleRef = doc(db, "sales", sale.id);
+        batch.set(saleRef, { 
+            ...sale, 
+            userId: uid, 
+            deleted: sale.deleted || false,
+            updatedAt: serverTimestamp() 
+        });
+    });
     await batch.commit();
+};
+
+export const getClients = async (): Promise<Client[]> => {
+    if (!auth.currentUser) return [];
+    const q = query(collection(db, "clients"), where("userId", "==", auth.currentUser.uid));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => {
+        const data = d.data();
+        return { id: d.id, ...data, deleted: data.deleted === true, isActive: data.isActive !== false } as Client;
+    }).filter(c => !c.deleted && c.isActive);
 };
 
 export const computeCommissionValues = (quantity: number, valueProposed: number, marginPercent: number, rules: CommissionRule[]) => {
@@ -301,52 +205,63 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
     return { commissionBase, commissionValue: commissionBase * rate, rateUsed: rate };
 };
 
-// --- CLIENTES ---
-export const getClients = async (): Promise<Client[]> => {
-    /* Fixed: Changed fbAuth to auth */
-    if (!auth.currentUser) return [];
-    try {
-        const q = query(collection(db, "clients"), where("userId", "==", auth.currentUser.uid));
-        const snap = await getDocs(q);
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client)).filter(c => !c.deleted);
-    } catch (e) { return []; }
+export const saveFinanceData = async (acc: FinanceAccount[], cards: CreditCard[], txs: Transaction[], cats: TransactionCategory[]) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+    const batch = writeBatch(db);
+    acc.forEach(a => batch.set(doc(db, "accounts", a.id), { ...a, userId: uid, deleted: a.deleted || false, updatedAt: serverTimestamp() }));
+    cards.forEach(c => batch.set(doc(db, "cards", c.id), { ...c, userId: uid, deleted: c.deleted || false, updatedAt: serverTimestamp() }));
+    txs.forEach(t => batch.set(doc(db, "transactions", t.id), { ...t, userId: uid, deleted: t.deleted || false, updatedAt: serverTimestamp() }));
+    await batch.commit();
 };
 
-export const saveClient = async (client: Client) => {
-    /* Fixed: Changed fbAuth to auth */
-    if (auth.currentUser) {
-        await setDoc(doc(db, "clients", client.id), { ...client, userId: auth.currentUser.uid, updatedAt: serverTimestamp() });
-    }
+export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
+    const col = type === ProductType.BASICA ? "commission_basic" : (type === ProductType.NATAL ? "commission_natal" : "commission_custom");
+    const snap = await getDocs(collection(db, col));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
 };
 
-// Auxiliares mantidos
-export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]) => {
-    const now = new Date();
-    const daysRemaining = 30 - now.getDate();
-    return { daysRemaining, safeDailySpend: balance / (daysRemaining || 1), pendingExpenses: 0, nextIncomeDate: now };
+export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
+    const col = type === ProductType.BASICA ? "commission_basic" : (type === ProductType.NATAL ? "commission_natal" : "commission_custom");
+    const batch = writeBatch(db);
+    rules.forEach(r => batch.set(doc(db, col, r.id), r));
+    await batch.commit();
 };
 
+export const getSystemConfig = async () => {
+    const docRef = doc(db, "config", "system_config");
+    const snap = await getDoc(docRef);
+    if (snap.exists()) return snap.data() as SystemConfig;
+    return DEFAULT_SYSTEM_CONFIG;
+};
+
+export const saveSystemConfig = async (c: SystemConfig) => {
+    await setDoc(doc(db, "config", "system_config"), c);
+};
+
+export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]) => ({ daysRemaining: 30, safeDailySpend: balance / 30, pendingExpenses: 0, nextIncomeDate: new Date() });
 export const getInvoiceMonth = (date: string, closingDay: number) => date.substring(0, 7);
-
 export const getTrashItems = async () => ({ sales: [], transactions: [] });
-export const restoreItem = async (t:any, i:any) => {};
-export const permanentlyDeleteItem = async (t:any, id:string) => {};
 export const hardResetLocalData = () => { localStorage.clear(); window.location.reload(); };
-export const getUserPlanLabel = (u:User) => u.role;
+export const getUserPlanLabel = (u: User) => u.role;
+export const calculateProductivityMetrics = async (u: string) => ({ totalClients: 0, activeClients: 0, convertedThisMonth: 0, conversionRate: 0, productivityStatus: 'GREEN' as const });
+export const getReportConfig = async () => DEFAULT_REPORT_CONFIG;
+export const saveReportConfig = async (c: any) => {};
+export const generateChallengeCells = (a:any, b:any, c:any, d:any) => [];
+export const exportReportToCSV = (d:any, f:any) => {};
+export const readExcelFile = async (f:any) => [];
+export const processSalesImport = (a:any, b:any) => [];
+export const processFinanceImport = (a:any, b:any) => [];
 export const getDeletedClients = async () => [];
 export const restoreClient = async (id:string) => {};
 export const permanentlyDeleteClient = async (id:string) => {};
 export const analyzeClients = (s:any, c:any) => [];
 export const analyzeMonthlyVolume = (s:any, m:any) => [];
-export const exportReportToCSV = (d:any, f:any) => {};
-export const calculateProductivityMetrics = async (u:string) => ({ totalClients:0, activeClients:0, convertedThisMonth:0, conversionRate:0, productivityStatus:'GREEN' });
 export const exportEncryptedBackup = async (p:string) => {};
 export const importEncryptedBackup = async (f:any, p:string) => {};
 export const clearAllSales = () => {};
-export const generateChallengeCells = (a:any, b:any, c:any, d:any) => [];
+export const restoreItem = async (t:any, i:any) => {};
+export const permanentlyDeleteItem = async (t:any, id:string) => {};
 export const generateFinanceTemplate = () => {};
-export const processFinanceImport = (a:any, b:any) => [];
-export const readExcelFile = async (f:any) => [];
 export const findPotentialDuplicates = (s:any) => [];
 export const smartMergeSales = (s:any) => s[0];
-export const processSalesImport = (a:any, b:any) => [];

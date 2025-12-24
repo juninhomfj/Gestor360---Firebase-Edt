@@ -1,6 +1,8 @@
+
 import React, { useState } from 'react';
 import { FinanceAccount, CreditCard, TransactionCategory, PersonType, AppTheme } from '../types';
 import { Wallet, CreditCard as CardIcon, CheckCircle, ArrowRight, Flag, User, Building2, Layers, Sparkles, AlertTriangle, Clock, Mic, ShoppingBag, PieChart, Info, BookOpen, Palette, Check, SkipForward } from 'lucide-react';
+import { auth } from '../services/firebase';
 
 interface OnboardingProps {
   onComplete: (accounts: FinanceAccount[], cards: CreditCard[], categories: TransactionCategory[], theme: AppTheme) => void;
@@ -39,6 +41,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, onSkip }) => {
 
       // Create PF Account
       if (showPfInput) {
+          // Fix: Included missing required properties for FinanceAccount
           newAccounts.push({
               id: crypto.randomUUID(),
               name: pfAccName || 'Conta Pessoal',
@@ -47,12 +50,17 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, onSkip }) => {
               color: 'purple',
               isAccounting: true,
               includeInDistribution: true,
-              personType: 'PF'
+              personType: 'PF',
+              isActive: true,
+              deleted: false,
+              createdAt: new Date().toISOString(),
+              userId: auth.currentUser?.uid || ''
           });
       }
 
       // Create PJ Account
       if (showPjInput) {
+          // Fix: Included missing required properties for FinanceAccount
           newAccounts.push({
               id: crypto.randomUUID(),
               name: pjAccName || 'Conta Empresarial',
@@ -61,12 +69,17 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, onSkip }) => {
               color: 'blue',
               isAccounting: true,
               includeInDistribution: true,
-              personType: 'PJ'
+              personType: 'PJ',
+              isActive: true,
+              deleted: false,
+              createdAt: new Date().toISOString(),
+              userId: auth.currentUser?.uid || ''
           });
       }
 
       const newCards: CreditCard[] = [];
       if (hasCard) {
+          // Fix: Included missing required properties for CreditCard
           newCards.push({
               id: crypto.randomUUID(),
               name: cardName || 'Cartão Principal',
@@ -75,7 +88,10 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, onSkip }) => {
               closingDay: parseInt(closingDay),
               dueDay: parseInt(dueDay),
               color: cardType === 'PF' ? 'purple' : 'blue',
-              personType: cardType
+              personType: cardType,
+              isActive: true,
+              deleted: false,
+              userId: auth.currentUser?.uid || ''
           });
       }
 
@@ -83,20 +99,20 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, onSkip }) => {
       let defaultCategories: TransactionCategory[] = [];
 
       const pfCategories: TransactionCategory[] = [
-          { id: crypto.randomUUID(), name: 'Alimentação', type: 'EXPENSE', personType: 'PF', subcategories: ['Mercado', 'Restaurante', 'Ifood'], monthlyBudget: 800 },
-          { id: crypto.randomUUID(), name: 'Moradia', type: 'EXPENSE', personType: 'PF', subcategories: ['Aluguel', 'Condomínio', 'Luz', 'Internet'], monthlyBudget: 1500 },
-          { id: crypto.randomUUID(), name: 'Transporte', type: 'EXPENSE', personType: 'PF', subcategories: ['Combustível', 'Uber', 'Manutenção'], monthlyBudget: 400 },
-          { id: crypto.randomUUID(), name: 'Saúde', type: 'EXPENSE', personType: 'PF', subcategories: ['Plano de Saúde', 'Farmácia'], monthlyBudget: 300 },
-          { id: crypto.randomUUID(), name: 'Lazer', type: 'EXPENSE', personType: 'PF', subcategories: ['Cinema', 'Viagem', 'Assinaturas'], monthlyBudget: 200 },
-          { id: crypto.randomUUID(), name: 'Salário/Renda', type: 'INCOME', personType: 'PF', subcategories: ['Salário Mensal', 'Distribuição de Lucros'] },
+          { id: crypto.randomUUID(), name: 'Alimentação', type: 'EXPENSE', personType: 'PF', subcategories: ['Mercado', 'Restaurante', 'Ifood'], monthlyBudget: 800, isActive: true, deleted: false },
+          { id: crypto.randomUUID(), name: 'Moradia', type: 'EXPENSE', personType: 'PF', subcategories: ['Aluguel', 'Condomínio', 'Luz', 'Internet'], monthlyBudget: 1500, isActive: true, deleted: false },
+          { id: crypto.randomUUID(), name: 'Transporte', type: 'EXPENSE', personType: 'PF', subcategories: ['Combustível', 'Uber', 'Manutenção'], monthlyBudget: 400, isActive: true, deleted: false },
+          { id: crypto.randomUUID(), name: 'Saúde', type: 'EXPENSE', personType: 'PF', subcategories: ['Plano de Saúde', 'Farmácia'], monthlyBudget: 300, isActive: true, deleted: false },
+          { id: crypto.randomUUID(), name: 'Lazer', type: 'EXPENSE', personType: 'PF', subcategories: ['Cinema', 'Viagem', 'Assinaturas'], monthlyBudget: 200, isActive: true, deleted: false },
+          { id: crypto.randomUUID(), name: 'Salário/Renda', type: 'INCOME', personType: 'PF', subcategories: ['Salário Mensal', 'Distribuição de Lucros'], isActive: true, deleted: false },
       ];
 
       const pjCategories: TransactionCategory[] = [
-          { id: crypto.randomUUID(), name: 'Operacional', type: 'EXPENSE', personType: 'PJ', subcategories: ['Sistemas', 'Material de Escritório', 'Internet'] },
-          { id: crypto.randomUUID(), name: 'Impostos', type: 'EXPENSE', personType: 'PJ', subcategories: ['DAS', 'ISS', 'Taxas Bancárias'] },
-          { id: crypto.randomUUID(), name: 'Pessoal', type: 'EXPENSE', personType: 'PJ', subcategories: ['Folha de Pagamento', 'Prolabore'] },
-          { id: crypto.randomUUID(), name: 'Marketing', type: 'EXPENSE', personType: 'PJ', subcategories: ['Ads', 'Redes Sociais'] },
-          { id: crypto.randomUUID(), name: 'Vendas', type: 'INCOME', personType: 'PJ', subcategories: ['Serviços', 'Produtos', 'Contratos Recorrentes'] },
+          { id: crypto.randomUUID(), name: 'Operacional', type: 'EXPENSE', personType: 'PJ', subcategories: ['Sistemas', 'Material de Escritório', 'Internet'], isActive: true, deleted: false },
+          { id: crypto.randomUUID(), name: 'Impostos', type: 'EXPENSE', personType: 'PJ', subcategories: ['DAS', 'ISS', 'Taxas Bancárias'], isActive: true, deleted: false },
+          { id: crypto.randomUUID(), name: 'Pessoal', type: 'EXPENSE', personType: 'PJ', subcategories: ['Folha de Pagamento', 'Prolabore'], isActive: true, deleted: false },
+          { id: crypto.randomUUID(), name: 'Marketing', type: 'EXPENSE', personType: 'PJ', subcategories: ['Ads', 'Redes Sociais'], isActive: true, deleted: false },
+          { id: crypto.randomUUID(), name: 'Vendas', type: 'INCOME', personType: 'PJ', subcategories: ['Serviços', 'Produtos', 'Contratos Recorrentes'], isActive: true, deleted: false },
       ];
 
       if (profileMode === 'PF') {

@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Sale, ProductType, Client, SaleStatus } from '../types';
 import { getStoredTable, computeCommissionValues, getClients } from '../services/logic';
 import { X, Save, Calculator, Tag, Calendar, User as UserIcon } from 'lucide-react';
+import { auth } from '../services/firebase';
 
 interface Props {
   isOpen: boolean;
@@ -102,10 +103,12 @@ const SalesForm: React.FC<Props> = ({ isOpen, onClose, onSaved, onSave, userId, 
       return;
     }
 
+    // Fix: Included missing required property for Sale
     const sale: Sale = {
       id: initialData?.id || crypto.randomUUID(),
       client: clientName,
       clientId: selectedClientId || undefined,
+      userId: userId || auth.currentUser?.uid || '',
       quantity,
       type: productType,
       status,
@@ -123,6 +126,7 @@ const SalesForm: React.FC<Props> = ({ isOpen, onClose, onSaved, onSave, userId, 
       commissionRateUsed: commissionRate,
       createdAt: initialData?.createdAt || new Date().toISOString(),
       hasNF: initialData?.hasNF || false, // preservando rastro
+      deleted: initialData?.deleted || false
     };
 
     if (onSave) await onSave(sale);
