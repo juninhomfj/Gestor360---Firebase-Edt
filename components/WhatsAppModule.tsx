@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MessageCircle, Users, Send, Play, CheckCircle, Plus, ExternalLink, Copy, ArrowRight, BarChart2, Wand2, Smartphone, Volume2, Loader2, Sparkles, TrendingUp, DollarSign, CloudUpload } from 'lucide-react';
+import { MessageCircle, Users, Send, Play, CheckCircle, Plus, ExternalLink, Copy, ArrowRight, BarChart2, Wand2, Smartphone, Volume2, Loader2, Sparkles, TrendingUp, DollarSign, UploadCloud } from 'lucide-react';
 import { WAContact, WATag, WACampaign, WAMessageQueue, Sale } from '../types';
 import { getWAContacts, getWATags, getWACampaigns, saveWACampaign, createCampaignQueue, getWAQueue, updateQueueStatus, copyToClipboard, openWhatsAppWeb, copyImageToClipboard, exportWAContactsToServer, createWACampaignRemote } from '../services/whatsappService';
 import { WhatsAppManualLogger } from '../services/whatsappLogger';
@@ -170,7 +170,7 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                         <div className="flex gap-4">
                           <button onClick={() => setShowWizard(true)} className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-xl shadow-indigo-900/30 hover:scale-105 transition-all">Iniciar Wizard</button>
                           <button onClick={handleExportToServer} disabled={exporting} className="px-6 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all disabled:opacity-50">
-                            {exporting ? <Loader2 className="animate-spin" size={20}/> : <CloudUpload size={20}/>}
+                            {exporting ? <Loader2 className="animate-spin" size={20}/> : <UploadCloud size={20}/>}
                             Exportar p/ Servidor
                           </button>
                         </div>

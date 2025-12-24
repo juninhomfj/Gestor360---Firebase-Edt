@@ -1,37 +1,38 @@
 import express from 'express';
-import { sendMessageBaileys } from './adapters/baileysAdapter';
-import { sendMessageOfficial } from './adapters/officialAdapter';
-import { saveMessage } from './firestoreStore';
+import bodyParser from 'body-parser';
+import dotenv from 'dotenv';
+import * as adapterBaileys from './adapters/baileysAdapter';
+import * as adapterOfficial from './adapters/officialAdapter';
+import { saveMessage, markRecipientSent } from './firestoreStore';
 
+dotenv.config();
 const app = express();
-app.use(express.json());
+app.use(bodyParser.json({ limit: '10mb' }));
+const WA_KEY = process.env.WA_MODULE_KEY || '';
+const USE_OFFICIAL = (process.env.USE_OFFICIAL_WABA || 'false') === 'true';
+const adapter = USE_OFFICIAL ? adapterOfficial : adapterBaileys;
 
 app.post('/tasks/execute', async (req, res) => {
-  const authKey = req.headers['x-wa-module-key'];
-  if (authKey !== process.env.WA_MODULE_KEY) return res.status(401).end();
-
-  const { sessionId, to, body, mediaUrl, campaignId, recipientId } = req.body;
-
+  const key = req.headers['x-wa-module-key'];
+  if (!key || key !== WA_KEY) return res.status(401).json({ error: 'UNAUTHORIZED' });
   try {
-    const useOfficial = process.env.USE_OFFICIAL_WABA === 'true';
-    const result = useOfficial 
-      ? await sendMessageOfficial(sessionId, to, body, mediaUrl)
-      : await sendMessageBaileys(sessionId, to, body, mediaUrl);
-
+    const job = req.body;
+    const result = await adapter.sendMessage(job.sessionId, job.to, job.body, job.mediaUrl);
     await saveMessage({
-      id: result.messageId || `msg_${Date.now()}`,
-      campaignId,
-      recipientId,
+      contactId: job.recipientId || null,
+      fromMe: true,
+      body: job.body,
       status: 'SENT',
-      sentAt: new Date().toISOString()
+      providerResult: result
     });
-
-    res.status(200).json({ status: 'OK' });
-  } catch (error: any) {
-    console.error(`Task failed for ${to}:`, error.message);
-    res.status(500).json({ error: error.message });
+    if (job.campaignId && job.recipientId) {
+      await markRecipientSent(job.campaignId, job.recipientId, { ok: true, provider: result });
+    }
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('task.execute error', e);
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
 });
 
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Worker Cloud Run listening on ${PORT}`));
+export default app;

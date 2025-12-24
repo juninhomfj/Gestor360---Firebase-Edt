@@ -1,20 +1,26 @@
-export const initOfficial = async (sessionId: string) => {
-  const providerUrl = process.env.WABA_PROVIDER_URL;
-  const apiKey = process.env.WABA_API_KEY;
+import fetch from 'node-fetch';
 
-  if (!providerUrl || !apiKey) {
-    return { status: 'READ_ONLY', error: 'OFFICIAL_PROVIDER_NOT_CONFIGURED' };
+const PROVIDER_URL = process.env.WABA_PROVIDER_URL;
+const PROVIDER_KEY = process.env.WABA_API_KEY;
+
+export const initSession = async (sessionId: string) => {
+  if (!PROVIDER_URL || !PROVIDER_KEY) {
+    return { sessionId, status: 'READ_ONLY', message: 'Official provider not configured' };
   }
-
-  // Implementation for Twilio/360dialog would go here
-  return { status: 'CONNECTED', mode: 'OFFICIAL' };
+  return { sessionId, status: 'READY' };
 };
 
-export const sendMessageOfficial = async (sessionId: string, to: string, body: string, mediaUrl?: string) => {
-  const isOfficial = process.env.USE_OFFICIAL_WABA === 'true';
-  if (!isOfficial) throw new Error('Official adapter not enabled');
-  
-  // Skeleton for WABA API call
-  console.log(`[Official] Sending message to ${to}`);
-  return { messageId: 'official_mock_id', status: 'sent' };
+export const sendMessage = async (sessionId: string, to: string, body: string, mediaUrl?: string) => {
+  if (!PROVIDER_URL || !PROVIDER_KEY) throw new Error('Provider not configured');
+  const res = await fetch(`${PROVIDER_URL}/messages`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${PROVIDER_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, to, body, mediaUrl })
+  });
+  if (!res.ok) throw new Error(`Provider error: ${res.status}`);
+  return await res.json();
+};
+
+export const closeSession = async (sessionId: string) => {
+  // provider-specific close
 };

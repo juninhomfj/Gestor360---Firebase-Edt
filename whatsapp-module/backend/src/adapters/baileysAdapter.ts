@@ -1,90 +1,69 @@
-import makeWASocket, { 
-  useMultiFileAuthState, 
-  DisconnectReason, 
-  fetchLatestBaileysVersion,
-  AuthenticationState,
-  BufferJSON
-} from '@adiwajshing/baileys';
-import { Boom } from '@hapi/boom';
-import * as QRCode from 'qrcode';
-import { uploadAuthBlob, downloadAuthBlob } from '../sessions/storageManager';
-import { updateSessionStatus, saveSessionAuthPath, getSession } from '../firestoreStore';
-import { Buffer } from 'node:buffer';
+import makeWASocket, { fetchLatestBaileysVersion, useSingleFileAuthState } from "@adiwajshing/baileys";
+import { uploadAuthBlob } from "../sessions/storageManager";
+import path from "path";
+import fs from "fs";
 
-const activeSessions = new Map<string, any>();
+const SESSIONS_TMP = '/tmp/wa_sessions';
+if (!fs.existsSync(SESSIONS_TMP)) fs.mkdirSync(SESSIONS_TMP, { recursive: true });
 
-export const initBaileys = async (sessionId: string) => {
-  if (activeSessions.has(sessionId)) return { status: 'ALREADY_ACTIVE' };
+const sessions: Map<string, any> = new Map();
 
-  // Manual implementation of state hydration from Storage would be here
-  // For this implementation, we use a basic ephemeral state that persists to Storage on change
-  // Note: in a real production environment, use a custom AuthState provider for Baileys
-  
+export const initSession = async (sessionId: string) => {
+  const tmpFile = path.join(SESSIONS_TMP, `${sessionId}.json`);
+  const { state, saveState } = useSingleFileAuthState(tmpFile);
+
   const { version } = await fetchLatestBaileysVersion();
-  
-  let authState: AuthenticationState;
-  const sessionData = await getSession(sessionId);
-  
-  // Skeleton for persistent state logic
-  // if (sessionData?.auth_blob_path) { ... hydrate ... }
-  
   const sock = makeWASocket({
+    auth: state,
     version,
-    printQRInTerminal: false,
-    auth: (await useMultiFileAuthState(`temp_sessions/${sessionId}`)).state
+    printQRInTerminal: false
   });
 
-  activeSessions.set(sessionId, sock);
-
-  return new Promise((resolve) => {
-    sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qr } = update;
-      
-      if (qr) {
-        const qrDataUrl = await QRCode.toDataURL(qr);
-        await updateSessionStatus(sessionId, 'PAIRING');
-        resolve({ qr: qrDataUrl, status: 'PAIRING' });
-      }
-
-      if (connection === 'close') {
-        const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
-        activeSessions.delete(sessionId);
-        await updateSessionStatus(sessionId, 'DISCONNECTED');
-        if (shouldReconnect) initBaileys(sessionId);
-      } else if (connection === 'open') {
-        const phone = sock.user?.id.split(':')[0];
-        await updateSessionStatus(sessionId, 'CONNECTED', phone);
-        resolve({ status: 'CONNECTED', phone });
-      }
-    });
-
-    sock.ev.on('creds.update', async () => {
-      // In a real implementation, we would extract the state and upload:
-      // const blob = Buffer.from(JSON.stringify(state, BufferJSON.replacer));
-      // const path = await uploadAuthBlob(sessionId, blob);
-      // await saveSessionAuthPath(sessionId, path);
-    });
+  sock.ev.on('creds.update', async () => {
+    saveState();
+    try {
+      const buf = fs.readFileSync(tmpFile);
+      await uploadAuthBlob(sessionId, buf);
+    } catch (e) {
+      console.error('[baileysAdapter] failed upload auth blob', maskError(e));
+    }
   });
+
+  sock.ev.on('connection.update', (update: any) => {
+    sessions.set(sessionId, { sock, update, connected: update.connection === 'open' });
+  });
+
+  sessions.set(sessionId, { sock, saveState });
+  return { sessionId, status: 'STARTED' };
 };
 
-export const sendMessageBaileys = async (sessionId: string, to: string, body: string, mediaUrl?: string) => {
-  const sock = activeSessions.get(sessionId);
-  if (!sock) throw new Error('Session not found');
+export const sendMessage = async (sessionId: string, to: string, body: string, mediaUrl?: string) => {
+  const s = sessions.get(sessionId);
+  if (!s || !s.sock) throw new Error('Session not found or not connected');
+  const sock = s.sock;
+  const jid = to.includes('@') ? to : `${to}@s.whatsapp.net`;
+  const res = await sock.sendMessage(jid, { text: body });
+  return res;
+};
 
-  const jid = `${to.replace(/\D/g, '')}@s.whatsapp.net`;
-  
-  if (mediaUrl) {
-    // Basic image support
-    return await sock.sendMessage(jid, { image: { url: mediaUrl }, caption: body });
+export const closeSession = async (sessionId: string) => {
+  const s = sessions.get(sessionId);
+  if (!s || !s.sock) return;
+  try {
+    await s.sock.logout();
+  } catch (e) {
+    // swallow
   }
-  
-  return await sock.sendMessage(jid, { text: body });
+  sessions.delete(sessionId);
 };
 
-export const closeBaileys = async (sessionId: string) => {
-  const sock = activeSessions.get(sessionId);
-  if (sock) {
-    await sock.logout();
-    activeSessions.delete(sessionId);
+const maskError = (e: any) => {
+  try {
+    if (typeof e === 'string') return e;
+    const copy = { ...e };
+    if (copy?.message) copy.message = copy.message.replace(/\d{6,}/g, '*****');
+    return copy;
+  } catch {
+    return 'error';
   }
 };

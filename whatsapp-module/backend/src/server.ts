@@ -1,106 +1,135 @@
-
-import express, { Request, Response, NextFunction } from 'express';
-import cors from 'cors';
+import express from 'express';
+import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
+import formidable from 'formidable';
+import fs from 'fs';
+import { createSessionDoc, getSessionDoc, saveContactsBatch, createCampaign, getCampaignStatus } from './firestoreStore';
+import * as baileysAdapter from './adapters/baileysAdapter';
+import * as officialAdapter from './adapters/officialAdapter';
+import { CloudTasksClient } from '@google-cloud/tasks';
 import { v4 as uuidv4 } from 'uuid';
-import { initBaileys, sendMessageBaileys, closeBaileys } from './adapters/baileysAdapter';
-import { initOfficial, sendMessageOfficial } from './adapters/officialAdapter';
-import { getSession, saveContactsBatch, createCampaign, getCampaignStatus } from './firestoreStore';
 
 dotenv.config();
-
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(bodyParser.json({ limit: '10mb' }));
+const PORT = process.env.PORT || 3333;
 
-// Auth Middleware
-const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const key = req.headers['x-wa-module-key'];
-  if (key !== process.env.WA_MODULE_KEY) {
-    return res.status(401).json({ error: 'UNAUTHORIZED' });
+const WA_KEY = process.env.WA_MODULE_KEY || '';
+const USE_OFFICIAL = (process.env.USE_OFFICIAL_WABA || 'false') === 'true';
+const USE_CLOUD_TASKS = (process.env.USE_CLOUD_TASKS || 'true') === 'true';
+
+// Auth middleware
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/v1')) {
+    const key = req.headers['x-wa-module-key'];
+    if (!key || key !== WA_KEY) return res.status(401).json({ error: 'UNAUTHORIZED' });
   }
   next();
-};
+});
 
-app.use(authMiddleware);
+const adapter = USE_OFFICIAL ? officialAdapter : baileysAdapter;
+const tasksClient = USE_CLOUD_TASKS ? new CloudTasksClient() : null;
 
-// Sessions
 app.post('/api/v1/sessions/create', async (req, res) => {
-  const sessionId = req.body.sessionId || uuidv4();
-  const useOfficial = process.env.USE_OFFICIAL_WABA === 'true';
-
   try {
-    const result = useOfficial 
-      ? await initOfficial(sessionId) 
-      : await initBaileys(sessionId);
-    
-    // Fix: Added any cast to result to avoid spread type error with union types
-    res.json({ sessionId, ...(result as any) });
-  } catch (error: any) {
-    res.status(500).json({ error: 'INTERNAL_ERROR', detail: error.message });
+    const sessionId = req.body.sessionId || `sess_${Date.now()}`;
+    await createSessionDoc(sessionId, { status: 'STARTING' });
+    const initRes = await adapter.initSession(sessionId);
+    return res.json({ sessionId, status: initRes.status || 'STARTED', qr: (initRes as any).qr || null });
+  } catch (e) {
+    console.error('sessions.create', maskError(e));
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
 });
 
 app.get('/api/v1/sessions/:sessionId/status', async (req, res) => {
-  const data = await getSession(req.params.sessionId);
-  if (!data) return res.status(404).json({ error: 'NOT_FOUND' });
-  res.json({ sessionId: req.params.sessionId, status: data.status, phone: data.phone });
+  const s = await getSessionDoc(req.params.sessionId);
+  if (!s) return res.status(404).json({ error: 'NOT_FOUND' });
+  return res.json({ sessionId: req.params.sessionId, status: s.status, phone: s.phone || null });
 });
 
 app.post('/api/v1/sessions/:sessionId/logout', async (req, res) => {
-  await closeBaileys(req.params.sessionId);
-  res.json({ status: 'OK' });
+  try {
+    await adapter.closeSession(req.params.sessionId);
+    await createSessionDoc(req.params.sessionId, { status: 'CLOSED' });
+    return res.json({ ok: true });
+  } catch (e) {
+    console.error('sessions.logout', maskError(e));
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
 });
 
-// Contacts
 app.post('/api/v1/contacts/import', async (req, res) => {
-  const { userId, contacts } = req.body;
-  if (!userId || !Array.isArray(contacts)) {
-    return res.status(400).json({ error: 'BAD_REQUEST' });
-  }
-  
-  await saveContactsBatch(userId, contacts);
-  res.json({ status: 'OK', count: contacts.length });
+  const form = formidable({ multiples: false });
+  form.parse(req, async (err, fields, files) => {
+    if (err) return res.status(400).json({ error: 'BAD_REQUEST', detail: 'invalid_form' });
+    try {
+      const file = (files.file as any)[0] || files.file;
+      if (!file) return res.status(400).json({ error: 'BAD_REQUEST', detail: 'no_file' });
+      const text = fs.readFileSync(file.filepath, 'utf8');
+      const rows = parseCSV(text);
+      const ok: any[] = [];
+      for (const [idx, r] of rows.entries()) {
+        const phone = normalizePhone(r.phone || r.telefone || r.number || '');
+        if (!phone) continue;
+        ok.push({ id: uuidv4(), name: r.name || 'Sem Nome', phone, optIn: true });
+      }
+      await saveContactsBatch(ok);
+      return res.json({ created: ok.length });
+    } catch (e) {
+      console.error('contacts.import', maskError(e));
+      return res.status(500).json({ error: 'INTERNAL_ERROR' });
+    }
+  });
 });
 
-// Campaigns
 app.post('/api/v1/campaigns', async (req, res) => {
-  const { userId, campaign, recipients } = req.body;
-  if (!userId || !campaign || !Array.isArray(recipients)) {
-    return res.status(400).json({ error: 'BAD_REQUEST' });
+  try {
+    const { campaign, recipients } = req.body;
+    if (!campaign || !Array.isArray(recipients)) return res.status(400).json({ error: 'BAD_REQUEST' });
+    const cid = await createCampaign(campaign, recipients);
+    return res.json({ campaignId: cid });
+  } catch (e) {
+    console.error('campaigns.create', maskError(e));
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
-
-  const campaignId = await createCampaign(userId, campaign, recipients);
-  
-  // Here we would enqueue tasks for Cloud Tasks or BullMQ
-  // ... enqueueing logic ...
-
-  res.json({ campaignId, status: 'ENQUEUED' });
 });
 
 app.get('/api/v1/campaigns/:campaignId/status', async (req, res) => {
-  const stats = await getCampaignStatus(req.params.campaignId);
-  if (!stats) return res.status(404).json({ error: 'NOT_FOUND' });
-  res.json(stats);
+  const s = await getCampaignStatus(req.params.campaignId);
+  if (!s) return res.status(404).json({ error: 'NOT_FOUND' });
+  return res.json(s);
 });
 
-// Single Message
-app.post('/api/v1/messages/send', async (req, res) => {
-  const { sessionId, to, body, mediaUrl } = req.body;
-  const useOfficial = process.env.USE_OFFICIAL_WABA === 'true';
+const normalizePhone = (input: string) => {
+  const digits = (input || '').replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
+  if (digits.length >= 11) return digits;
+  return null;
+};
 
-  try {
-    const result = useOfficial
-      ? await sendMessageOfficial(sessionId, to, body, mediaUrl)
-      : await sendMessageBaileys(sessionId, to, body, mediaUrl);
-    
-    res.json(result);
-  } catch (error: any) {
-    res.status(500).json({ error: 'INTERNAL_ERROR', detail: error.message });
+const parseCSV = (text: string) => {
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  const result: any[] = [];
+  if (lines.length === 0) return result;
+  const header = lines[0].split(/[,;]+/).map(h => h.trim().toLowerCase());
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(/[,;]+/);
+    const obj: any = {};
+    for (let j = 0; j < header.length; j++) obj[header[j]] = cols[j] ? cols[j].trim() : '';
+    result.push(obj);
   }
-});
+  return result;
+};
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
-  console.log(`[WhatsApp Backend] running on port ${PORT}`);
-});
+const maskError = (e: any) => {
+  try {
+    const m = e.message || JSON.stringify(e);
+    return m.replace(/\d{6,}/g, '*****');
+  } catch {
+    return 'error';
+  }
+};
+
+app.listen(PORT, () => console.log(`WA module backend listening on ${PORT}`));

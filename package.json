@@ -32,7 +32,14 @@
     "multer": "^2.0.2",
     "qrcode": "^1.5.4",
     "@hapi/boom": "^10.0.1",
-    "@adiwajshing/baileys": "^5.0.0"
+    "@adiwajshing/baileys": "^5.0.0",
+    "vitest": "^4.0.16",
+    "buffer": "^6.0.3",
+    "formidable": "^3.5.4",
+    "body-parser": "^2.2.1",
+    "fs": "^0.0.1-security",
+    "node-fetch": "^3.3.2",
+    "@google-cloud/tasks": "^6.2.1"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

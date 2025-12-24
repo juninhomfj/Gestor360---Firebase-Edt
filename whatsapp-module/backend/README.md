@@ -1,29 +1,26 @@
-# WhatsApp Module Backend - Gestor360
+# WhatsApp Module - Backend (Firebase variant)
 
-Este é o serviço de backend autônomo para o módulo WhatsApp do Gestor360.
+Backend do módulo WhatsApp projetado para integrar com Firestore & Firebase Storage e enfileirar jobs via Cloud Tasks ou Redis/BullMQ.
 
-## 🚀 Deployment
+## Pré-requisitos
+- Node 18+
+- Conta Firebase com service account
+- Firebase Storage bucket
+- Cloud Tasks queue ou Redis
 
-1. **Firebase Setup**:
-   - Crie um projeto Firebase.
-   - Ative o Cloud Firestore e Firebase Storage.
-   - Crie uma Service Account e salve o JSON (Base64).
+## Variáveis de ambiente
+- FIREBASE_SERVICE_ACCOUNT_JSON (base64)
+- SESSIONS_BUCKET
+- SESSIONS_ENC_KEY (base64 32 bytes)
+- WA_MODULE_KEY
+- USE_OFFICIAL_WABA ("true"|"false")
+- USE_CLOUD_TASKS ("true"|"false")
 
-2. **Environment Variables**:
-   - `FIREBASE_SERVICE_ACCOUNT_JSON`: JSON da conta de serviço em Base64.
-   - `SESSIONS_BUCKET`: Nome do bucket do Firebase Storage.
-   - `SESSIONS_ENC_KEY`: Chave AES-256 (32 bytes em Base64).
-   - `WA_MODULE_KEY`: Segredo compartilhado com o frontend.
-   - `USE_OFFICIAL_WABA`: "true" ou "false".
-   - `DATABASE_URL`: URL do Supabase Postgres (se aplicável).
-   - `PORT`: Porta do servidor (padrão 3001).
+## Instalação local
+1. Copie .env.example.txt -> .env
+2. npm ci
+3. npm run dev
 
-3. **Cloud Run**:
-   - Deploy da imagem Docker ou via source code para o Google Cloud Run.
-   - Configure as variáveis de ambiente acima.
-
-## ⚠️ Aviso Legal
-O uso da biblioteca Baileys (não oficial) pode levar ao banimento da conta do WhatsApp. Prefira sempre o modo Oficial WABA para produção.
-
-## 🐘 Migrations
-Execute `./run_migrations.sh` para configurar os índices necessários no Firestore.
+## Deploy
+- Recomendado: Google Cloud Run + Google Cloud Tasks.
+- Alternativo: VPS com Docker e Redis.
