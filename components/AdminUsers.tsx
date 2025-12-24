@@ -1,11 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, UserModules, UserStatus } from '../types';
-import { listUsers, createUser, updateUser, deactivateUser } from '../services/auth';
+import { listUsers, createUser, updateUser } from '../services/auth';
 import { 
     Trash2, Plus, Shield, User as UserIcon, Mail, AlertTriangle, 
-    Lock, ShieldAlert, RefreshCw, Layers, Edit2, CheckSquare, 
-    Square, Loader2, Users, Send, UserCheck, UserX 
+    RefreshCw, Edit2, CheckSquare, Square, Loader2, Users, Send, UserCheck, UserX, Save, X 
 } from 'lucide-react';
 
 interface AdminUsersProps {
@@ -13,19 +12,9 @@ interface AdminUsersProps {
 }
 
 const DEFAULT_MODULES: UserModules = {
-    sales: true,
-    finance: true,
-    whatsapp: false,
-    crm: true,
-    ai: true,
-    dev: false,
-    reports: true,
-    news: true,
-    receivables: true,
-    distribution: true,
-    imports: true,
-    /* Fixed: Added missing settings permission */
-    settings: true,
+    sales: true, finance: true, whatsapp: false, crm: true,
+    ai: true, dev: false, reports: true, news: true,
+    receivables: true, distribution: true, imports: true, settings: true,
 };
 
 const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
@@ -34,7 +23,6 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
-  // Form State
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<UserRole>('USER');
@@ -72,7 +60,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
       setNewName(u.name);
       setNewEmail(u.email);
       setNewRole(u.role);
-      setNewModules(u.modules || DEFAULT_MODULES);
+      setNewModules(u.permissions || DEFAULT_MODULES);
       setIsFormOpen(true);
   };
 
@@ -84,11 +72,10 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
               await updateUser(editingId, {
                   name: newName,
                   role: newRole,
-                  modules_config: newModules
+                  permissions: newModules
               });
               alert("Usuário atualizado!");
           } else {
-              // Fixed: Added username to satisfy the createUser function signature.
               await createUser(currentUser.id, { 
                   name: newName, 
                   email: newEmail, 
@@ -96,7 +83,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                   role: newRole, 
                   modules_config: newModules 
               });
-              alert('Convite enviado! O usuário definirá sua senha via e-mail.');
+              alert('Novo usuário criado no Firestore!');
           }
           resetForm();
           loadUsers();
@@ -112,11 +99,11 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
   };
 
   const handleToggleStatus = async (user: User) => {
-      const newStatus: UserStatus = user.userStatus === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
-      if (!confirm(`Deseja alterar o status de ${user.name} para ${newStatus}?`)) return;
+      const newStatus = !user.isActive;
+      if (!confirm(`Deseja ${newStatus ? 'Ativar' : 'Inativar'} o usuário ${user.name}?`)) return;
       
       try {
-          await updateUser(user.id, { userStatus: newStatus });
+          await updateUser(user.id, { isActive: newStatus });
           loadUsers();
       } catch (e) {
           alert("Erro ao alterar status.");
@@ -125,127 +112,139 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 pb-20">
-        <div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border dark:border-slate-800 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
             <div>
-                <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                    <Users size={20} className="text-indigo-600"/> Gestão de Acessos Administrativa
+                <h3 className="text-xl font-black text-gray-800 dark:text-white flex items-center gap-2">
+                    <Users size={24} className="text-indigo-600"/> Gestão de Perfis (Profiles)
                 </h3>
-                <p className="text-xs text-gray-500 mt-1">Apenas administradores podem gerenciar outros usuários e seus módulos.</p>
+                <p className="text-xs text-gray-500 mt-1 uppercase font-bold tracking-widest opacity-60">Total de Usuários no Banco: {users.length}</p>
             </div>
             <div className="flex gap-2 w-full md:w-auto">
-                <button onClick={loadUsers} className="p-3 bg-gray-100 dark:bg-slate-800 rounded-lg hover:bg-gray-200 transition-colors">
-                    <RefreshCw size={18} className={isLoading ? "animate-spin text-blue-500" : ""}/>
+                <button onClick={loadUsers} className="p-3 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 transition-colors">
+                    <RefreshCw size={20} className={isLoading ? "animate-spin text-blue-500" : ""}/>
                 </button>
                 <button 
                     onClick={() => { resetForm(); setIsFormOpen(true); }}
-                    className="flex-1 md:flex-none bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-lg font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                    className="flex-1 md:flex-none bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
                 >
-                    <Plus size={18} /> Convidar Usuário
+                    <Plus size={20} /> Novo Usuário
                 </button>
             </div>
         </div>
 
         {isFormOpen && (
-            <div className="bg-white dark:bg-slate-900 p-8 rounded-xl border-2 border-indigo-100 dark:border-indigo-900/50 animate-in slide-in-from-top-2">
-                <div className="flex justify-between items-center mb-6">
-                    <h4 className="text-xl font-bold flex items-center gap-2">
-                        {editingId ? <Edit2 size={20} /> : <Send size={20}/>}
-                        {editingId ? 'Editar Permissões' : 'Configurar Novo Acesso'}
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border-2 border-indigo-500/20 animate-in zoom-in-95">
+                <div className="flex justify-between items-center mb-8">
+                    <h4 className="text-2xl font-black flex items-center gap-2">
+                        {editingId ? <Edit2 size={24} className="text-amber-500" /> : <Send size={24} className="text-indigo-500"/>}
+                        {editingId ? 'Modificar Permissões' : 'Configurar Novo Acesso'}
                     </h4>
-                    <button onClick={resetForm}><UserX className="text-gray-400"/></button>
+                    <button onClick={resetForm} className="p-2 hover:bg-gray-100 rounded-full"><X size={24} className="text-gray-400"/></button>
                 </div>
 
-                <form onSubmit={handleSaveUser} className="space-y-6">
-                    {error && <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm flex items-center gap-2"><AlertTriangle size={16}/>{error}</div>}
+                <form onSubmit={handleSaveUser} className="space-y-8">
+                    {error && <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-600 rounded-xl text-sm flex items-center gap-2"><AlertTriangle size={18}/>{error}</div>}
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Nome Completo</label>
-                            <input className="w-full border p-3 rounded-lg dark:bg-slate-950 dark:border-slate-800" value={newName} onChange={e => setNewName(e.target.value)} required />
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">Nome de Exibição</label>
+                            <input className="w-full bg-gray-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-xl outline-none focus:ring-2 ring-indigo-500 font-bold dark:text-white" value={newName} onChange={e => setNewName(e.target.value)} required />
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">E-mail (Convite)</label>
-                            <input type="email" className="w-full border p-3 rounded-lg dark:bg-slate-950 dark:border-slate-800 disabled:opacity-50" value={newEmail} onChange={e => setNewEmail(e.target.value)} required disabled={!!editingId} />
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 ml-1">E-mail Corporativo</label>
+                            <input type="email" className="w-full bg-gray-50 dark:bg-slate-950 border dark:border-slate-800 p-4 rounded-xl outline-none focus:ring-2 ring-indigo-500 font-bold disabled:opacity-50 dark:text-white" value={newEmail} onChange={e => setNewEmail(e.target.value)} required disabled={!!editingId} />
                         </div>
                     </div>
 
-                    <div className="p-4 bg-gray-50 dark:bg-slate-950 rounded-xl border dark:border-slate-800">
-                        <div className="mb-4">
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Papel do Usuário (Role)</label>
-                            <div className="flex gap-2">
-                                <button type="button" onClick={() => setNewRole('USER')} className={`flex-1 py-2 rounded-lg font-bold text-xs border transition-all ${newRole === 'USER' ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white dark:bg-slate-800 text-gray-500'}`}>USER</button>
-                                <button type="button" onClick={() => setNewRole('ADMIN')} className={`flex-1 py-2 rounded-lg font-bold text-xs border transition-all ${newRole === 'ADMIN' ? 'bg-amber-500 text-white border-amber-500 shadow-md' : 'bg-white dark:bg-slate-800 text-gray-500'}`}>ADMIN</button>
+                    <div className="p-6 bg-gray-50 dark:bg-slate-950/50 rounded-2xl border dark:border-slate-800">
+                        <div className="mb-8">
+                            <label className="block text-xs font-black text-gray-500 uppercase mb-4 tracking-widest">Nível de Autoridade</label>
+                            <div className="flex flex-wrap gap-4">
+                                {['USER', 'ADMIN', 'DEV'].map(r => (
+                                    <button key={r} type="button" onClick={() => setNewRole(r as any)} className={`flex-1 py-3 rounded-xl font-black text-xs transition-all border ${newRole === r ? 'bg-indigo-600 text-white border-indigo-600 shadow-xl' : 'bg-white dark:bg-slate-900 text-gray-400 border-gray-200 dark:border-slate-800'}`}>{r}</button>
+                                ))}
                             </div>
                         </div>
 
-                        <label className="block text-xs font-bold text-gray-500 uppercase mb-3">Módulos Ativos</label>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <label className="block text-xs font-black text-gray-500 uppercase mb-4 tracking-widest">Módulos do Sistema</label>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             {Object.keys(DEFAULT_MODULES).map((mod) => (
                                 <button
                                     key={mod}
                                     type="button"
                                     onClick={() => toggleModule(mod as keyof UserModules)}
-                                    className={`flex items-center gap-2 p-3 rounded-lg border text-left transition-all ${newModules[mod as keyof UserModules] ? 'bg-indigo-50 border-indigo-500 dark:bg-indigo-900/20' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800'}`}
+                                    className={`flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${newModules[mod as keyof UserModules] ? 'bg-emerald-500/10 border-emerald-500 shadow-md ring-1 ring-emerald-500/50' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800'}`}
                                 >
-                                    {newModules[mod as keyof UserModules] ? <CheckSquare className="text-indigo-600" size={16}/> : <Square className="text-gray-300" size={16}/>}
-                                    <span className={`text-xs font-bold capitalize ${newModules[mod as keyof UserModules] ? 'text-indigo-900 dark:text-white' : 'text-gray-400'}`}>{mod}</span>
+                                    <div className={`w-5 h-5 rounded flex items-center justify-center border ${newModules[mod as keyof UserModules] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300'}`}>
+                                        {newModules[mod as keyof UserModules] && <CheckSquare size={14}/>}
+                                    </div>
+                                    <span className={`text-xs font-black uppercase tracking-wide ${newModules[mod as keyof UserModules] ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'}`}>{mod}</span>
                                 </button>
                             ))}
                         </div>
                     </div>
 
-                    <div className="flex gap-2">
-                        <button type="button" onClick={resetForm} className="flex-1 py-3 bg-white border rounded-lg font-bold text-gray-500">Cancelar</button>
-                        <button type="submit" disabled={isLoading} className="flex-1 py-3 bg-indigo-600 text-white rounded-lg font-bold shadow-lg flex items-center justify-center gap-2">
-                            {isLoading ? <Loader2 className="animate-spin"/> : (editingId ? 'Salvar Permissões' : 'Enviar Acesso')}
+                    <div className="flex gap-4">
+                        <button type="button" onClick={resetForm} className="flex-1 py-4 bg-gray-100 dark:bg-slate-800 rounded-xl font-bold text-gray-500 transition-colors hover:bg-gray-200">Cancelar</button>
+                        <button type="submit" disabled={isLoading} className="flex-1 py-4 bg-indigo-600 text-white rounded-xl font-black shadow-2xl flex items-center justify-center gap-3 transition-all hover:bg-indigo-700 active:scale-95">
+                            {isLoading ? <Loader2 className="animate-spin" size={20}/> : <Save size={20}/>}
+                            {editingId ? 'Salvar Configurações' : 'Criar Perfil Firestore'}
                         </button>
                     </div>
                 </form>
             </div>
         )}
 
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden shadow-sm">
-            <table className="w-full text-left text-sm">
-                <thead className="bg-gray-50 dark:bg-slate-800/50 text-gray-400 font-bold uppercase text-[10px] tracking-widest border-b dark:border-slate-700">
-                    <tr>
-                        <th className="p-4">Usuário</th>
-                        <th className="p-4">Role</th>
-                        <th className="p-4">Status</th>
-                        <th className="p-4 text-center">Ações</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y dark:divide-slate-800">
-                    {users.map(u => (
-                        <tr key={u.id} className={`hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${u.userStatus === 'INACTIVE' ? 'opacity-50' : ''}`}>
-                            <td className="p-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 font-bold">
-                                        {u.name.charAt(0)}
-                                    </div>
-                                    <div>
-                                        <div className="font-bold dark:text-white">{u.name}</div>
-                                        <div className="text-xs text-gray-500">{u.email}</div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td className="p-4">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${u.role === 'ADMIN' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>{u.role}</span>
-                            </td>
-                            <td className="p-4">
-                                <span className={`font-bold text-xs ${u.userStatus === 'ACTIVE' ? 'text-emerald-500' : 'text-red-500'}`}>{u.userStatus}</span>
-                            </td>
-                            <td className="p-4">
-                                <div className="flex justify-center gap-2">
-                                    <button onClick={() => handleOpenEdit(u)} className="p-2 text-indigo-500 hover:bg-indigo-50 rounded transition-colors"><Edit2 size={16}/></button>
-                                    <button onClick={() => handleToggleStatus(u)} className={`p-2 rounded transition-colors ${u.userStatus === 'ACTIVE' ? 'text-red-500 hover:bg-red-50' : 'text-emerald-500 hover:bg-emerald-50'}`}>
-                                        {u.userStatus === 'ACTIVE' ? <UserX size={16}/> : <UserCheck size={16}/>}
-                                    </button>
-                                </div>
-                            </td>
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border dark:border-slate-800 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                    <thead className="bg-gray-50 dark:bg-slate-800/50 text-gray-400 font-black uppercase text-[10px] tracking-[0.2em] border-b dark:border-slate-800">
+                        <tr>
+                            <th className="p-6">Usuário / Identidade</th>
+                            <th className="p-6">Nível</th>
+                            <th className="p-6">Status Cloud</th>
+                            <th className="p-6 text-center">Ações</th>
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody className="divide-y dark:divide-slate-800">
+                        {users.map(u => (
+                            <tr key={u.id} className={`hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${!u.isActive ? 'opacity-40 grayscale' : ''}`}>
+                                <td className="p-6">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-black text-xl shadow-inner shrink-0">
+                                            {u.name.charAt(0)}
+                                        </div>
+                                        <div>
+                                            <div className="font-black text-gray-900 dark:text-white text-lg flex items-center gap-2">
+                                                {u.name} {u.id === currentUser.id && <span className="text-[9px] bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">VOCÊ</span>}
+                                            </div>
+                                            <div className="text-xs text-gray-400 font-mono">@{u.username} • {u.email}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td className="p-6">
+                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest ${u.role === 'ADMIN' ? 'bg-amber-100 text-amber-700' : (u.role === 'DEV' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600')}`}>{u.role}</span>
+                                </td>
+                                <td className="p-6">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-2 h-2 rounded-full ${u.isActive ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
+                                        <span className={`font-black text-[10px] tracking-widest ${u.isActive ? 'text-emerald-500' : 'text-red-500'}`}>{u.isActive ? 'ACTIVE' : 'BLOCKED'}</span>
+                                    </div>
+                                </td>
+                                <td className="p-6">
+                                    <div className="flex justify-center gap-3">
+                                        <button onClick={() => handleOpenEdit(u)} className="p-3 bg-gray-100 dark:bg-slate-800 text-indigo-500 rounded-xl hover:shadow-lg transition-all"><Edit2 size={18}/></button>
+                                        <button onClick={() => handleToggleStatus(u)} className={`p-3 rounded-xl transition-all ${u.isActive ? 'bg-red-100 dark:bg-red-900/30 text-red-500' : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-500'}`}>
+                                            {u.isActive ? <UserX size={18}/> : <UserCheck size={18}/>}
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            {!users.length && <div className="p-20 text-center text-gray-500 italic">Nenhum usuário encontrado na tabela Profiles.</div>}
         </div>
     </div>
   );

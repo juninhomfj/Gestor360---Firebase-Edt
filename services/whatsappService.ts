@@ -1,276 +1,186 @@
 
-import { WAContact, WATag, WACampaign, WAMessageQueue, WAMediaType } from '../types';
-/* Fix: Removed non-existent export WAManualLog from types import */
-import { dbGetAll, dbPut, dbDelete, dbBulkPut } from '../storage/db';
-import { markDirty } from './sync';
-import { base64ToBlob } from '../utils/fileHelper';
+import { WAContact, WATag, WACampaign, WAMessageQueue } from '../types';
+import { dbGetAll, dbPut, dbBulkPut, dbDelete, dbGet } from '../storage/db';
 import { auth } from './firebase';
 
-// --- CONTACTS ---
+const BACKEND_URL = (import.meta as any).env?.VITE_WA_BACKEND_URL || 'http://localhost:3001';
+const WA_KEY = (import.meta as any).env?.VITE_WA_MODULE_KEY || 'default-dev-key';
 
-export const getWAContacts = async (): Promise<WAContact[]> => {
-    const contacts = await dbGetAll('wa_contacts');
-    return contacts.filter(c => !c.deleted);
-};
-
-export const saveWAContact = async (contact: WAContact) => {
-    const stamped = { ...contact, updatedAt: new Date().toISOString() };
-    await dbPut('wa_contacts', stamped);
-    markDirty();
-};
-
-export const deleteWAContact = async (id: string) => {
-    // Soft delete locally
-    const contacts = await dbGetAll('wa_contacts');
-    const target = contacts.find(c => c.id === id);
-    if (target) {
-        const deleted = { ...target, deleted: true, deletedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-        await dbPut('wa_contacts', deleted);
-        markDirty();
-    }
-};
-
-export const importWAContacts = async (contacts: WAContact[]) => {
-    const stamped = contacts.map(c => ({...c, updatedAt: new Date().toISOString()}));
-    await dbBulkPut('wa_contacts', stamped);
-    markDirty();
-};
-
-// --- TAGS ---
-
-export const getWATags = async (): Promise<WATag[]> => {
-    const tags = await dbGetAll('wa_tags');
-    return tags.filter(t => !t.deleted);
-};
-
-export const saveWATag = async (tag: WATag) => {
-    const stamped = { ...tag, updatedAt: new Date().toISOString() };
-    await dbPut('wa_tags', stamped);
-    markDirty();
-};
-
-// --- CAMPAIGNS & QUEUE ---
-
-export const getWACampaigns = async (): Promise<WACampaign[]> => {
-    const campaigns = await dbGetAll('wa_campaigns');
-    return campaigns.filter(c => !c.deleted);
-};
-
-export const saveWACampaign = async (campaign: WACampaign) => {
-    // Ensure integers for counters to match DB constraint
-    const stamped = { 
-        ...campaign, 
-        totalContacts: Math.floor(campaign.totalContacts),
-        sentCount: Math.floor(campaign.sentCount),
-        updatedAt: new Date().toISOString() 
-    };
-    await dbPut('wa_campaigns', stamped);
-    markDirty();
-};
-
-export const archiveWACampaign = async (campaign: WACampaign) => {
-    const updated = { ...campaign, archived: true, updatedAt: new Date().toISOString() };
-    await dbPut('wa_campaigns', updated);
-    markDirty();
-};
-
-export const createCampaignQueue = async (
-    campaignId: string, 
-    messageTemplate: string, 
-    contacts: WAContact[], 
-    targetTags: string[], 
-    abTest?: { enabled: boolean, templateB: string },
-    media?: { data: string, type: WAMediaType, name: string }
-) => {
-    // A lista 'contacts' já vem filtrada do Wizard
-    
-    const queueItems: WAMessageQueue[] = contacts.map((c, index) => {
-        let variant: 'A' | 'B' = 'A';
-        let templateToUse = messageTemplate;
-
-        // Lógica de Teste A/B: Alterna entre A e B
-        if (abTest?.enabled && abTest.templateB) {
-            variant = index % 2 === 0 ? 'A' : 'B';
-            templateToUse = variant === 'A' ? messageTemplate : abTest.templateB;
-        }
-
-        // Fix: Included missing required property deleted for WAMessageQueue
-        return {
-            id: crypto.randomUUID(),
-            campaignId,
-            contactId: c.id,
-            phone: c.phone,
-            message: replaceVariables(templateToUse, c), 
-            status: 'PENDING', // Explicit status
-            variant,
-            media: media, // Anexa mídia se houver
-            sentAt: undefined, // Nullable
-            deleted: false
-        };
-    });
-    
-    await dbBulkPut('wa_queue', queueItems);
-    markDirty();
-    return queueItems.length;
-};
-
-export const getWAQueue = async (campaignId?: string): Promise<WAMessageQueue[]> => {
-    const all = await dbGetAll('wa_queue');
-    const active = all.filter(q => !q.deleted);
-    if (campaignId) {
-        return active.filter(q => q.campaignId === campaignId);
-    }
-    return active;
-};
-
-export const updateQueueStatus = async (itemId: string, status: 'SENT' | 'FAILED' | 'SKIPPED') => {
-    const all = await dbGetAll('wa_queue');
-    const item = all.find(i => i.id === itemId);
-    
-    if (item) {
-        item.status = status;
-        item.sentAt = new Date().toISOString();
-        await dbPut('wa_queue', item);
-        markDirty();
-    }
-};
-
-// --- BROWSER-ONLY HELPER FUNCTIONS ---
-
-export const copyToClipboard = async (text: string): Promise<boolean> => {
-    try {
-        await navigator.clipboard.writeText(text);
-        return true;
-    } catch (err) {
-        console.error('Failed to copy text: ', err);
-        return false;
-    }
+const headers = {
+    'Content-Type': 'application/json',
+    'x-wa-module-key': WA_KEY
 };
 
 /**
- * Copies a Base64 image to the system clipboard as a Blob.
- * This allows the user to Paste (Ctrl+V) directly into WhatsApp Web.
+ * Normaliza telefone para E.164 (Brasil default +55)
  */
-export const copyImageToClipboard = async (base64: string): Promise<boolean> => {
-    try {
-        const blob = await base64ToBlob(base64);
+export const normalizePhone = (phone: string): string => {
+    let clean = phone.replace(/\D/g, '');
+    if (clean.length === 11) return '55' + clean;
+    if (clean.length === 10) return '55' + clean.slice(0, 2) + '9' + clean.slice(2);
+    if (clean.length === 13 && clean.startsWith('55')) return clean;
+    return clean;
+};
+
+export const getWAContacts = async () => (await dbGetAll('wa_contacts')).filter(c => !c.deleted);
+export const getWATags = async () => (await dbGetAll('wa_tags')).filter(t => !t.deleted);
+export const getWACampaigns = async () => (await dbGetAll('wa_campaigns')).filter(c => !c.deleted);
+
+// Fix: Implemented saveWACampaign to store campaign data
+export const saveWACampaign = async (campaign: WACampaign) => {
+    await dbPut('wa_campaigns', campaign);
+};
+
+// Fix: Implemented createCampaignQueue to generate message items for a campaign
+export const createCampaignQueue = async (
+    campaignId: string, 
+    template: string, 
+    recipients: WAContact[], 
+    tags: string[], 
+    abTest?: { enabled: boolean; templateB: string }, 
+    media?: any
+) => {
+    const queueItems: WAMessageQueue[] = recipients.map((contact, idx) => {
+        const variant = abTest?.enabled && idx % 2 !== 0 ? 'B' : 'A';
+        const messageText = variant === 'B' ? abTest!.templateB : template;
         
-        // Clipboard Item constructor expects a Promise for the Blob in some browsers or just the Blob.
-        // Modern approach:
-        await navigator.clipboard.write([
-            new ClipboardItem({
-                [blob.type]: blob
-            })
-        ]);
+        // Simple variable replacement
+        const finalMessage = messageText
+            .replace(/{nome}/g, contact.name)
+            .replace(/{primeiro_nome}/g, contact.name.split(' ')[0]);
+
+        return {
+            id: crypto.randomUUID(),
+            campaignId,
+            contactId: contact.id,
+            phone: contact.phone,
+            message: finalMessage,
+            status: 'PENDING',
+            variant,
+            media,
+            deleted: false
+        } as WAMessageQueue;
+    });
+
+    await dbBulkPut('wa_queue', queueItems);
+};
+
+// Fix: Implemented getWAQueue to retrieve queue items for a campaign
+export const getWAQueue = async (campaignId: string) => {
+    return (await dbGetAll('wa_queue')).filter(i => i.campaignId === campaignId && !i.deleted);
+};
+
+// Fix: Implemented updateQueueStatus to track message delivery
+export const updateQueueStatus = async (id: string, status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED') => {
+    const item = await dbGet('wa_queue', id);
+    if (item) {
+        await dbPut('wa_queue', { ...item, status, sentAt: status === 'SENT' ? new Date().toISOString() : undefined });
+    }
+};
+
+// Fix: Added utility functions for clipboard and WhatsApp Web integration
+export const copyToClipboard = async (text: string) => {
+    await navigator.clipboard.writeText(text);
+};
+
+export const openWhatsAppWeb = (phone: string, text: string) => {
+    const encodedText = encodeURIComponent(text);
+    window.open(`https://web.whatsapp.com/send?phone=${phone}&text=${encodedText}`, '_blank');
+};
+
+export const copyImageToClipboard = async (base64Data: string): Promise<boolean> => {
+    try {
+        const res = await fetch(base64Data);
+        const blob = await res.blob();
+        const item = new ClipboardItem({ [blob.type]: blob });
+        await navigator.clipboard.write([item]);
         return true;
-    } catch (err) {
-        console.error('Failed to copy image: ', err);
-        // Fallback or alert handled by caller
+    } catch (e) {
+        console.error("Clipboard Image Error:", e);
         return false;
     }
 };
 
-export const openWhatsAppWeb = (phone: string, text: string) => {
-    const cleanPhone = phone.replace(/\D/g, '');
-    const encodedText = encodeURIComponent(text);
-    const url = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}`;
-    window.open(url, '_blank', 'noreferrer');
+// Fix: Implemented deleteWAContact
+export const deleteWAContact = async (id: string) => {
+    await dbDelete('wa_contacts', id);
 };
 
-// --- UTILS ---
-
-const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour >= 5 && hour < 12) return 'Bom dia';
-    if (hour >= 12 && hour < 18) return 'Boa tarde';
-    return 'Boa noite';
+// Fix: Implemented importWAContacts
+export const importWAContacts = async (contacts: WAContact[]) => {
+    await dbBulkPut('wa_contacts', contacts);
 };
 
-const getFirstName = (fullName: string) => {
-    const first = fullName.trim().split(' ')[0];
-    return first.charAt(0).toUpperCase() + first.slice(1).toLowerCase();
+export const createSession = async (sessionId: string) => {
+    const res = await fetch(`${BACKEND_URL}/api/v1/sessions/create`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ sessionId })
+    });
+    return res.json();
 };
 
-const replaceVariables = (template: string, contact: WAContact): string => {
-    let text = template;
-    
-    // Etapa 5: Smart Variables
-    // Saudação automática
-    text = text.replace(/{saudacao}/gi, getGreeting());
-    text = text.replace(/{bom_dia}/gi, getGreeting());
-    
-    // Primeiro Nome
-    text = text.replace(/{primeiro_nome}/gi, getFirstName(contact.name));
-    text = text.replace(/{first_name}/gi, getFirstName(contact.name));
+export const getSessionStatus = async (sessionId: string) => {
+    const res = await fetch(`${BACKEND_URL}/api/v1/sessions/${sessionId}/status`, { headers });
+    return res.json();
+};
 
-    // Standard variables
-    text = text.replace(/{name}/gi, contact.name);
-    text = text.replace(/{nome}/gi, contact.name);
-    text = text.replace(/{phone}/gi, contact.phone);
-    text = text.replace(/{telefone}/gi, contact.phone);
-    
-    // Custom variables
-    if (contact.variables) {
-        Object.keys(contact.variables).forEach(key => {
-            const regex = new RegExp(`{${key}}`, 'gi');
-            text = text.replace(regex, contact.variables![key]);
-        });
-    }
-    
-    return text;
+export const exportWAContactsToServer = async () => {
+    const user = auth.currentUser;
+    if (!user) throw new Error("Usuário não autenticado.");
+
+    const contacts = await getWAContacts();
+    const res = await fetch(`${BACKEND_URL}/api/v1/contacts/import`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ userId: user.uid, contacts })
+    });
+    return res.json();
+};
+
+export const createCampaignRemote = async (campaign: Partial<WACampaign>, recipients: WAContact[]) => {
+    const user = auth.currentUser;
+    if (!user) throw new Error("Usuário não autenticado.");
+
+    const res = await fetch(`${BACKEND_URL}/api/v1/campaigns`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+            userId: user.uid,
+            campaign,
+            recipients: recipients.map(r => ({ ...r, phone: normalizePhone(r.phone) }))
+        })
+    });
+    return res.json();
+};
+
+export const saveWAContact = async (contact: WAContact) => {
+    const stamped = { ...contact, phone: normalizePhone(contact.phone), updatedAt: new Date().toISOString() };
+    await dbPut('wa_contacts', stamped);
 };
 
 export const parseCSVContacts = (content: string): WAContact[] => {
-    const lines = content.split('\n');
+    const lines = content.split(/\r?\n/);
     const contacts: WAContact[] = [];
+    const headers = lines[0].split(/[;,]/).map(h => h.trim().toLowerCase());
     
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    const hasHeader = headers.includes('phone') || headers.includes('nome') || headers.includes('telefone');
-    
-    const nameIdx = headers.findIndex(h => h === 'nome' || h === 'name');
-    const phoneIdx = headers.findIndex(h => h === 'phone' || h === 'telefone' || h === 'celular');
-    const tagsIdx = headers.findIndex(h => h === 'tags');
-    
-    const varIndexes: { [key: string]: number } = {};
-    headers.forEach((h, idx) => {
-        if (idx !== nameIdx && idx !== phoneIdx && idx !== tagsIdx && h) {
-            varIndexes[h] = idx; 
-        }
-    });
+    const phoneIdx = headers.findIndex(h => h.includes('phone') || h.includes('tel') || h.includes('cel'));
+    if (phoneIdx === -1) return [];
 
-    const startIndex = hasHeader ? 1 : 0;
-
-    for (let i = startIndex; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        const cols = line.split(',').map(s => s.trim());
+    for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(/[;,]/).map(s => s.trim());
+        if (!cols[phoneIdx]) continue;
         
-        let name = hasHeader && nameIdx !== -1 ? cols[nameIdx] : cols[0];
-        let phone = hasHeader && phoneIdx !== -1 ? cols[phoneIdx] : cols[1];
-        let tagsStr = hasHeader && tagsIdx !== -1 ? cols[tagsIdx] : cols[2];
-
-        const variables: Record<string, string> = {};
-        if (hasHeader) {
-            Object.keys(varIndexes).forEach(key => {
-                const val = cols[varIndexes[key]];
-                if (val) variables[key] = val;
-            });
-        }
-        
-        if (phone) {
-            // Fix: Included missing required properties for WAContact
-            contacts.push({
-                id: crypto.randomUUID(),
-                name: name || 'Sem Nome',
-                phone: phone.replace(/\D/g, ''),
-                tags: tagsStr ? tagsStr.split(';').map(t => t.trim()) : [],
-                variables: Object.keys(variables).length > 0 ? variables : undefined,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                deleted: false,
-                userId: auth.currentUser?.uid || ''
-            });
-        }
+        contacts.push({
+            id: crypto.randomUUID(),
+            name: cols[0] || 'Sem Nome',
+            phone: normalizePhone(cols[phoneIdx]),
+            tags: cols[2] ? cols[2].split('|').map(t => t.trim()) : [],
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            deleted: false,
+            userId: auth.currentUser?.uid || ''
+        });
     }
     return contacts;
 };

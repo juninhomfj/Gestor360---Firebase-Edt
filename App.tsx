@@ -7,8 +7,19 @@ import RequestReset from './components/RequestReset';
 import LoadingScreen from './components/LoadingScreen';
 import Dashboard from './components/Dashboard';
 import SalesForm from './components/SalesForm';
+import SalesList from './components/SalesList';
+import BoletoControl from './components/BoletoControl';
+import ClientReports from './components/ClientReports';
+import WhatsAppModule from './components/WhatsAppModule';
 import FinanceDashboard from './components/FinanceDashboard';
+import FinanceTransactionsList from './components/FinanceTransactionsList';
 import FinanceTransactionForm from './components/FinanceTransactionForm';
+import FinanceReceivables from './components/FinanceReceivables';
+import FinanceDistribution from './components/FinanceDistribution';
+import FinanceManager from './components/FinanceManager';
+import FinanceCategories from './components/FinanceCategories';
+import FinanceGoals from './components/FinanceGoals';
+import FinanceChallenges from './components/FinanceChallenges';
 import SettingsHub from './components/SettingsHub';
 import ToastContainer, { ToastMessage } from './components/Toast';
 import SnowOverlay from './components/SnowOverlay';
@@ -24,7 +35,8 @@ import {
 import {
     getStoredSales, getFinanceData, getSystemConfig, getReportConfig,
     getStoredTable, saveFinanceData, saveSingleSale, getClients,
-    saveCommissionRules, bootstrapProductionData, saveReportConfig
+    saveCommissionRules, bootstrapProductionData, saveReportConfig,
+    saveSales
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -187,6 +199,170 @@ const App: React.FC = () => {
     if (authView === 'REQUEST_RESET')
         return <RequestReset onBack={() => setAuthView('LOGIN')} />;
 
+    // --- RENDERIZADOR DE ABAS ---
+    const renderActiveTab = () => {
+        switch (activeTab) {
+            case 'dashboard':
+                return (
+                    <Dashboard
+                        sales={sales} onNewSale={() => setShowSalesForm(true)}
+                        darkMode={theme !== 'neutral' && theme !== 'rose'}
+                        config={dashboardConfig} hideValues={hideValues}
+                        onToggleHide={() => setHideValues(!hideValues)}
+                        onUpdateConfig={setDashboardConfig}
+                        currentUser={currentUser}
+                        salesTargets={salesTargets} onUpdateTargets={setSalesTargets}
+                        isAdmin={isAdmin} isDev={isDev}
+                    />
+                );
+            case 'sales':
+                return (
+                    <SalesList
+                        sales={sales}
+                        onEdit={(s) => { /* logic to open edit */ }}
+                        onDelete={async (s) => {
+                            await saveSingleSale({ ...s, deleted: true });
+                            loadDataForUser();
+                        }}
+                        onNew={() => setShowSalesForm(true)}
+                        onExportTemplate={() => {}}
+                        onImportFile={async () => {}}
+                        onClearAll={() => {}}
+                        onRestore={() => {}}
+                        onOpenBulkAdvanced={() => {}}
+                        onUndo={() => {}}
+                        onBillSale={async (s, date) => {
+                            await saveSingleSale({ ...s, date, isBilled: true });
+                            loadDataForUser();
+                        }}
+                        onBillBulk={() => {}}
+                        onDeleteBulk={() => {}}
+                        onRecalculate={() => {}}
+                        hasUndo={false}
+                        onNotify={addToast}
+                    />
+                );
+            case 'reports':
+                return (
+                    <ClientReports 
+                        sales={sales} 
+                        config={reportConfig} 
+                        onOpenSettings={() => setActiveTab('settings')}
+                        userId={currentUser.id}
+                        darkMode={theme !== 'neutral' && theme !== 'rose'}
+                    />
+                );
+            case 'boletos':
+                return (
+                    <BoletoControl 
+                        sales={sales} 
+                        onUpdateSale={async (s) => {
+                            await saveSingleSale(s);
+                            loadDataForUser();
+                        }} 
+                    />
+                );
+            case 'whatsapp_main':
+                return <WhatsAppModule darkMode={theme !== 'neutral' && theme !== 'rose'} sales={sales} />;
+            case 'fin_dashboard':
+                return (
+                    <FinanceDashboard
+                        accounts={accounts} transactions={transactions} cards={cards} receivables={receivables}
+                        hideValues={hideValues} onToggleHide={() => setHideValues(!hideValues)}
+                        config={dashboardConfig} onUpdateConfig={setDashboardConfig}
+                        onNavigate={setActiveTab} darkMode={theme !== 'neutral' && theme !== 'rose'}
+                    />
+                );
+            case 'fin_transactions':
+                return (
+                    <FinanceTransactionsList 
+                        transactions={transactions} 
+                        accounts={accounts} 
+                        categories={categories} 
+                        onDelete={async (id) => {
+                            const tx = transactions.find(t => t.id === id);
+                            if(tx) await saveFinanceData(accounts, cards, transactions.filter(t => t.id !== id), categories);
+                            loadDataForUser();
+                        }} 
+                        darkMode={theme !== 'neutral' && theme !== 'rose'} 
+                    />
+                );
+            case 'fin_receivables':
+                return (
+                    <FinanceReceivables 
+                        receivables={receivables} 
+                        accounts={accounts} 
+                        sales={sales}
+                        onUpdate={async (items) => {
+                            // save logic for receivables
+                            loadDataForUser();
+                        }}
+                        darkMode={theme !== 'neutral' && theme !== 'rose'}
+                    />
+                );
+            case 'fin_distribution':
+                return (
+                    <FinanceDistribution 
+                        receivables={receivables} 
+                        accounts={accounts} 
+                        onDistribute={() => {}} 
+                        darkMode={theme !== 'neutral' && theme !== 'rose'}
+                    />
+                );
+            case 'fin_manager':
+                return (
+                    <FinanceManager 
+                        accounts={accounts} 
+                        cards={cards} 
+                        transactions={transactions}
+                        onUpdate={async (acc, trans, crds) => {
+                            await saveFinanceData(acc, crds, trans, categories);
+                            loadDataForUser();
+                        }}
+                        onPayInvoice={() => {}}
+                        darkMode={theme !== 'neutral' && theme !== 'rose'}
+                        onNotify={addToast}
+                    />
+                );
+            case 'fin_categories':
+                return <FinanceCategories categories={categories} onUpdate={() => {}} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+            case 'fin_goals':
+                return <FinanceGoals goals={goals} onUpdate={() => {}} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+            case 'fin_challenges':
+                return <FinanceChallenges challenges={challenges} cells={cells} onUpdate={() => {}} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+            case 'settings':
+                return (
+                    <SettingsHub
+                        rulesBasic={rulesBasic} rulesNatal={rulesNatal} rulesCustom={rulesCustom}
+                        reportConfig={reportConfig}
+                        onSaveRules={async (type, rules) => {
+                            try {
+                                await saveCommissionRules(type, rules);
+                                addToast('SUCCESS', `Tabela ${type} atualizada!`);
+                                await loadDataForUser();
+                            } catch (e) { addToast('ERROR', 'Erro ao salvar.'); }
+                        }}
+                        onSaveReportConfig={async (config) => {
+                            try {
+                                await saveReportConfig(config);
+                                setReportConfig(config);
+                                addToast('SUCCESS', 'Parâmetros de relatório atualizados!');
+                            } catch (e) { addToast('ERROR', 'Falha ao salvar configurações.'); }
+                        }}
+                        darkMode={theme !== 'neutral' && theme !== 'rose'}
+                        currentUser={currentUser} onUpdateUser={setCurrentUser}
+                        sales={sales} onUpdateSales={setSales}
+                        onNotify={addToast} onThemeChange={setTheme}
+                        isAdmin={isAdmin} isDev={isDev}
+                    />
+                );
+            case 'dev_roadmap':
+                return isDev ? <DevRoadmap /> : null;
+            default:
+                return <div className="p-8 text-center text-gray-500">Módulo em desenvolvimento ou não encontrado.</div>;
+        }
+    };
+
     return (
         <div className={theme}>
             <SnowOverlay />
@@ -230,55 +406,7 @@ const App: React.FC = () => {
                 isAdmin={isAdmin} isDev={isDev}
             >
                 <div className="p-4 h-full overflow-hidden">
-                    {activeTab === 'dashboard' && (
-                        <Dashboard
-                            sales={sales} onNewSale={() => setShowSalesForm(true)}
-                            darkMode={theme !== 'neutral' && theme !== 'rose'}
-                            config={dashboardConfig} hideValues={hideValues}
-                            onToggleHide={() => setHideValues(!hideValues)}
-                            onUpdateConfig={setDashboardConfig}
-                            currentUser={currentUser}
-                            salesTargets={salesTargets} onUpdateTargets={setSalesTargets}
-                            isAdmin={isAdmin} isDev={isDev}
-                        />
-                    )}
-
-                    {activeTab === 'settings' && (
-                        <SettingsHub
-                            rulesBasic={rulesBasic} rulesNatal={rulesNatal} rulesCustom={rulesCustom}
-                            reportConfig={reportConfig}
-                            onSaveRules={async (type, rules) => {
-                                try {
-                                    await saveCommissionRules(type, rules);
-                                    addToast('SUCCESS', `Tabela ${type} atualizada!`);
-                                    await loadDataForUser();
-                                } catch (e) { addToast('ERROR', 'Erro ao salvar.'); }
-                            }}
-                            onSaveReportConfig={async (config) => {
-                                try {
-                                    await saveReportConfig(config);
-                                    setReportConfig(config);
-                                    addToast('SUCCESS', 'Parâmetros de relatório atualizados!');
-                                } catch (e) { addToast('ERROR', 'Falha ao salvar configurações.'); }
-                            }}
-                            darkMode={theme !== 'neutral' && theme !== 'rose'}
-                            currentUser={currentUser} onUpdateUser={setCurrentUser}
-                            sales={sales} onUpdateSales={setSales}
-                            onNotify={addToast} onThemeChange={setTheme}
-                            isAdmin={isAdmin} isDev={isDev}
-                        />
-                    )}
-
-                    {activeTab === 'fin_dashboard' && (
-                        <FinanceDashboard
-                            accounts={accounts} transactions={transactions} cards={cards}
-                            hideValues={hideValues} onToggleHide={() => setHideValues(!hideValues)}
-                            config={dashboardConfig} onUpdateConfig={setDashboardConfig}
-                            onNavigate={setActiveTab} darkMode={theme !== 'neutral' && theme !== 'rose'}
-                        />
-                    )}
-
-                    {activeTab === 'dev_roadmap' && isDev && <DevRoadmap />}
+                    {renderActiveTab()}
                 </div>
             </Layout>
         </div>

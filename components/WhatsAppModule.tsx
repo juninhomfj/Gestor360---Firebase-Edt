@@ -56,7 +56,8 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
           if (currentItem.media?.data) {
               const success = await copyImageToClipboard(currentItem.media.data);
               if (success) setMediaCopied(true);
-              await WhatsAppManualLogger.logStep(activeLogId, 'mediaCopiedAt' as any);
+              // Corrected: Removed 'as any' as mediaCopiedAt is now in ManualInteractionLog
+              await WhatsAppManualLogger.logStep(activeLogId, 'mediaCopiedAt');
           }
       } else if (action === 'COPY_TEXT') {
           await copyToClipboard(currentItem.message);

@@ -9,7 +9,9 @@ import {
     where, 
     writeBatch,
     serverTimestamp,
-    limit
+    limit,
+    Timestamp,
+    orderBy
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 import { 
@@ -49,7 +51,6 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
 
-    // Determine the next income date
     let nextDay = salaryDays.find(d => d > today);
     let nextMonth = currentMonth;
     let nextYear = currentYear;
@@ -64,7 +65,6 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
     const diffTime = nextIncomeDate.getTime() - now.getTime();
     const daysRemaining = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
 
-    // Calculate pending obligations until next income
     const pendingExpenses = transactions
         .filter(t => !t.isPaid && t.type === 'EXPENSE' && new Date(t.date) <= nextIncomeDate)
         .reduce((acc, t) => acc + t.amount, 0);
@@ -124,8 +124,6 @@ export const generateChallengeCells = (challengeId: string, targetValue: number,
     const uid = auth.currentUser?.uid || '';
     
     if (model === 'LINEAR') {
-        // Arithmetic Progression: Sum = (n/2) * (a1 + an)
-        // Here we want values to grow linearly: factor * (1, 2, 3...)
         const totalSteps = (count / 2) * (1 + count);
         const factor = targetValue / totalSteps;
         for (let i = 1; i <= count; i++) {
@@ -156,8 +154,6 @@ export const generateChallengeCells = (challengeId: string, targetValue: number,
     return cells;
 };
 
-// ... Rest of Firebase functions preserved ...
-
 export const bootstrapProductionData = async (): Promise<any> => {
     if (!auth.currentUser) return { success: false, msg: "Usuário não autenticado." };
     const uid = auth.currentUser.uid;
@@ -166,7 +162,10 @@ export const bootstrapProductionData = async (): Promise<any> => {
     const checkAndSeed = async (collName: string, seedData: any, userScoped: boolean = false) => {
         try {
             const collRef = collection(db, collName);
-            const q = query(collRef, limit(1));
+            const q = userScoped 
+                ? query(collRef, where("userId", "==", uid), limit(1))
+                : query(collRef, limit(1));
+                
             const snap = await getDocs(q);
             
             if (snap.empty) {
@@ -186,9 +185,6 @@ export const bootstrapProductionData = async (): Promise<any> => {
                 
                 await setDoc(docRef, finalData);
                 stats.created.push(collName);
-                stats.docs[collName] = 1;
-            } else {
-                stats.docs[collName] = snap.size;
             }
         } catch (e) {
             console.error(`[Bootstrap] Erro em ${collName}:`, e);
@@ -197,20 +193,12 @@ export const bootstrapProductionData = async (): Promise<any> => {
 
     const tables = [
         { name: "config", data: { id: "system", bootstrapVersion: 3 }, scoped: false },
-        { name: "profiles", data: { id: uid, role: "USER", isActive: true }, scoped: false },
-        { name: "accounts", data: { name: "Conta Principal", balance: 0, isAccounting: true, includeInDistribution: true, type: 'CHECKING' }, scoped: true },
+        { name: "accounts", data: { name: "Carteira Local", balance: 0, isAccounting: true, includeInDistribution: true, type: 'CASH' }, scoped: true },
         { name: "categories", data: { name: "Geral", type: "GENERIC", subcategories: [] }, scoped: false },
-        { name: "cards", data: { name: "Cartão Padrão", limit: 0, currentInvoice: 0, closingDay: 10, dueDay: 15, color: 'blue', personType: 'PF' }, scoped: true },
-        { name: "transactions", data: { description: "Lançamento Inicial", amount: 0, type: "EXPENSE", isPaid: true, date: new Date().toISOString(), categoryId: 'uncategorized', accountId: 'seed' }, scoped: true },
-        { name: "receivables", data: { description: "Previsão Inicial", value: 0, status: "PENDING", date: new Date().toISOString(), distributed: false }, scoped: true },
-        { name: "clients", data: { name: "Cliente Exemplo", companyName: "Exemplo S/A", status: "ATIVO", benefitProfile: 'AMBOS', monthlyQuantityDeclared: 0, monthlyQuantityAverage: 0, isActive: true }, scoped: true },
-        { name: "sales", data: { client: "Cliente Exemplo", quantity: 1, valueSold: 0, valueProposed: 0, type: ProductType.BASICA, status: 'ORÇAMENTO', marginPercent: 0, commissionBaseTotal: 0, commissionValueTotal: 0, commissionRateUsed: 0, completionDate: new Date().toISOString(), isBilled: false, hasNF: false, observations: 'Seed' }, scoped: true },
-        { name: "commission_basic", data: { minPercent: 0, maxPercent: null, commissionRate: 0.05 }, scoped: false },
-        { name: "commission_natal", data: { minPercent: 0, maxPercent: null, commissionRate: 0.07 }, scoped: false },
-        { name: "commission_custom", data: { minPercent: 0, maxPercent: null, commissionRate: 0.10 }, scoped: false },
-        { name: "goals", data: { name: "Meta Exemplo", targetValue: 1000, currentValue: 0, status: 'ACTIVE', description: 'Meta inicial' }, scoped: true },
-        { name: "challenges", data: { name: "Desafio 52 Semanas", targetValue: 1378, depositCount: 52, model: 'LINEAR', status: 'ACTIVE' }, scoped: true },
-        { name: "challenge_cells", data: { challengeId: "seed", number: 1, value: 1, status: "PENDING" }, scoped: true }
+        { name: "clients", data: { name: "Cliente Integridade", companyName: "Gestor360 Demo", status: "ATIVO", benefitProfile: 'AMBOS', monthlyQuantityDeclared: 10, monthlyQuantityAverage: 0, isActive: true }, scoped: true },
+        { name: "commission_basic", data: { minPercent: 0, maxPercent: null, commissionRate: 0.05, isActive: true }, scoped: false },
+        { name: "commission_natal", data: { minPercent: 0, maxPercent: null, commissionRate: 0.07, isActive: true }, scoped: false },
+        { name: "commission_custom", data: { minPercent: 0, maxPercent: null, commissionRate: 0.10, isActive: true }, scoped: false }
     ];
 
     for (const table of tables) {
@@ -309,17 +297,6 @@ export const getClients = async (): Promise<Client[]> => {
     }).filter(c => !c.deleted && c.isActive);
 };
 
-export const computeCommissionValues = (quantity: number, valueProposed: number, marginPercent: number, rules: CommissionRule[]) => {
-    const commissionBase = quantity * valueProposed;
-    const sorted = [...rules].sort((a, b) => a.minPercent - b.minPercent);
-    const rule = sorted.find(r => {
-        const max = r.maxPercent === null ? Infinity : r.maxPercent;
-        return marginPercent >= r.minPercent && marginPercent < max;
-    });
-    const rate = rule ? rule.commissionRate : 0;
-    return { commissionBase, commissionValue: commissionBase * rate, rateUsed: rate };
-};
-
 export const saveFinanceData = async (acc: FinanceAccount[], cards: CreditCard[], txs: Transaction[], cats: TransactionCategory[]) => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
@@ -332,14 +309,33 @@ export const saveFinanceData = async (acc: FinanceAccount[], cards: CreditCard[]
 
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
     const col = type === ProductType.BASICA ? "commission_basic" : (type === ProductType.NATAL ? "commission_natal" : "commission_custom");
-    const snap = await getDocs(collection(db, col));
+    // Filtramos apenas as ATIVAS para o motor de cálculo
+    const q = query(collection(db, col), where("isActive", "==", true));
+    const snap = await getDocs(q);
     return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
 };
 
 export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
     const col = type === ProductType.BASICA ? "commission_basic" : (type === ProductType.NATAL ? "commission_natal" : "commission_custom");
     const batch = writeBatch(db);
-    rules.forEach(r => batch.set(doc(db, col, r.id), r));
+    
+    // 1. Inativar registros anteriores ativos deste tipo
+    const oldSnap = await getDocs(query(collection(db, col), where("isActive", "==", true)));
+    oldSnap.forEach(d => {
+        batch.update(doc(db, col, d.id), { isActive: false, updatedAt: serverTimestamp() });
+    });
+
+    // 2. Adicionar novos como ATIVOS
+    rules.forEach(r => {
+        const newRef = doc(collection(db, col));
+        batch.set(newRef, { 
+            ...r, 
+            id: newRef.id, 
+            isActive: true, 
+            updatedAt: serverTimestamp() 
+        });
+    });
+
     await batch.commit();
 };
 
@@ -352,6 +348,19 @@ export const getSystemConfig = async () => {
 
 export const saveSystemConfig = async (c: SystemConfig) => {
     await setDoc(doc(db, "config", "system_config"), c);
+};
+
+export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
+    const commissionBase = quantity * valueProposed;
+    const rule = rules.find(r => margin >= r.minPercent && (r.maxPercent === null || margin < r.maxPercent));
+    const rateUsed = rule ? rule.commissionRate : 0;
+    const commissionValue = commissionBase * rateUsed;
+    
+    return {
+        commissionBase,
+        commissionValue,
+        rateUsed
+    };
 };
 
 export const getInvoiceMonth = (date: string, closingDay: number) => date.substring(0, 7);

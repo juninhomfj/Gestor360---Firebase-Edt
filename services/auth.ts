@@ -15,7 +15,9 @@ import {
     setDoc,
     serverTimestamp,
     collection,
-    getDocs
+    getDocs,
+    query,
+    orderBy
 } from "firebase/firestore";
 
 import { auth, db } from "./firebase";
@@ -59,11 +61,6 @@ async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null
 
         const data = profileSnap.data()!;
         
-        // Auto-healing logic: if permissions are missing, add defaults
-        if (!data.permissions) {
-            await setDoc(profileRef, { permissions: isRoot ? DEV_PERMISSIONS : DEFAULT_PERMISSIONS }, { merge: true });
-        }
-
         return {
             id: fbUser.uid,
             uid: fbUser.uid,
@@ -128,7 +125,6 @@ export const login = async (email: string, password?: string): Promise<{ user: U
         console.error("[Auth] Falha no login:", e.code);
         let msg = "Falha na autenticação.";
         if (e.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
-        if (e.code === 'auth/user-not-found') msg = "Usuário não cadastrado.";
         return { user: null, error: msg };
     }
 };
@@ -141,9 +137,21 @@ export const logout = async () => {
 
 export const listUsers = async (): Promise<User[]> => {
     try {
-        const snap = await getDocs(collection(db, "profiles"));
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-    } catch (e) { return []; }
+        const q = query(collection(db, "profiles"), orderBy("name"));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => {
+            const data = d.data();
+            return { 
+                id: d.id, 
+                ...data,
+                createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+                updatedAt: data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString()
+            } as User;
+        });
+    } catch (e) { 
+        console.error("[Auth] Erro ao listar usuários:", e);
+        return []; 
+    }
 };
 
 export const createUser = async (adminId: string, userData: any) => {
@@ -170,10 +178,6 @@ export const createUser = async (adminId: string, userData: any) => {
 export const updateUser = async (userId: string, data: any) => {
     const profileRef = doc(db, "profiles", userId);
     await setDoc(profileRef, { ...data, updatedAt: serverTimestamp() }, { merge: true });
-    const currentSession = getSession();
-    if (currentSession && currentSession.id === userId) {
-        localStorage.setItem("sys_session_v1", JSON.stringify({ ...currentSession, ...data }));
-    }
 };
 
 export const deactivateUser = async (userId: string) => {

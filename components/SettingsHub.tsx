@@ -12,7 +12,6 @@ import BackupModal from './BackupModal';
 import UserProfile from './UserProfile';
 import AdminUsers from './AdminUsers';
 import DevRoadmap from './DevRoadmap';
-import DatabaseInspector from './DatabaseInspector'; 
 import TrashBin from './TrashBin'; 
 
 interface SettingsHubProps {
@@ -38,7 +37,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
   darkMode, onThemeChange, currentUser, onUpdateUser, sales, onUpdateSales, onNotify,
   isAdmin, isDev
 }) => {
-  const [activeTab, setActiveTab] = useState<'PROFILE' | 'SYSTEM' | 'USERS' | 'CLOUD' | 'COMMISSIONS' | 'DATA' | 'ROADMAP' | 'SOUNDS' | 'TRASH' | 'CLIENTS'>('PROFILE');
+  const [activeTab, setActiveTab] = useState<'PROFILE' | 'SYSTEM' | 'USERS' | 'CLOUD' | 'COMMISSIONS' | 'ROADMAP' | 'SOUNDS' | 'TRASH' | 'CLIENTS'>('PROFILE');
   const [commissionTab, setCommissionTab] = useState<ProductType>(ProductType.BASICA); 
   const [showMobileContent, setShowMobileContent] = useState(false);
   
@@ -127,7 +126,6 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
            <h2 className="px-4 mb-2 mt-4 text-[10px] font-black uppercase tracking-widest opacity-40">Módulos</h2>
            <NavBtn id="COMMISSIONS" icon={Settings} label="Tabelas de Comissão" />
            <NavBtn id="CLIENTS" icon={Users} label="Gestão de Clientes" />
-           <NavBtn id="DATA" icon={Database} label="Banco de Dados" />
            <NavBtn id="TRASH" icon={Trash2} label="Lixeira" />
 
            {(isAdmin || isDev) && (
@@ -135,8 +133,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
                    <div className="my-4 border-t dark:border-slate-700 border-gray-200"></div>
                    <h2 className="px-4 mb-2 text-[10px] font-black uppercase tracking-widest text-amber-500">Administração</h2>
                    <NavBtn id="USERS" icon={Shield} label="Gerenciar Usuários" />
-                   <NavBtn id="CLOUD" icon={Server} label="Status Cloud" />
-                   <NavBtn id="ROADMAP" icon={Hammer} label="Roadmap & Dev" />
+                   <NavBtn id="ROADMAP" icon={Hammer} label="Roadmap & Engenharia" />
                </>
            )}
        </div>

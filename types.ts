@@ -93,6 +93,22 @@ export enum ProductType {
 
 export type SaleStatus = 'ORÇAMENTO' | 'PROPOSTA' | 'FATURADO';
 
+// Added missing SaleFormData interface
+export interface SaleFormData {
+  client: string;
+  clientId?: string;
+  quantity: number;
+  type: ProductType;
+  valueProposed: number;
+  valueSold: number;
+  marginPercent: number;
+  quoteDate?: string;
+  completionDate: string;
+  date?: string;
+  isBilled: boolean;
+  observations: string;
+}
+
 export interface Sale {
   id: string;
   client: string;
@@ -122,8 +138,6 @@ export interface Sale {
   marketingCampaignId?: string;
   isSeed?: boolean;
 }
-
-export type SaleFormData = Partial<Sale>;
 
 export interface FinanceAccount {
     id: string;
@@ -195,6 +209,7 @@ export interface TransactionCategory {
     isSeed?: boolean;
 }
 
+// Added missing ProductLabels interface
 export interface ProductLabels {
     basica: string;
     natal: string;
@@ -232,7 +247,17 @@ export interface DashboardWidgetConfig {
 }
 
 export interface SalesTargets { basic: number; natal: number; }
-export interface CommissionRule { id: string; minPercent: number; maxPercent: number | null; commissionRate: number; isSeed?: boolean; }
+
+export interface CommissionRule { 
+    id: string; 
+    minPercent: number; 
+    maxPercent: number | null; 
+    commissionRate: number; 
+    isActive: boolean; // Histórico
+    version?: number;
+    updatedAt?: string;
+    isSeed?: boolean; 
+}
 
 export interface CommissionDeduction {
     id: string;
@@ -259,6 +284,25 @@ export interface Receivable { id: string; description: string; value: number; da
 export interface FinancialPacing { daysRemaining: number; safeDailySpend: number; pendingExpenses: number; nextIncomeDate: Date; }
 export interface DuplicateGroup<T> { id: string; items: T[]; }
 
+// Added missing AiUsageStats interface
+export interface AiUsageStats {
+    tokensUsed: number;
+    requestsCount: number;
+    lastRequestAt: string;
+}
+
+// Added missing ClientTransferRequest interface
+export interface ClientTransferRequest {
+    id: string;
+    clientId: string;
+    fromUserId: string;
+    toUserId: string;
+    status: 'PENDING' | 'APPROVED' | 'REJECTED';
+    message: string | null;
+    createdAt: string;
+    updatedAt: string;
+}
+
 export type SyncTable = 'users' | 'sales' | 'accounts' | 'transactions' | 'clients' | 'client_transfer_requests' | 'commission_basic' | 'commission_natal' | 'commission_custom' | 'config' | 'cards' | 'categories' | 'goals' | 'challenges' | 'challenge_cells' | 'receivables' | 'wa_contacts' | 'wa_tags' | 'wa_campaigns' | 'wa_queue' | 'wa_manual_logs' | 'wa_campaign_stats' | 'internal_messages' | 'audit_log';
 
 export interface SyncEntry { id: number; table: string; type: string; status: 'PENDING' | 'SYNCED' | 'FAILED'; timestamp: number; data: any; rowId: string; retryCount: number; }
@@ -271,6 +315,7 @@ export interface WATag { id: string; name: string; deleted: boolean; updatedAt: 
 export interface WACampaign { id: string; name: string; status: string; totalContacts: number; sentCount: number; messageTemplate: string; targetTags: string[]; config: { speed: 'FAST' | 'SAFE' | 'SLOW'; startTime: string; endTime: string; }; abTest?: any; media?: any; archived?: boolean; deleted: boolean; createdAt: string; updatedAt: string; userId: string; isSeed?: boolean; }
 export interface WAMessageQueue { id: string; campaignId: string; contactId: string; phone: string; message: string; status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'; variant: 'A' | 'B'; media?: any; sentAt?: string; deleted: boolean; isSeed?: boolean; }
 
+// Updated ManualInteractionLog with missing fields
 export interface ManualInteractionLog { 
     id: string; 
     campaignId: string; 
@@ -285,25 +330,16 @@ export interface ManualInteractionLog {
     completedAt?: string; 
     totalInteractionTime?: number; 
     userReportedError?: any; 
-    userNotes?: string; 
-    rating?: 1|2|3|4|5; 
-    variant?: 'A'|'B';
-    messageCopiedAt?: string;
-    mediaCopiedAt?: string;
-    whatsappOpenedAt?: string;
-    messagePastedAt?: string;
-    messageSentAt?: string;
-    timeToOpenWhatsApp?: number;
-    timeToPaste?: number;
-    timeToSend?: number;
     userId: string;
+    messageCopiedAt?: string;
+    whatsappOpenedAt?: string;
+    mediaCopiedAt?: string;
 }
 
 export interface CampaignStatistics { campaignId: string; generatedAt: string; totalContacts: number; attempted: number; completed: number; skipped: number; failed: number; averageTimePerContact: number; fastestContactTime: number; slowestContactTime: number; totalCampaignTime: number; stepAnalysis: any; errorAnalysis: any; userRatings: any; insights: any[]; performanceBySpeed: any; financialImpact?: any; abTestAnalysis?: any; }
 export interface WAInstance { id: string; name: string; status: string; batteryLevel?: number; createdAt: string; phone?: string; profilePicUrl?: string; }
 export interface InternalMessage { id: string; senderId: string; senderName: string; recipientId: string; content: string; timestamp: string; read: boolean; readBy?: string[]; image?: string; type?: 'CHAT' | 'ACCESS_REQUEST' | 'BROADCAST'; relatedModule?: 'sales' | 'finance' | 'ai'; }
 export interface AppNotification { id: string; title: string; message: string; type: string; source: string; date: string; }
-export interface ClientTransferRequest { id: string; clientId: string; fromUserId: string; toUserId: string; status: 'PENDING' | 'APPROVED' | 'REJECTED'; message: string | null; createdAt: string; updatedAt: string; }
 
 export type ImportMapping = Record<string, number>;
 export type PersonType = 'PF' | 'PJ';
@@ -312,18 +348,19 @@ export type WASpeed = 'FAST' | 'SAFE' | 'SLOW';
 export type WhatsAppErrorCode = 'BLOCKED_BY_USER' | 'PHONE_NOT_REGISTERED' | 'INVALID_PHONE' | 'NETWORK_ERROR' | 'RATE_LIMITED' | 'UNKNOWN_ERROR';
 export type WAMediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
 
+// Added missing WhatsApp Sync interfaces
 export interface WASyncConfig {
-    tablesToSync: string[];
-    syncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY' | 'MANUAL';
-    includeErrorDetails: boolean;
-    compressLogsOlderThan: number;
+  tablesToSync: string[];
+  syncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY' | 'MANUAL';
+  includeErrorDetails: boolean;
+  compressLogsOlderThan: number;
 }
 
 export interface WASyncPayload {
     contacts: WAContact[];
     campaigns: WACampaign[];
     deliveryLogs: any[];
-    campaignStats: CampaignStatistics[];
+    campaignStats: any[];
     syncMetadata: {
         timestamp: string;
         deviceId: string;
@@ -338,11 +375,3 @@ export type AudioType = 'NOTIFICATION' | 'ALERT' | 'SUCCESS' | 'WARNING';
 export type ChallengeModel = 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
 export interface Challenge { id: string; name: string; targetValue: number; depositCount: number; model: ChallengeModel; createdAt: string; status: 'ACTIVE' | 'COMPLETED'; userId: string; deleted: boolean; isSeed?: boolean; }
 export interface ChallengeCell { id: string; challengeId: string; number: number; value: number; status: 'PENDING' | 'PAID'; paidDate?: string; userId: string; deleted: boolean; isSeed?: boolean; }
-
-export interface AiUsageStats {
-    date: string;
-    requestsCount: number;
-    inputTokensApprox: number;
-    outputTokensApprox: number;
-    lastRequestTime: number;
-}
