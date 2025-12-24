@@ -75,7 +75,8 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
         try {
             const user = getSession();
             if (!user?.keys?.isGeminiEnabled) throw new Error("IA não configurada no perfil.");
-            const optimized = await optimizeMessage(text, 'PERSUASIVE', user.keys);
+            // Fixed: Removed user.keys from optimizeMessage call as it only expects 2 arguments
+            const optimized = await optimizeMessage(text, 'PERSUASIVE');
             if (target === 'A') setTemplate(optimized); else setTemplateB(optimized);
         } catch (e: any) {
             alert(e.message || "Erro na IA");
@@ -273,7 +274,7 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                         {/* STEP 3: REVIEW */}
                         {step === 3 && (
                             <div className="space-y-6 animate-in slide-in-from-right">
-                                <div className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
+                                <div className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
                                     <h4 className="font-bold text-gray-500 text-xs uppercase mb-3">Resumo da Campanha</h4>
                                     <div className="space-y-2">
                                         <div className="flex justify-between border-b border-gray-200 dark:border-slate-700 pb-2">
@@ -339,7 +340,7 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                     ) : (
                         <button 
                             onClick={handleFinish}
-                            className="px-8 py-2.5 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-lg shadow-emerald-900/20 animate-pulse"
+                            className="px-8 py-2.5 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-lg shadow-indigo-900/20 animate-pulse"
                         >
                             <Save size={18}/> Criar Campanha
                         </button>

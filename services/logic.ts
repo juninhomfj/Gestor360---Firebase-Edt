@@ -4,7 +4,7 @@ import {
     doc, 
     setDoc, 
     getDocs, 
-    getDoc, 
+    getDoc,
     query, 
     where, 
     writeBatch,
@@ -15,7 +15,7 @@ import { db, auth } from "./firebase";
 import { 
     Sale, Transaction, FinanceAccount, TransactionCategory, 
     Receivable, ReportConfig, SystemConfig, ProductType, CommissionRule, 
-    User, Client, CreditCard
+    User, Client, CreditCard, ChallengeCell, FinancialPacing, ChallengeModel
 } from '../types';
 
 export const DEFAULT_PRODUCT_LABELS = { basica: 'Cesta Básica', natal: 'Cesta de Natal', custom: 'Personalizado' };
@@ -29,7 +29,7 @@ export const DEFAULT_REPORT_CONFIG: ReportConfig = {
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     theme: 'glass',
     modules: {
-        sales: true, finance: true, crm: true, whatsapp: false,
+        sales: true, finance: true, crm: true, whatsapp: true,
         reports: true, ai: true, dev: false, settings: true,
         news: true, receivables: true, distribution: true, imports: true
     }
@@ -42,6 +42,121 @@ export const canAccess = (user: User | null, feature: string): boolean => {
     if (user.role === 'ADMIN') return feature !== 'dev';
     return !!(user.permissions as any)[feature];
 };
+
+export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]): FinancialPacing => {
+    const now = new Date();
+    const today = now.getDate();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    // Determine the next income date
+    let nextDay = salaryDays.find(d => d > today);
+    let nextMonth = currentMonth;
+    let nextYear = currentYear;
+
+    if (!nextDay) {
+        nextDay = salaryDays[0] || 1;
+        nextMonth = (currentMonth + 1) % 12;
+        if (nextMonth === 0) nextYear++;
+    }
+
+    const nextIncomeDate = new Date(nextYear, nextMonth, nextDay);
+    const diffTime = nextIncomeDate.getTime() - now.getTime();
+    const daysRemaining = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
+
+    // Calculate pending obligations until next income
+    const pendingExpenses = transactions
+        .filter(t => !t.isPaid && t.type === 'EXPENSE' && new Date(t.date) <= nextIncomeDate)
+        .reduce((acc, t) => acc + t.amount, 0);
+
+    const safeDailySpend = Math.max(0, (balance - pendingExpenses) / daysRemaining);
+
+    return {
+        daysRemaining,
+        safeDailySpend,
+        pendingExpenses,
+        nextIncomeDate
+    };
+};
+
+export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
+    const clientMap = new Map<string, any>();
+    const now = new Date();
+
+    sales.forEach(sale => {
+        const name = sale.client;
+        const saleDate = new Date(sale.date || sale.completionDate);
+        
+        if (!clientMap.has(name)) {
+            clientMap.set(name, {
+                name,
+                totalOrders: 0,
+                totalSpent: 0,
+                lastPurchaseDate: saleDate,
+                firstPurchaseDate: saleDate
+            });
+        }
+
+        const stats = clientMap.get(name);
+        stats.totalOrders++;
+        stats.totalSpent += (sale.valueSold * sale.quantity);
+        if (saleDate > stats.lastPurchaseDate) stats.lastPurchaseDate = saleDate;
+        if (saleDate < stats.firstPurchaseDate) stats.firstPurchaseDate = saleDate;
+    });
+
+    return Array.from(clientMap.values()).map(c => {
+        const daysSinceLast = Math.floor((now.getTime() - c.lastPurchaseDate.getTime()) / (1000 * 60 * 60 * 24));
+        let status = 'ACTIVE';
+        if (daysSinceLast > config.daysForLost) status = 'LOST';
+        else if (daysSinceLast > config.daysForInactive) status = 'INACTIVE';
+        else if (Math.floor((now.getTime() - c.firstPurchaseDate.getTime()) / (1000 * 60 * 60 * 24)) < config.daysForNewClient) status = 'NEW';
+
+        return {
+            ...c,
+            status,
+            daysSinceLastPurchase: daysSinceLast
+        };
+    });
+};
+
+export const generateChallengeCells = (challengeId: string, targetValue: number, count: number, model: ChallengeModel): ChallengeCell[] => {
+    const cells: ChallengeCell[] = [];
+    const uid = auth.currentUser?.uid || '';
+    
+    if (model === 'LINEAR') {
+        // Arithmetic Progression: Sum = (n/2) * (a1 + an)
+        // Here we want values to grow linearly: factor * (1, 2, 3...)
+        const totalSteps = (count / 2) * (1 + count);
+        const factor = targetValue / totalSteps;
+        for (let i = 1; i <= count; i++) {
+            cells.push({
+                id: crypto.randomUUID(),
+                challengeId,
+                number: i,
+                value: i * factor,
+                status: 'PENDING',
+                userId: uid,
+                deleted: false
+            });
+        }
+    } else {
+        const fixedValue = targetValue / count;
+        for (let i = 1; i <= count; i++) {
+            cells.push({
+                id: crypto.randomUUID(),
+                challengeId,
+                number: i,
+                value: fixedValue,
+                status: 'PENDING',
+                userId: uid,
+                deleted: false
+            });
+        }
+    }
+    return cells;
+};
+
+// ... Rest of Firebase functions preserved ...
 
 export const bootstrapProductionData = async (): Promise<any> => {
     if (!auth.currentUser) return { success: false, msg: "Usuário não autenticado." };
@@ -239,7 +354,6 @@ export const saveSystemConfig = async (c: SystemConfig) => {
     await setDoc(doc(db, "config", "system_config"), c);
 };
 
-export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]) => ({ daysRemaining: 30, safeDailySpend: balance / 30, pendingExpenses: 0, nextIncomeDate: new Date() });
 export const getInvoiceMonth = (date: string, closingDay: number) => date.substring(0, 7);
 export const getTrashItems = async () => ({ sales: [], transactions: [] });
 export const hardResetLocalData = () => { localStorage.clear(); window.location.reload(); };
@@ -247,7 +361,6 @@ export const getUserPlanLabel = (u: User) => u.role;
 export const calculateProductivityMetrics = async (u: string) => ({ totalClients: 0, activeClients: 0, convertedThisMonth: 0, conversionRate: 0, productivityStatus: 'GREEN' as const });
 export const getReportConfig = async () => DEFAULT_REPORT_CONFIG;
 export const saveReportConfig = async (c: any) => {};
-export const generateChallengeCells = (a:any, b:any, c:any, d:any) => [];
 export const exportReportToCSV = (d:any, f:any) => {};
 export const readExcelFile = async (f:any) => [];
 export const processSalesImport = (a:any, b:any) => [];
@@ -255,7 +368,6 @@ export const processFinanceImport = (a:any, b:any) => [];
 export const getDeletedClients = async () => [];
 export const restoreClient = async (id:string) => {};
 export const permanentlyDeleteClient = async (id:string) => {};
-export const analyzeClients = (s:any, c:any) => [];
 export const analyzeMonthlyVolume = (s:any, m:any) => [];
 export const exportEncryptedBackup = async (p:string) => {};
 export const importEncryptedBackup = async (f:any, p:string) => {};

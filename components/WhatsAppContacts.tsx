@@ -3,6 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { WAContact, WATag, Sale } from '../types';
 import { Search, Plus, Filter, Tag, MoreHorizontal, Trash2, Edit2, Download, Upload, User, Smartphone, Calendar, Star } from 'lucide-react';
 import { saveWAContact, deleteWAContact, importWAContacts, parseCSVContacts } from '../services/whatsappService';
+// Import auth to get the current user ID
+import { auth } from '../services/firebase';
 
 interface WhatsAppContactsProps {
     contacts: WAContact[];
@@ -37,6 +39,7 @@ const WhatsAppContacts: React.FC<WhatsAppContactsProps> = ({ contacts, tags, onU
     const handleSave = async () => {
         if (!formData.name || !formData.phone) return;
         
+        // Fixed: Added missing 'deleted' and 'userId' properties to satisfy WAContact type
         const contact: WAContact = {
             id: editingContact ? editingContact.id : crypto.randomUUID(),
             name: formData.name,
@@ -44,7 +47,9 @@ const WhatsAppContacts: React.FC<WhatsAppContactsProps> = ({ contacts, tags, onU
             tags: formData.tags ? formData.tags.split(',').map(t => t.trim()) : [],
             createdAt: editingContact ? editingContact.createdAt : new Date().toISOString(),
             source: 'MANUAL',
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            deleted: false,
+            userId: auth.currentUser?.uid || ''
         };
 
         await saveWAContact(contact);
