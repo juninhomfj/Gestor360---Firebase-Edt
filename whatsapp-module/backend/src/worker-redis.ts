@@ -1,4 +1,3 @@
-
 import { Worker, Queue, Job } from 'bullmq';
 import IORedis from 'ioredis';
 import dotenv from 'dotenv';
@@ -8,14 +7,18 @@ import { saveMessage, markRecipientSent } from './firestoreStore.js';
 
 dotenv.config();
 
-const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
+// Configuração de conexão robusta para Upstash (TLS/SSL)
+const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+const connection = new IORedis(redisUrl, {
   maxRetriesPerRequest: null,
+  // Ativa TLS se a URL começar com rediss://
+  tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
 });
 
 const USE_OFFICIAL = process.env.USE_OFFICIAL_WABA === 'true';
 const adapter = USE_OFFICIAL ? officialAdapter : baileysAdapter;
 
-console.log('👷 Worker Redis iniciado. Aguardando jobs...');
+console.log('👷 Worker Redis iniciado. Conectado a:', redisUrl.split('@')[1] || 'localhost');
 
 const worker = new Worker(
   'whatsapp-messages',
@@ -25,7 +28,7 @@ const worker = new Worker(
     console.log(`[Worker] Processando job ${job.id} para ${to}`);
 
     try {
-      const result = await adapter.sendMessage(sessionId, to, body, mediaUrl);
+      const result = await (adapter as any).sendMessage(sessionId, to, body, mediaUrl);
       
       // Persistir resultado no Firestore
       await saveMessage({
@@ -34,7 +37,7 @@ const worker = new Worker(
         body,
         status: 'SENT',
         providerResult: result,
-        createdAt: new Date()
+        createdAt: new Date().toISOString()
       });
 
       if (campaignId && recipientId) {
@@ -61,7 +64,7 @@ worker.on('completed', (job) => {
 });
 
 worker.on('failed', (job, err) => {
-  console.error(`❌ Job ${job?.id} falhou:`, err.message);
+  console.error(`❌ Job ${job?.id} falhou:`, err?.message);
 });
 
 export const messageQueue = new Queue('whatsapp-messages', { connection });

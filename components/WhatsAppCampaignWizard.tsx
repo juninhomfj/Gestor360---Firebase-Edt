@@ -1,11 +1,12 @@
 
 import React, { useState, useMemo } from 'react';
 import { WAContact, WATag, WACampaign, WASpeed, WAMediaType } from '../types';
-import { Users, MessageSquare, Play, CheckCircle, Tag, Wand2, Split, Image as ImageIcon, X, ChevronRight, ChevronLeft, Save } from 'lucide-react';
+import { Users, MessageSquare, Play, CheckCircle, Tag, Wand2, Split, Image as ImageIcon, X, ChevronRight, ChevronLeft, Save, ShieldAlert } from 'lucide-react';
 import { fileToBase64 } from '../utils/fileHelper';
 import WhatsAppPreview from './WhatsAppPreview';
 import { optimizeMessage } from '../services/aiService';
 import { getSession } from '../services/auth';
+import { checkBackendHealth } from '../services/whatsappService';
 
 interface WhatsAppCampaignWizardProps {
     contacts: WAContact[];
@@ -74,18 +75,17 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
         setIsOptimizing(true);
         try {
             const user = getSession();
-            if (!user?.keys?.isGeminiEnabled) throw new Error("IA não configurada no perfil.");
-            // Fixed: Removed user.keys from optimizeMessage call as it only expects 2 arguments
+            // A IA Gemini não depende do backend Redis, funciona diretamente com a API Key
             const optimized = await optimizeMessage(text, 'PERSUASIVE');
             if (target === 'A') setTemplate(optimized); else setTemplateB(optimized);
         } catch (e: any) {
-            alert(e.message || "Erro na IA");
+            alert("Para usar a IA, configure sua API_KEY do Gemini.");
         } finally {
             setIsOptimizing(false);
         }
     };
 
-    const handleFinish = () => {
+    const handleFinish = async () => {
         if (!name) { alert("Dê um nome para a campanha."); return; }
         if (targetContacts.length === 0) { alert("Selecione um público com contatos."); return; }
 
@@ -95,15 +95,17 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
             targetTags: selectedTags,
             config: { speed, startTime: '08:00', endTime: '18:00' },
             abTest: enableAbTest ? { enabled: true, templateB } : undefined,
-            media
+            media,
+            status: 'PENDING'
         };
+        
         onSave(campaignData, targetContacts);
     };
 
     // --- STYLES ---
     const bgClass = darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200';
     const textClass = darkMode ? 'text-white' : 'text-gray-900';
-    const inputClass = darkMode ? 'bg-black/20 border-slate-700 text-white focus:border-purple-500' : 'bg-white border-gray-300 text-gray-900 focus:border-purple-500';
+    const inputClass = darkMode ? 'bg-black/20 border-slate-700 text-white focus:border-indigo-500' : 'bg-white border-gray-300 text-gray-900 focus:border-indigo-500';
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in zoom-in-95">
@@ -113,9 +115,9 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                 <div className="p-6 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center bg-gradient-to-r from-indigo-900 to-slate-900 text-white">
                     <div>
                         <h2 className="text-xl font-bold flex items-center gap-2">
-                            <Wand2 size={24} className="text-purple-400"/> Criador de Campanha
+                            <Wand2 size={24} className="text-indigo-400"/> Criador de Campanha
                         </h2>
-                        <p className="text-sm opacity-70">Configure seu disparo em 3 passos simples.</p>
+                        <p className="text-sm opacity-70">Sincronia Nativa via FirebaseFirestore.</p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full"><X size={24}/></button>
                 </div>
@@ -126,8 +128,8 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                         const isActive = s.id === step;
                         const isDone = s.id < step;
                         return (
-                            <div key={s.id} className={`flex-1 p-4 flex items-center justify-center gap-3 border-b-2 transition-colors ${isActive ? 'border-purple-500 text-purple-600 dark:text-purple-400' : (isDone ? 'border-emerald-500 text-emerald-600 dark:text-emerald-500' : 'border-transparent text-gray-400')}`}>
-                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${isActive ? 'bg-purple-100 dark:bg-purple-900/30' : (isDone ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-gray-200 dark:bg-slate-800')}`}>
+                            <div key={s.id} className={`flex-1 p-4 flex items-center justify-center gap-3 border-b-2 transition-colors ${isActive ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : (isDone ? 'border-emerald-500 text-emerald-600 dark:text-emerald-500' : 'border-transparent text-gray-400')}`}>
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${isActive ? 'bg-indigo-100 dark:bg-indigo-900/30' : (isDone ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-gray-200 dark:bg-slate-800')}`}>
                                     {isDone ? <CheckCircle size={16}/> : s.id}
                                 </div>
                                 <span className="font-bold hidden sm:inline">{s.label}</span>
@@ -149,7 +151,7 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                                     <label className={`block text-sm font-bold mb-2 ${textClass}`}>Nome da Campanha</label>
                                     <input 
                                         className={`w-full p-3 rounded-xl border outline-none ${inputClass}`}
-                                        placeholder="Ex: Promoção Natal VIP"
+                                        placeholder="Ex: Promoção Cesta VIP"
                                         value={name} onChange={e => setName(e.target.value)}
                                         autoFocus
                                     />
@@ -162,37 +164,26 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                                             <button
                                                 key={tag.id}
                                                 onClick={() => handleTagToggle(tag.name)}
-                                                className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all flex items-center gap-2 ${selectedTags.includes(tag.name) ? 'bg-purple-600 text-white border-purple-600 shadow-md' : 'border-gray-300 dark:border-slate-600 text-gray-500 hover:border-purple-400'}`}
+                                                className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all flex items-center gap-2 ${selectedTags.includes(tag.name) ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'border-gray-300 dark:border-slate-600 text-gray-500 hover:border-indigo-400'}`}
                                             >
                                                 <Tag size={14}/> {tag.name}
                                             </button>
                                         ))}
-                                        {tags.length === 0 && <p className="text-gray-500 text-sm">Nenhuma tag encontrada. Importe contatos primeiro.</p>}
                                     </div>
-                                    <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                                    <p className="mt-3 text-sm text-gray-500 dark:text-gray-400 font-medium">
                                         {selectedTags.length === 0 
                                             ? `Selecionando TODOS os ${contacts.length} contatos.` 
-                                            : `Selecionado: ${targetContacts.length} contatos (de ${contacts.length}).`}
+                                            : `Selecionado: ${targetContacts.length} contatos únicos.`}
                                     </p>
                                 </div>
 
-                                <div>
-                                    <label className={`block text-sm font-bold mb-3 ${textClass}`}>Velocidade de Envio</label>
-                                    <div className="grid grid-cols-3 gap-3">
-                                        {[
-                                            { id: 'FAST', label: 'Rápido', desc: '5-10s (Risco Médio)' },
-                                            { id: 'SAFE', label: 'Seguro', desc: '15-30s (Recomendado)' },
-                                            { id: 'SLOW', label: 'Lento', desc: '30-60s (Aquecimento)' }
-                                        ].map((opt: any) => (
-                                            <button 
-                                                key={opt.id}
-                                                onClick={() => setSpeed(opt.id)}
-                                                className={`p-3 rounded-xl border text-left transition-all ${speed === opt.id ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-500 ring-1 ring-indigo-500' : 'border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800'}`}
-                                            >
-                                                <div className={`font-bold text-sm ${speed === opt.id ? 'text-indigo-600 dark:text-indigo-400' : textClass}`}>{opt.label}</div>
-                                                <div className="text-[10px] opacity-60">{opt.desc}</div>
-                                            </button>
-                                        ))}
+                                <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800">
+                                    <div className="flex gap-3 text-amber-700 dark:text-amber-400 text-xs">
+                                        <ShieldAlert size={18} className="shrink-0"/>
+                                        <div>
+                                            <p className="font-bold">Modo de Envio Seguro Ativado</p>
+                                            <p className="opacity-80">As mensagens serão preparadas individualmente para evitar que seu número seja denunciado por spam.</p>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -201,7 +192,6 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                         {/* STEP 2: MESSAGE */}
                         {step === 2 && (
                             <div className="space-y-6 animate-in slide-in-from-right">
-                                {/* Media Upload */}
                                 <div className={`p-4 rounded-xl border border-dashed flex flex-col items-center justify-center cursor-pointer transition-colors ${media ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/10' : 'border-gray-300 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-800'}`} onClick={() => fileInputRef.current?.click()}>
                                     <input type="file" ref={fileInputRef} className="hidden" accept="image/*,video/*,audio/*" onChange={handleMediaSelect} />
                                     {media ? (
@@ -214,91 +204,59 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                                     ) : (
                                         <div className="text-center text-gray-400">
                                             <ImageIcon size={24} className="mx-auto mb-2"/>
-                                            <p className="text-sm font-bold">Adicionar Imagem ou Vídeo (Opcional)</p>
+                                            <p className="text-sm font-bold">Anexar Mídia (Opcional)</p>
                                         </div>
                                     )}
                                 </div>
 
-                                {/* Message A */}
                                 <div className="space-y-2">
                                     <div className="flex justify-between items-center">
-                                        <label className={`text-sm font-bold ${textClass}`}>Mensagem {enableAbTest && '(Variante A)'}</label>
-                                        <button onClick={() => handleOptimize('A')} disabled={isOptimizing} className="text-xs text-purple-500 flex items-center gap-1 font-bold hover:underline">
-                                            <Wand2 size={12}/> Melhorar com IA
+                                        <label className={`text-sm font-bold ${textClass}`}>Corpo da Mensagem</label>
+                                        <button onClick={() => handleOptimize('A')} disabled={isOptimizing} className="text-xs text-indigo-500 flex items-center gap-1 font-bold hover:underline">
+                                            <Wand2 size={12}/> Refinar com Gemini
                                         </button>
                                     </div>
                                     <textarea 
-                                        className={`w-full p-4 rounded-xl border h-32 resize-none text-sm outline-none focus:ring-2 focus:ring-purple-500 ${inputClass}`}
+                                        className={`w-full p-4 rounded-xl border h-32 resize-none text-sm outline-none focus:ring-2 focus:ring-indigo-500 ${inputClass}`}
                                         value={template}
                                         onChange={e => setTemplate(e.target.value)}
-                                        placeholder="Olá {primeiro_nome}..."
+                                        placeholder="Olá {primeiro_nome}, vi que você tem interesse em..."
                                     />
-                                    <div className="flex gap-2 overflow-x-auto pb-1">
+                                    <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                                         {['{primeiro_nome}', '{nome}', '{saudacao}'].map(v => (
-                                            <button key={v} onClick={() => setTemplate(prev => prev + ' ' + v)} className="text-[10px] bg-gray-100 dark:bg-slate-800 px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
+                                            <button key={v} onClick={() => setTemplate(prev => prev + ' ' + v)} className="text-[10px] font-black uppercase tracking-wider bg-gray-100 dark:bg-slate-800 px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
                                                 {v}
                                             </button>
                                         ))}
                                     </div>
                                 </div>
-
-                                {/* A/B Test Toggle */}
-                                <div className="flex items-center gap-3 py-2">
-                                    <label className="relative inline-flex items-center cursor-pointer">
-                                        <input type="checkbox" className="sr-only peer" checked={enableAbTest} onChange={e => setEnableAbTest(e.target.checked)} />
-                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
-                                    </label>
-                                    <span className={`text-sm font-bold flex items-center gap-2 ${textClass}`}><Split size={16}/> Teste A/B</span>
-                                </div>
-
-                                {/* Message B */}
-                                {enableAbTest && (
-                                    <div className="space-y-2 animate-in slide-in-from-top-2 border-l-2 border-purple-500 pl-4">
-                                        <div className="flex justify-between items-center">
-                                            <label className={`text-sm font-bold ${textClass}`}>Mensagem (Variante B)</label>
-                                            <button onClick={() => handleOptimize('B')} disabled={isOptimizing} className="text-xs text-purple-500 flex items-center gap-1 font-bold hover:underline">
-                                                <Wand2 size={12}/> Melhorar
-                                            </button>
-                                        </div>
-                                        <textarea 
-                                            className={`w-full p-4 rounded-xl border h-32 resize-none text-sm outline-none focus:ring-2 focus:ring-purple-500 ${inputClass}`}
-                                            value={templateB}
-                                            onChange={e => setTemplateB(e.target.value)}
-                                            placeholder="Variação da mensagem..."
-                                        />
-                                    </div>
-                                )}
                             </div>
                         )}
 
                         {/* STEP 3: REVIEW */}
                         {step === 3 && (
                             <div className="space-y-6 animate-in slide-in-from-right">
-                                <div className={`p-4 rounded-xl border ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-gray-50 border-gray-200'}`}>
-                                    <h4 className="font-bold text-gray-500 text-xs uppercase mb-3">Resumo da Campanha</h4>
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between border-b border-gray-200 dark:border-slate-700 pb-2">
-                                            <span className="text-sm">Nome</span>
-                                            <span className={`font-bold ${textClass}`}>{name}</span>
+                                <div className={`p-6 rounded-2xl border ${darkMode ? 'bg-slate-950 border-indigo-500/20' : 'bg-gray-50 border-gray-200'}`}>
+                                    <h4 className="font-black text-[10px] text-gray-400 uppercase tracking-widest mb-4">Confirmação de Campanha</h4>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between text-sm">
+                                            <span className="opacity-60">Identificação:</span>
+                                            <span className="font-bold">{name}</span>
                                         </div>
-                                        <div className="flex justify-between border-b border-gray-200 dark:border-slate-700 pb-2">
-                                            <span className="text-sm">Público Estimado</span>
-                                            <span className={`font-bold text-emerald-500`}>{targetContacts.length} contatos</span>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="opacity-60">Leads:</span>
+                                            <span className="font-bold text-indigo-500">{targetContacts.length} destinatários</span>
                                         </div>
-                                        <div className="flex justify-between border-b border-gray-200 dark:border-slate-700 pb-2">
-                                            <span className="text-sm">Velocidade</span>
-                                            <span className={`font-bold ${textClass}`}>{speed}</span>
-                                        </div>
-                                        <div className="flex justify-between">
-                                            <span className="text-sm">Mídia</span>
-                                            <span className={`font-bold ${textClass}`}>{media ? media.name : 'Nenhuma'}</span>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="opacity-60">Mídia:</span>
+                                            <span className="font-bold">{media ? media.name : 'Nenhuma'}</span>
                                         </div>
                                     </div>
                                 </div>
-
-                                <div className="text-center text-xs text-gray-500">
-                                    <p>Ao clicar em Criar, a fila de envio será gerada.</p>
-                                    <p>Você poderá iniciar o envio no painel principal.</p>
+                                <div className="p-4 bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-900 rounded-xl">
+                                    <p className="text-xs text-emerald-700 dark:text-emerald-400 text-center font-medium">
+                                        Ao criar, sua fila será salva no <b>Firestore Sync</b>. Você poderá gerenciar os disparos de qualquer dispositivo.
+                                    </p>
                                 </div>
                             </div>
                         )}
@@ -309,14 +267,13 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                     <div className={`w-80 hidden md:flex flex-col border-l border-gray-200 dark:border-slate-800 ${darkMode ? 'bg-black/20' : 'bg-gray-50'} p-6 items-center justify-center`}>
                         <div className="scale-90 transform origin-top">
                             <WhatsAppPreview 
-                                text={step === 2 && enableAbTest ? templateB : template}
+                                text={template}
                                 media={media?.data}
                                 mediaType={media?.type}
-                                contactName="Cliente Exemplo"
+                                contactName="Exemplo Cliente"
                                 isDarkMode={darkMode}
                             />
                         </div>
-                        <p className="text-[10px] text-gray-400 mt-4 text-center">Pré-visualização aproximada (WhatsApp Android).</p>
                     </div>
                 </div>
 
@@ -333,16 +290,16 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                     {step < 3 ? (
                         <button 
                             onClick={() => setStep(prev => Math.min(3, prev + 1))}
-                            className="px-8 py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-lg shadow-indigo-900/20"
+                            className="px-8 py-2.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-lg"
                         >
-                            Próximo <ChevronRight size={18}/>
+                            Continuar <ChevronRight size={18}/>
                         </button>
                     ) : (
                         <button 
                             onClick={handleFinish}
-                            className="px-8 py-2.5 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-lg shadow-indigo-900/20 animate-pulse"
+                            className="px-8 py-2.5 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-lg animate-pulse"
                         >
-                            <Save size={18}/> Criar Campanha
+                            <Save size={18}/> Finalizar e Gerar Fila
                         </button>
                     )}
                 </div>

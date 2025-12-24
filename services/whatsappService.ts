@@ -1,6 +1,8 @@
+
 import { WAContact, WATag, WACampaign, WAMessageQueue } from '../types';
 import { dbGetAll, dbPut, dbBulkPut, dbDelete, dbGet } from '../storage/db';
-import { auth } from './firebase';
+import { auth, db } from './firebase';
+import { collection, addDoc, serverTimestamp, setDoc, doc } from 'firebase/firestore';
 import { WhatsAppManualLogger } from './whatsappLogger';
 
 const BACKEND_URL = (import.meta as any).env?.VITE_WA_BACKEND_URL || 'http://localhost:3001';
@@ -19,14 +21,28 @@ export const normalizePhone = (phone: string): string => {
     return clean;
 };
 
+// Detecção de saúde do backend para decidir entre modo Cloud ou Local
+export const checkBackendHealth = async (): Promise<boolean> => {
+    try {
+        const res = await fetch(`${BACKEND_URL}/health`, { signal: AbortSignal.timeout(2000) });
+        return res.ok;
+    } catch {
+        return false;
+    }
+};
+
 export const createSession = async (sessionId: string) => {
-    const res = await fetch(`${BACKEND_URL}/api/v1/sessions/create`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({ sessionId })
-    });
-    if (!res.ok) throw new Error('Failed to create session');
-    return res.json();
+    try {
+        const res = await fetch(`${BACKEND_URL}/api/v1/sessions/create`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ sessionId })
+        });
+        if (!res.ok) throw new Error('Offline');
+        return res.json();
+    } catch {
+        return { status: 'STANDALONE', message: 'Operando em modo nativo (Link Direto)' };
+    }
 };
 
 export const getSessionStatus = async (sessionId: string) => {
@@ -34,49 +50,27 @@ export const getSessionStatus = async (sessionId: string) => {
         const res = await fetch(`${BACKEND_URL}/api/v1/sessions/${sessionId}/status`, {
             headers: getHeaders()
         });
-        if (!res.ok) return { status: 'DISCONNECTED' };
+        if (!res.ok) return { status: 'STANDALONE' };
         return res.json();
     } catch {
-        return { status: 'DISCONNECTED' };
+        return { status: 'STANDALONE' };
     }
 };
 
 export const logoutSession = async (sessionId: string) => {
-    const res = await fetch(`${BACKEND_URL}/api/v1/sessions/${sessionId}/logout`, {
-        method: 'POST',
-        headers: getHeaders()
-    });
-    return res.json();
+    try {
+        const res = await fetch(`${BACKEND_URL}/api/v1/sessions/${sessionId}/logout`, {
+            method: 'POST',
+            headers: getHeaders()
+        });
+        return res.json();
+    } catch {
+        return { ok: true };
+    }
 };
 
-export const exportWAContactsToServer = async () => {
-    const contacts = await getWAContacts();
-    const res = await fetch(`${BACKEND_URL}/api/v1/contacts/import`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({ 
-            userId: auth.currentUser?.uid,
-            contacts 
-        })
-    });
-    return res.json();
-};
+// --- Funções Locais com Persistência no Firestore ---
 
-export const createWACampaignRemote = async (campaign: Partial<WACampaign>, targetContacts: WAContact[]) => {
-    const res = await fetch(`${BACKEND_URL}/api/v1/campaigns`, {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({ 
-            userId: auth.currentUser?.uid,
-            campaign, 
-            recipients: targetContacts 
-        })
-    });
-    if (!res.ok) throw new Error('Failed to create campaign');
-    return res.json();
-};
-
-// --- Funções Locais para UX Offline ---
 export const getWAContacts = async () => (await dbGetAll('wa_contacts')).filter(c => !c.deleted);
 export const getWATags = async () => (await dbGetAll('wa_tags')).filter(t => !t.deleted);
 export const getWACampaigns = async () => (await dbGetAll('wa_campaigns')).filter(c => !c.deleted);
@@ -84,13 +78,33 @@ export const getWACampaigns = async () => (await dbGetAll('wa_campaigns')).filte
 export const saveWAContact = async (contact: WAContact) => {
     const stamped = { ...contact, phone: normalizePhone(contact.phone), updatedAt: new Date().toISOString() };
     await dbPut('wa_contacts', stamped);
-    WhatsAppManualLogger.info("Contato salvo localmente", { phone: stamped.phone });
+    
+    // Sincroniza com Firestore
+    if (auth.currentUser) {
+        await setDoc(doc(db, "wa_contacts", stamped.id), {
+            ...stamped,
+            userId: auth.currentUser.uid,
+            syncAt: serverTimestamp()
+        });
+    }
 };
 
-export const deleteWAContact = async (id: string) => await dbDelete('wa_contacts', id);
+export const deleteWAContact = async (id: string) => {
+    await dbDelete('wa_contacts', id);
+    if (auth.currentUser) {
+        await setDoc(doc(db, "wa_contacts", id), { deleted: true, updatedAt: serverTimestamp() }, { merge: true });
+    }
+};
 
 export const saveWACampaign = async (campaign: WACampaign) => {
     await dbPut('wa_campaigns', campaign);
+    if (auth.currentUser) {
+        await setDoc(doc(db, "wa_campaigns", campaign.id), {
+            ...campaign,
+            userId: auth.currentUser.uid,
+            syncAt: serverTimestamp()
+        });
+    }
 };
 
 export const createCampaignQueue = async (
@@ -123,39 +137,60 @@ export const createCampaignQueue = async (
             userId: auth.currentUser?.uid || ''
         };
     });
+    
     await dbBulkPut('wa_queue', queueItems);
+    
+    // Opcional: Salvar fila no Firestore para multi-device
+    if (auth.currentUser) {
+        for (const item of queueItems) {
+            await setDoc(doc(db, "wa_queue", item.id), { ...item, syncAt: serverTimestamp() });
+        }
+    }
 };
 
 export const getWAQueue = async (campaignId: string) => (await dbGetAll('wa_queue')).filter(i => i.campaignId === campaignId && !i.deleted);
 
 export const updateQueueStatus = async (id: string, status: WAMessageQueue['status']) => {
     const item = await dbGet('wa_queue', id);
-    if (item) await dbPut('wa_queue', { ...item, status, updatedAt: new Date().toISOString() } as any);
+    if (item) {
+        const updated = { ...item, status, updatedAt: new Date().toISOString() } as any;
+        await dbPut('wa_queue', updated);
+        if (auth.currentUser) {
+            await setDoc(doc(db, "wa_queue", id), { status, updatedAt: serverTimestamp() }, { merge: true });
+        }
+    }
 };
 
 export const copyToClipboard = async (text: string) => await navigator.clipboard.writeText(text);
 
 export const openWhatsAppWeb = (phone: string, text: string) => {
+    const cleanPhone = phone.replace(/\D/g, '');
     const encodedText = encodeURIComponent(text);
-    window.open(`https://web.whatsapp.com/send?phone=${phone}&text=${encodedText}`, '_blank');
+    // Usando o link universal api.whatsapp.com que funciona em mobile e desktop
+    window.open(`https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedText}`, '_blank');
 };
 
 export const copyImageToClipboard = async (base64Data: string): Promise<boolean> => {
     try {
         const res = await fetch(base64Data);
         const blob = await res.blob();
-        await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
-        return true;
+        if (typeof ClipboardItem !== 'undefined') {
+            await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+            return true;
+        }
+        return false;
     } catch { return false; }
 };
 
 export const parseCSVContacts = (content: string): WAContact[] => {
-    const lines = content.split(/\r?\n/);
+    const lines = content.split(/\r?\n/).filter(line => line.trim() !== "");
     const contacts: WAContact[] = [];
     if (lines.length === 0) return [];
     
     const headerRow = lines[0].split(/[;,]/).map(h => h.trim().toLowerCase());
-    const phoneIdx = headerRow.findIndex(h => h.includes('phone') || h.includes('tel') || h.includes('cel'));
+    const phoneIdx = headerRow.findIndex(h => h.includes('phone') || h.includes('tel') || h.includes('cel') || h.includes('fone'));
+    const nameIdx = headerRow.findIndex(h => h.includes('name') || h.includes('nome') || h.includes('cliente'));
+    
     if (phoneIdx === -1) return [];
 
     for (let i = 1; i < lines.length; i++) {
@@ -163,7 +198,7 @@ export const parseCSVContacts = (content: string): WAContact[] => {
         if (!cols[phoneIdx]) continue;
         contacts.push({
             id: crypto.randomUUID(),
-            name: cols[0] || 'Sem Nome',
+            name: cols[nameIdx !== -1 ? nameIdx : 0] || 'Sem Nome',
             phone: normalizePhone(cols[phoneIdx]),
             tags: cols[2] ? cols[2].split('|').map(t => t.trim()) : [],
             createdAt: new Date().toISOString(),
@@ -176,6 +211,37 @@ export const parseCSVContacts = (content: string): WAContact[] => {
 };
 
 export const importWAContacts = async (contacts: WAContact[]) => {
-    if (contacts.length > 500) throw new Error("Limite de 500 contatos por importação.");
     await dbBulkPut('wa_contacts', contacts);
+    if (auth.currentUser) {
+        for (const c of contacts) {
+            await setDoc(doc(db, "wa_contacts", c.id), { ...c, syncAt: serverTimestamp() });
+        }
+    }
+};
+
+/**
+ * Exporta todos os contatos locais para o servidor de automação.
+ */
+export const exportWAContactsToServer = async () => {
+    const contacts = await getWAContacts();
+    const res = await fetch(`${BACKEND_URL}/api/v1/contacts/sync`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ contacts })
+    });
+    if (!res.ok) throw new Error('Falha ao exportar contatos para o servidor.');
+    return res.json();
+};
+
+/**
+ * Cria uma campanha no servidor remoto para processamento via Cloud.
+ */
+export const createWACampaignRemote = async (campaign: Partial<WACampaign>, recipients: WAContact[]) => {
+    const res = await fetch(`${BACKEND_URL}/api/v1/campaigns`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ campaign, recipients })
+    });
+    if (!res.ok) throw new Error('Falha ao sincronizar campanha com servidor.');
+    return res.json();
 };

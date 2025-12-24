@@ -1,26 +1,41 @@
-# WhatsApp Module - Backend (Firebase variant)
+# WhatsApp Module - Backend v2.5.0
 
-Backend do módulo WhatsApp projetado para integrar com Firestore & Firebase Storage e enfileirar jobs via Cloud Tasks ou Redis/BullMQ.
+Módulo de processamento de mensagens e gestão de sessões WhatsApp para o Gestor360.
 
-## Pré-requisitos
-- Node 18+
-- Conta Firebase com service account
-- Firebase Storage bucket
-- Cloud Tasks queue ou Redis
+## 🚀 Arquitetura
+- **Engine:** Node.js (ESM) + TypeScript
+- **Socket:** Baileys (ou Official WABA via Adapter)
+- **Persistência de Sessão:** Firebase Storage (Criptografado)
+- **Fila de Jobs:** BullMQ + Redis (Upstash recomendado)
+- **Logs & Metas:** Cloud Firestore
 
-## Variáveis de ambiente
-- FIREBASE_SERVICE_ACCOUNT_JSON (base64)
-- SESSIONS_BUCKET
-- SESSIONS_ENC_KEY (base64 32 bytes)
-- WA_MODULE_KEY
-- USE_OFFICIAL_WABA ("true"|"false")
-- USE_CLOUD_TASKS ("true"|"false")
+## 🛠️ Configuração Upstash Redis
+Para utilizar o Redis na nuvem (Serverless):
+1. Crie uma conta em [upstash.com](https://upstash.com).
+2. Crie uma instância Redis.
+3. Copie a **Node.js Connection String** (rediss://...).
+4. Cole no seu `.env` na variável `REDIS_URL`.
 
-## Instalação local
-1. Copie .env.example.txt -> .env
-2. npm ci
-3. npm run dev
+## 📦 Implantação (Cloud Run)
 
-## Deploy
-- Recomendado: Google Cloud Run + Google Cloud Tasks.
-- Alternativo: VPS com Docker e Redis.
+1. **Build da Imagem:**
+   ```bash
+   docker build -t gcr.io/[PROJECT_ID]/wa-backend .
+   ```
+
+2. **Deploy do Servidor API:**
+   ```bash
+   gcloud run deploy wa-api --image gcr.io/[PROJECT_ID]/wa-backend --env-vars-file .env.yaml
+   ```
+
+3. **Deploy do Worker (Fila):**
+   Execute a mesma imagem mas altere o entrypoint para `npm run worker`.
+
+## 🔒 Segurança (BYOK)
+As sessões do WhatsApp contêm tokens sensíveis. O backend **nunca** armazena esses dados em texto puro. 
+- O estado é serializado.
+- Criptografado com **AES-256-GCM** usando `SESSIONS_ENC_KEY`.
+- Enviado para o Firebase Storage Bucket privado.
+
+---
+**Hypelab Engineering - 2025**
