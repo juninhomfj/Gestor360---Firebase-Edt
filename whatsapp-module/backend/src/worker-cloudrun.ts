@@ -7,7 +7,8 @@ import { saveMessage, markRecipientSent } from './firestoreStore';
 
 dotenv.config();
 const app = express();
-app.use(bodyParser.json({ limit: '10mb' }));
+/* Fix: Used express.json instead of bodyParser to resolve middleware overload mismatch and ensured correct typing */
+app.use(express.json({ limit: '10mb' }) as any);
 const WA_KEY = process.env.WA_MODULE_KEY || '';
 const USE_OFFICIAL = (process.env.USE_OFFICIAL_WABA || 'false') === 'true';
 const adapter = USE_OFFICIAL ? adapterOfficial : adapterBaileys;

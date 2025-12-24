@@ -3,26 +3,34 @@ import bodyParser from 'body-parser';
 import dotenv from 'dotenv';
 import formidable from 'formidable';
 import fs from 'fs';
-import { createSessionDoc, getSessionDoc, saveContactsBatch, createCampaign, getCampaignStatus } from './firestoreStore';
-import * as baileysAdapter from './adapters/baileysAdapter';
-import * as officialAdapter from './adapters/officialAdapter';
+import cors from 'cors';
+import { createSessionDoc, getSessionDoc, saveContactsBatch, createCampaign, getCampaignStatus } from './firestoreStore.js';
+import * as baileysAdapter from './adapters/baileysAdapter.js';
+import * as officialAdapter from './adapters/officialAdapter.js';
 import { CloudTasksClient } from '@google-cloud/tasks';
 import { v4 as uuidv4 } from 'uuid';
+import { normalizePhoneToE164 } from './utils/phoneUtils.js';
 
 dotenv.config();
+
 const app = express();
-app.use(bodyParser.json({ limit: '10mb' }));
+app.use(cors());
+/* Fix: Used express.json instead of bodyParser to resolve middleware overload mismatch and ensured correct typing */
+app.use(express.json({ limit: '10mb' }) as any);
+
 const PORT = process.env.PORT || 3333;
-
 const WA_KEY = process.env.WA_MODULE_KEY || '';
-const USE_OFFICIAL = (process.env.USE_OFFICIAL_WABA || 'false') === 'true';
-const USE_CLOUD_TASKS = (process.env.USE_CLOUD_TASKS || 'true') === 'true';
+const USE_OFFICIAL = process.env.USE_OFFICIAL_WABA === 'true';
+const USE_CLOUD_TASKS = process.env.USE_CLOUD_TASKS === 'true';
 
-// Auth middleware
-app.use((req, res, next) => {
+// Middleware de Autenticação
+/* Fix: Explicitly typed middleware parameters as any to resolve type conflicts with express overloads */
+app.use((req: any, res: any, next: any) => {
   if (req.path.startsWith('/api/v1')) {
     const key = req.headers['x-wa-module-key'];
-    if (!key || key !== WA_KEY) return res.status(401).json({ error: 'UNAUTHORIZED' });
+    if (!key || key !== WA_KEY) {
+      return res.status(401).json({ error: 'UNAUTHORIZED' });
+    }
   }
   next();
 });
@@ -30,22 +38,40 @@ app.use((req, res, next) => {
 const adapter = USE_OFFICIAL ? officialAdapter : baileysAdapter;
 const tasksClient = USE_CLOUD_TASKS ? new CloudTasksClient() : null;
 
+// --- SESSÕES ---
+
 app.post('/api/v1/sessions/create', async (req, res) => {
   try {
-    const sessionId = req.body.sessionId || `sess_${Date.now()}`;
+    /* Fix: Cast req.body to any to safely access sessionId from potentially unknown body type */
+    const sessionId = (req.body as any).sessionId || `sess_${Date.now()}`;
     await createSessionDoc(sessionId, { status: 'STARTING' });
     const initRes = await adapter.initSession(sessionId);
-    return res.json({ sessionId, status: initRes.status || 'STARTED', qr: (initRes as any).qr || null });
-  } catch (e) {
-    console.error('sessions.create', maskError(e));
-    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+    
+    // O adapter pode retornar um QR ou apenas status STARTED
+    /* Fix: Cast initRes to any to resolve property access on unknown type error */
+    return res.json({ 
+      sessionId, 
+      status: (initRes as any).status || 'STARTED', 
+      qr: (initRes as any).qr || null 
+    });
+  } catch (e: any) {
+    console.error('[API] sessions.create error:', e.message);
+    return res.status(500).json({ error: 'INTERNAL_ERROR', detail: e.message });
   }
 });
 
 app.get('/api/v1/sessions/:sessionId/status', async (req, res) => {
-  const s = await getSessionDoc(req.params.sessionId);
-  if (!s) return res.status(404).json({ error: 'NOT_FOUND' });
-  return res.json({ sessionId: req.params.sessionId, status: s.status, phone: s.phone || null });
+  try {
+    const s = await getSessionDoc(req.params.sessionId);
+    if (!s) return res.status(404).json({ error: 'NOT_FOUND' });
+    return res.json({ 
+      sessionId: req.params.sessionId, 
+      status: s.status, 
+      phone: s.phone || null 
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: 'DB_ERROR' });
+  }
 });
 
 app.post('/api/v1/sessions/:sessionId/logout', async (req, res) => {
@@ -53,83 +79,99 @@ app.post('/api/v1/sessions/:sessionId/logout', async (req, res) => {
     await adapter.closeSession(req.params.sessionId);
     await createSessionDoc(req.params.sessionId, { status: 'CLOSED' });
     return res.json({ ok: true });
-  } catch (e) {
-    console.error('sessions.logout', maskError(e));
+  } catch (e: any) {
+    console.error('[API] sessions.logout error:', e.message);
     return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
 });
 
+// --- CONTATOS ---
+
 app.post('/api/v1/contacts/import', async (req, res) => {
   const form = formidable({ multiples: false });
+  
   form.parse(req, async (err, fields, files) => {
-    if (err) return res.status(400).json({ error: 'BAD_REQUEST', detail: 'invalid_form' });
+    if (err) return res.status(400).json({ error: 'BAD_REQUEST', detail: 'form_parse_error' });
+    
     try {
-      const file = (files.file as any)[0] || files.file;
+      const file = Array.isArray(files.file) ? files.file[0] : files.file;
       if (!file) return res.status(400).json({ error: 'BAD_REQUEST', detail: 'no_file' });
-      const text = fs.readFileSync(file.filepath, 'utf8');
-      const rows = parseCSV(text);
-      const ok: any[] = [];
-      for (const [idx, r] of rows.entries()) {
-        const phone = normalizePhone(r.phone || r.telefone || r.number || '');
-        if (!phone) continue;
-        ok.push({ id: uuidv4(), name: r.name || 'Sem Nome', phone, optIn: true });
+      
+      const content = fs.readFileSync(file.filepath, 'utf8');
+      const lines = content.split(/\r?\n/).filter(Boolean);
+      if (lines.length === 0) return res.status(400).json({ error: 'EMPTY_FILE' });
+
+      const header = lines[0].split(/[,;]+/).map(h => h.trim().toLowerCase());
+      const contacts: any[] = [];
+      
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(/[,;]+/);
+        const obj: any = {};
+        header.forEach((h, idx) => obj[h] = cols[idx]?.trim());
+        
+        const rawPhone = obj.phone || obj.telefone || obj.number || '';
+        const phone = normalizePhoneToE164(rawPhone);
+        
+        if (phone) {
+          contacts.push({
+            id: uuidv4(),
+            name: obj.name || obj.nome || 'Sem Nome',
+            phone,
+            optIn: true,
+            createdAt: new Date()
+          });
+        }
       }
-      await saveContactsBatch(ok);
-      return res.json({ created: ok.length });
-    } catch (e) {
-      console.error('contacts.import', maskError(e));
+
+      const max = Number(process.env.FRONTEND_MAX_IMPORT || '500');
+      if (contacts.length > max) {
+        return res.status(400).json({ error: 'LIMIT_EXCEEDED', detail: `Máximo ${max} contatos.` });
+      }
+
+      await saveContactsBatch(contacts);
+      return res.json({ created: contacts.length });
+    } catch (e: any) {
+      console.error('[API] contacts.import error:', e.message);
       return res.status(500).json({ error: 'INTERNAL_ERROR' });
     }
   });
 });
 
+// --- CAMPANHAS ---
+
 app.post('/api/v1/campaigns', async (req, res) => {
   try {
     const { campaign, recipients } = req.body;
-    if (!campaign || !Array.isArray(recipients)) return res.status(400).json({ error: 'BAD_REQUEST' });
-    const cid = await createCampaign(campaign, recipients);
-    return res.json({ campaignId: cid });
-  } catch (e) {
-    console.error('campaigns.create', maskError(e));
+    if (!campaign || !Array.isArray(recipients)) {
+      return res.status(400).json({ error: 'BAD_REQUEST', detail: 'invalid_payload' });
+    }
+    
+    const campaignId = await createCampaign(campaign, recipients);
+    
+    // Se não estiver usando Cloud Tasks, as mensagens serão processadas pelo worker Redis
+    // que monitora as campanhas no status 'CREATED' no Firestore.
+    
+    return res.json({ campaignId, status: 'CREATED' });
+  } catch (e: any) {
+    console.error('[API] campaigns.create error:', e.message);
     return res.status(500).json({ error: 'INTERNAL_ERROR' });
   }
 });
 
 app.get('/api/v1/campaigns/:campaignId/status', async (req, res) => {
-  const s = await getCampaignStatus(req.params.campaignId);
-  if (!s) return res.status(404).json({ error: 'NOT_FOUND' });
-  return res.json(s);
+  try {
+    const s = await getCampaignStatus(req.params.campaignId);
+    if (!s) return res.status(404).json({ error: 'NOT_FOUND' });
+    return res.json(s);
+  } catch (e: any) {
+    return res.status(500).json({ error: 'INTERNAL_ERROR' });
+  }
 });
 
-const normalizePhone = (input: string) => {
-  const digits = (input || '').replace(/\D/g, '');
-  if (!digits) return null;
-  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
-  if (digits.length >= 11) return digits;
-  return null;
-};
+app.listen(PORT, () => {
+  console.log(`✅ [WhatsApp Backend] Rodando na porta ${PORT}`);
+  console.log(`🔗 Adapter: ${USE_OFFICIAL ? 'Oficial' : 'Baileys'}`);
+  console.log(`⚙️ Queue: ${USE_CLOUD_TASKS ? 'Cloud Tasks' : 'Redis/BullMQ'}`);
+});
 
-const parseCSV = (text: string) => {
-  const lines = text.split(/\r?\n/).filter(Boolean);
-  const result: any[] = [];
-  if (lines.length === 0) return result;
-  const header = lines[0].split(/[,;]+/).map(h => h.trim().toLowerCase());
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(/[,;]+/);
-    const obj: any = {};
-    for (let j = 0; j < header.length; j++) obj[header[j]] = cols[j] ? cols[j].trim() : '';
-    result.push(obj);
-  }
-  return result;
-};
-
-const maskError = (e: any) => {
-  try {
-    const m = e.message || JSON.stringify(e);
-    return m.replace(/\d{6,}/g, '*****');
-  } catch {
-    return 'error';
-  }
-};
-
-app.listen(PORT, () => console.log(`WA module backend listening on ${PORT}`));
+export default app;
