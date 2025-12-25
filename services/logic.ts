@@ -1,4 +1,3 @@
-
 import {
   collection,
   query,
@@ -12,7 +11,6 @@ import {
   limit,
   orderBy,
   getDoc,
-  /* Fix: Added missing setDoc, writeBatch and deleteDoc imports */
   setDoc,
   writeBatch,
   deleteDoc
@@ -22,7 +20,8 @@ import { getAuth } from "firebase/auth";
 import { 
     User, Sale, Transaction, FinanceAccount, TransactionCategory, 
     Receivable, ReportConfig, SystemConfig, ProductType, CommissionRule, 
-    CreditCard, ChallengeCell, FinancialPacing, ChallengeModel, Client, DuplicateGroup
+    CreditCard, ChallengeCell, FinancialPacing, ChallengeModel, Client, 
+    DuplicateGroup, ProductivityMetrics
 } from '../types';
 
 /**
@@ -41,12 +40,20 @@ function requireAuthUid(): string {
 }
 
 function ensureNumber(value: any, fallback = 0): number {
-  return typeof value === "number" && !isNaN(value) ? value : fallback;
+  const num = parseFloat(value);
+  return !isNaN(num) ? num : fallback;
 }
 
 export const DEFAULT_PRODUCT_LABELS = { basica: 'Cesta Básica', natal: 'Cesta de Natal', custom: 'Personalizado' };
 export const DEFAULT_REPORT_CONFIG: ReportConfig = { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 };
-export const DEFAULT_SYSTEM_CONFIG: SystemConfig = { theme: 'glass', modules: { sales: true, finance: true, crm: true, whatsapp: true, reports: true, ai: true, dev: false, settings: true, news: true, receivables: true, distribution: true, imports: true } };
+export const DEFAULT_SYSTEM_CONFIG: SystemConfig = { 
+    theme: 'glass', 
+    modules: { 
+        sales: true, finance: true, crm: true, whatsapp: true, 
+        reports: true, ai: true, dev: false, settings: true, 
+        news: true, receivables: true, distribution: true, imports: true 
+    } 
+};
 
 /**
  * ============================================================
@@ -72,9 +79,10 @@ export const saveSystemConfig = async (c: SystemConfig) => {
 };
 
 export const getReportConfig = async () => DEFAULT_REPORT_CONFIG;
-export const saveReportConfig = async (c: any) => {};
-
-/* Fix: Added missing getUserPlanLabel export */
+export const saveReportConfig = async (c: any) => {
+    const ref = doc(db, "config", "report_config");
+    await setDoc(ref, { ...c, updatedAt: serverTimestamp() }, { merge: true });
+};
 export const getUserPlanLabel = (user: User) => user.role;
 
 /**
@@ -85,7 +93,6 @@ export const getUserPlanLabel = (user: User) => user.role;
 
 export async function bootstrapProductionData() {
   const uid = requireAuthUid();
-
   const configRef = collection(db, "config");
   const configQ = query(configRef, where("isSeed", "==", true), limit(1));
   const configSnap = await getDocs(configQ);
@@ -109,38 +116,34 @@ export async function bootstrapProductionData() {
       balance: 0,
       isActive: true,
       isSeed: true,
+      isAccounting: true,
+      includeInDistribution: true,
+      type: 'CHECKING',
       deleted: false,
       userId: uid,
       createdAt: serverTimestamp()
     });
   }
-
-  console.info("[BOOTSTRAP] Produção validada");
 }
 
 /**
  * ============================================================
- * SALES
+ * SALES & CLIENTS
  * ============================================================
  */
 
 export async function saveSingleSale(payload: any) {
   const uid = requireAuthUid();
-  if (!payload?.valueSold || !payload?.date) {
-    throw new Error("Venda inválida: campos obrigatórios ausentes");
-  }
-
   const sale = {
     ...payload,
     userId: uid,
     valueSold: ensureNumber(payload.valueSold),
     marginPercent: ensureNumber(payload.marginPercent),
     commissionValueTotal: ensureNumber(payload.commissionValueTotal),
-    date: new Date(payload.date).toISOString(),
+    date: payload.date ? new Date(payload.date).toISOString() : null,
     deleted: payload.deleted || false,
     updatedAt: serverTimestamp()
   };
-
   await setDoc(doc(db, "sales", payload.id || crypto.randomUUID()), sale, { merge: true });
 }
 
@@ -160,6 +163,103 @@ export const saveSales = async (sales: Sale[]) => {
     await batch.commit();
 };
 
+export const getClients = async (): Promise<Client[]> => {
+    const uid = requireAuthUid();
+    const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", false));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+};
+
+/**
+ * ============================================================
+ * ANALYTICS & CRM
+ * ============================================================
+ */
+
+export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
+    const clientsMap = new Map<string, any>();
+    const now = new Date();
+
+    sales.forEach(sale => {
+        if (sale.deleted) return;
+        const name = sale.client;
+        const saleDate = new Date(sale.date || sale.completionDate || '1970-01-01');
+        
+        if (!clientsMap.has(name)) {
+            clientsMap.set(name, {
+                name,
+                totalOrders: 0,
+                totalSpent: 0,
+                lastPurchaseDate: saleDate,
+                firstPurchaseDate: saleDate
+            });
+        }
+        
+        const c = clientsMap.get(name);
+        c.totalOrders += 1;
+        c.totalSpent += sale.valueSold * sale.quantity;
+        if (saleDate > c.lastPurchaseDate) c.lastPurchaseDate = saleDate;
+        if (saleDate < c.firstPurchaseDate) c.firstPurchaseDate = saleDate;
+    });
+
+    return Array.from(clientsMap.values()).map(c => {
+        const daysSinceLast = Math.floor((now.getTime() - c.lastPurchaseDate.getTime()) / (1000 * 60 * 60 * 24));
+        const daysSinceFirst = Math.floor((now.getTime() - c.firstPurchaseDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        let status = 'ACTIVE';
+        if (daysSinceLast > config.daysForLost) status = 'LOST';
+        else if (daysSinceLast > config.daysForInactive) status = 'INACTIVE';
+        else if (daysSinceFirst <= config.daysForNewClient) status = 'NEW';
+
+        return {
+            ...c,
+            status,
+            daysSinceLastPurchase: daysSinceLast
+        };
+    });
+};
+
+export const analyzeMonthlyVolume = (sales: Sale[], monthsCount: number) => {
+    const result = [];
+    const now = new Date();
+    for (let i = monthsCount - 1; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = d.toISOString().substring(0, 7);
+        const name = d.toLocaleDateString('pt-BR', { month: 'short' });
+        
+        const monthSales = sales.filter(s => (s.date || '').startsWith(key));
+        result.push({
+            name,
+            basica: monthSales.filter(s => s.type === ProductType.BASICA).reduce((acc, s) => acc + s.quantity, 0),
+            natal: monthSales.filter(s => s.type === ProductType.NATAL).reduce((acc, s) => acc + s.quantity, 0)
+        });
+    }
+    return result;
+};
+
+export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
+    const sales = await getStoredSales();
+    const clients = await getClients();
+    const now = new Date();
+    const currentMonth = now.toISOString().substring(0, 7);
+
+    const convertedThisMonth = new Set(sales.filter(s => (s.date || '').startsWith(currentMonth)).map(s => s.client)).size;
+    const activeClientsCount = clients.length || 1;
+    const conversionRate = (convertedThisMonth / activeClientsCount) * 100;
+
+    let productivityStatus: 'GREEN' | 'YELLOW' | 'RED' = 'RED';
+    if (conversionRate >= 70) productivityStatus = 'GREEN';
+    else if (conversionRate >= 40) productivityStatus = 'YELLOW';
+
+    return {
+        totalClients: clients.length,
+        activeClients: activeClientsCount,
+        convertedThisMonth,
+        conversionRate,
+        productivityStatus
+    };
+};
+
 /**
  * ============================================================
  * FINANCE
@@ -168,9 +268,6 @@ export const saveSales = async (sales: Sale[]) => {
 
 export async function getFinanceData() {
   const uid = requireAuthUid();
-  const start = new Date();
-  start.setDate(start.getDate() - 90);
-
   const colls = ["transactions", "accounts", "cards", "receivables", "categories", "goals", "challenges", "challenge_cells"];
   const result: any = {};
 
@@ -182,109 +279,206 @@ export async function getFinanceData() {
   return result;
 }
 
-export const saveFinanceData = async (acc: FinanceAccount[], cards: CreditCard[], txs: Transaction[], cats: TransactionCategory[]) => {
-    const uid = requireAuthUid();
-    const batch = writeBatch(db);
-    acc.forEach(a => batch.set(doc(db, "accounts", a.id), { ...a, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
-    txs.forEach(t => batch.set(doc(db, "transactions", t.id), { ...t, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
-    await batch.commit();
-};
-
-/**
- * ============================================================
- * COMMISSION & ANALYTICS
- * ============================================================
- */
-
-export async function getStoredTable(type: ProductType): Promise<CommissionRule[]> {
-    const col = type === ProductType.BASICA ? "commission_basic" : (type === ProductType.NATAL ? "commission_natal" : "commission_custom");
-    const q = query(collection(db, col), where("isActive", "==", true));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as CommissionRule);
-}
-
-export async function saveCommissionRules(type: ProductType, rules: CommissionRule[]) {
-    const col = type === ProductType.BASICA ? "commission_basic" : (type === ProductType.NATAL ? "commission_natal" : "commission_custom");
-    const batch = writeBatch(db);
-    rules.forEach(r => batch.set(doc(db, col, r.id), { ...r, updatedAt: serverTimestamp() }, { merge: true }));
-    await batch.commit();
-}
-
-export function computeCommissionValues(quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) {
-  const base = valueProposed * quantity;
-  const rule = rules.find(r => margin >= r.minPercent && (r.maxPercent === null || margin < r.maxPercent));
-  const rate = rule ? rule.commissionRate : 0;
-  return { commissionBase: base, commissionValue: base * rate, rateUsed: rate };
-}
-
 export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]): FinancialPacing => {
-    const nextIncomeDate = new Date(); // Simplificado para build
-    return { daysRemaining: 1, safeDailySpend: balance / 30, pendingExpenses: 0, nextIncomeDate };
+    const now = new Date();
+    const today = now.getDate();
+    const nextSalaryDay = salaryDays.find(d => d > today) || salaryDays[0] || 30;
+    
+    let daysRemaining = nextSalaryDay - today;
+    if (daysRemaining <= 0) {
+        const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, nextSalaryDay);
+        daysRemaining = Math.floor((nextMonth.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    }
+
+    const currentMonth = now.toISOString().substring(0, 7);
+    const pendingExpenses = transactions
+        .filter(t => t.type === 'EXPENSE' && !t.isPaid && t.date.startsWith(currentMonth))
+        .reduce((acc, t) => acc + t.amount, 0);
+
+    const available = balance - pendingExpenses;
+    const safeDailySpend = available > 0 ? available / (daysRemaining || 1) : 0;
+
+    return {
+        daysRemaining,
+        safeDailySpend,
+        pendingExpenses,
+        nextIncomeDate: new Date(now.getFullYear(), now.getMonth(), nextSalaryDay)
+    };
 };
 
-export const analyzeClients = (sales: Sale[], config: ReportConfig) => [];
-export const analyzeMonthlyVolume = (s: any, m: any) => [];
-export const calculateProductivityMetrics = async (u: string) => ({ totalClients: 0, activeClients: 0, convertedThisMonth: 0, conversionRate: 0, productivityStatus: 'GREEN' as const });
+export const generateChallengeCells = (challengeId: string, target: number, count: number, model: ChallengeModel): ChallengeCell[] => {
+    const cells: ChallengeCell[] = [];
+    const uid = requireAuthUid();
+    
+    if (model === 'PROPORTIONAL') {
+        const value = target / count;
+        for (let i = 1; i <= count; i++) {
+            cells.push({ id: crypto.randomUUID(), challengeId, number: i, value, status: 'PENDING', userId: uid, deleted: false });
+        }
+    } else if (model === 'LINEAR') {
+        const factor = target / (count * (count + 1) / 2);
+        for (let i = 1; i <= count; i++) {
+            cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: i * factor, status: 'PENDING', userId: uid, deleted: false });
+        }
+    } else {
+        for (let i = 1; i <= count; i++) {
+            cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: 0, status: 'PENDING', userId: uid, deleted: false });
+        }
+    }
+    return cells;
+};
 
 /**
  * ============================================================
- * CLIENTS
+ * IMPORTS & UTILS
  * ============================================================
  */
 
-export const getClients = async (): Promise<Client[]> => {
-    const uid = requireAuthUid();
-    const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", false));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as Client);
+export const readExcelFile = async (file: File): Promise<any[][]> => {
+    const text = await file.text();
+    return text.split('\n').map(line => line.split(/[,;]/));
 };
 
-export const getDeletedClients = async () => {
+export const processFinanceImport = (data: any[][], mapping: any): Transaction[] => {
     const uid = requireAuthUid();
-    const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", true));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => d.data() as Client);
+    const result: Transaction[] = [];
+    
+    for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (row.length < 2) continue;
+
+        const date = row[mapping.date] || new Date().toISOString();
+        const description = row[mapping.description] || 'Importado';
+        const rawAmount = row[mapping.amount] || '0';
+        const amount = ensureNumber(rawAmount.replace(/[^\d.,-]/g, '').replace(',', '.'));
+        
+        if (amount === 0) continue;
+
+        result.push({
+            id: crypto.randomUUID(),
+            description,
+            amount: Math.abs(amount),
+            type: amount > 0 ? 'INCOME' : 'EXPENSE',
+            date: new Date(date).toISOString(),
+            categoryId: 'uncategorized',
+            accountId: '', 
+            isPaid: true,
+            personType: 'PF',
+            deleted: false,
+            userId: uid,
+            createdAt: new Date().toISOString()
+        });
+    }
+    return result;
 };
 
-export const restoreClient = async (id:string) => { await updateDoc(doc(db, "clients", id), { deleted: false, updatedAt: serverTimestamp() }); };
-export const permanentlyDeleteClient = async (id:string) => { await deleteDoc(doc(db, "clients", id)); };
-
-/**
- * ============================================================
- * LIXEIRA
- * ============================================================
- */
+export const exportReportToCSV = (data: any[], filename: string) => {
+    if (!data.length) return;
+    const headers = Object.keys(data[0]).join(';');
+    const rows = data.map(obj => Object.values(obj).join(';')).join('\n');
+    const csv = `${headers}\n${rows}`;
+    const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `${filename}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
 
 export async function getTrashItems() {
   const uid = requireAuthUid();
   const qSales = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", true));
   const qTrans = query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", true));
   const [sSnap, tSnap] = await Promise.all([getDocs(qSales), getDocs(qTrans)]);
-  return { sales: sSnap.docs.map(d => d.data() as Sale), transactions: tSnap.docs.map(d => d.data() as Transaction) };
+  return { 
+      sales: sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Sale)), 
+      transactions: tSnap.docs.map(d => ({ id: d.id, ...d.data() } as Transaction)) 
+  };
 }
 
+export const getDeletedClients = async () => {
+    const uid = requireAuthUid();
+    const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", true));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+};
+
+export const restoreClient = async (id:string) => { await updateDoc(doc(db, "clients", id), { deleted: false, updatedAt: serverTimestamp() }); };
+export const permanentlyDeleteClient = async (id:string) => { await deleteDoc(doc(db, "clients", id)); };
 export async function restoreItem(type: 'SALE' | 'TRANSACTION', item: any) {
   const col = type === 'SALE' ? "sales" : "transactions";
   await updateDoc(doc(db, col, item.id), { deleted: false, updatedAt: serverTimestamp() });
 }
-
 export async function permanentlyDeleteItem(type: 'SALE' | 'TRANSACTION', id: string) {
   const col = type === 'SALE' ? "sales" : "transactions";
-  await updateDoc(doc(db, col, id), { permanentlyDeleted: true, updatedAt: serverTimestamp() });
+  await deleteDoc(doc(db, col, id));
 }
 
-export const generateChallengeCells = (challengeId: string, target: number, count: number, model: ChallengeModel): ChallengeCell[] => [];
-export const getInvoiceMonth = (d: string, c: number) => d.substring(0, 7);
-export const hardResetLocalData = () => { localStorage.clear(); window.location.reload(); };
-export const exportEncryptedBackup = async (p: string) => { throw new Error("Bloqueado"); };
-export const exportReportToCSV = (d: any, f: string) => {};
+export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
+  const base = valueProposed * quantity;
+  const sortedRules = [...rules].sort((a,b) => b.minPercent - a.minPercent);
+  const rule = sortedRules.find(r => margin >= r.minPercent);
+  const rate = rule ? rule.commissionRate : 0;
+  return { commissionBase: base, commissionValue: base * rate, rateUsed: rate };
+};
 
-/* Fix: Added missing logic exports to resolve component errors */
+export const getInvoiceMonth = (d: string, c: number) => {
+    const date = new Date(d);
+    if (date.getDate() > c) {
+        date.setMonth(date.getMonth() + 1);
+    }
+    return date.toISOString().substring(0, 7);
+};
+
+export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
+    const colMap: Record<ProductType, string> = {
+        [ProductType.BASICA]: 'commission_basic',
+        [ProductType.NATAL]: 'commission_natal',
+        [ProductType.CUSTOM]: 'commission_custom'
+    };
+    const colName = colMap[type];
+    const q = query(collection(db, colName), where("isActive", "==", true));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
+};
+
+export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
+    const colMap: Record<ProductType, string> = {
+        [ProductType.BASICA]: 'commission_basic',
+        [ProductType.NATAL]: 'commission_natal',
+        [ProductType.CUSTOM]: 'commission_custom'
+    };
+    const colName = colMap[type];
+    const batch = writeBatch(db);
+    rules.forEach(rule => {
+        const ref = doc(db, colName, rule.id);
+        batch.set(ref, { ...rule, updatedAt: serverTimestamp() }, { merge: true });
+    });
+    await batch.commit();
+};
+
+export const saveFinanceData = async (
+    accounts: FinanceAccount[], 
+    cards: CreditCard[], 
+    transactions: Transaction[], 
+    categories: TransactionCategory[]
+) => {
+    const uid = requireAuthUid();
+    const batch = writeBatch(db);
+    accounts.forEach(a => batch.set(doc(db, "accounts", a.id), { ...a, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
+    cards.forEach(c => batch.set(doc(db, "cards", c.id), { ...c, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
+    transactions.forEach(t => batch.set(doc(db, "transactions", t.id), { ...t, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
+    categories.forEach(c => batch.set(doc(db, "categories", c.id), { ...c, updatedAt: serverTimestamp() }, { merge: true }));
+    await batch.commit();
+};
+
+export const hardResetLocalData = () => { localStorage.clear(); window.location.reload(); };
+export const exportEncryptedBackup = async (p: string) => { alert("Recurso disponível em modo standalone."); };
 export const importEncryptedBackup = async (file: File, p: string) => {};
 export const clearAllSales = () => {};
 export const generateFinanceTemplate = () => {};
-export const processFinanceImport = (data: any[][], mapping: any): Transaction[] => [];
-export const readExcelFile = async (file: File): Promise<any[][]> => [];
 export const processSalesImport = (data: any[][], mapping: any): any[] => [];
 export const findPotentialDuplicates = (sales: Sale[]): any[] => [];
 export const smartMergeSales = (sales: Sale[]): Sale => sales[0];

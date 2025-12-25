@@ -228,7 +228,6 @@ const App: React.FC = () => {
                         onImportFile={async () => {}}
                         onClearAll={() => {}}
                         onRestore={() => {}}
-                        /* Fix: Removed invalid '!' syntax and provided missing prop implementations */
                         onOpenBulkAdvanced={() => {}}
                         onUndo={() => {}}
                         onBillSale={async (s, date) => {
