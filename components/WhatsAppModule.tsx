@@ -9,7 +9,6 @@ import WhatsAppPreview from './WhatsAppPreview';
 import WhatsAppCampaignWizard from './WhatsAppCampaignWizard';
 import WhatsAppDashboard from './WhatsAppDashboard';
 import WhatsAppConnection from './WhatsAppConnection';
-// Fix: Added missing import for WhatsAppContacts component
 import WhatsAppContacts from './WhatsAppContacts';
 import { auth } from '../services/firebase';
 
@@ -32,7 +31,22 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
   const [generatingAudio, setGeneratingAudio] = useState(false);
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { 
+    loadData(); 
+    requestPermissions();
+  }, []);
+
+  const requestPermissions = async () => {
+    try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+            stream.getTracks().forEach(track => track.stop());
+            console.info("[WhatsAppModule] Permissões de mídia autorizadas.");
+        }
+    } catch (e) {
+        console.warn("[WhatsAppModule] Permissões negadas pelo usuário.");
+    }
+  };
 
   const loadData = async () => {
       const [c, t, cmp] = await Promise.all([getWAContacts(), getWATags(), getWACampaigns()]);
@@ -57,7 +71,7 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
       setExporting(true);
       try {
           await exportWAContactsToServer();
-          alert("Contatos exportados com sucesso!");
+          alert("Contatos exportados!");
       } catch (e: any) {
           alert("Erro ao exportar: " + e.message);
       } finally {
@@ -96,7 +110,7 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
               const logId = await WhatsAppManualLogger.startInteraction(activeCampaign!.id, contacts.find(c => c.id === next.contactId)!, activeCampaign!.config.speed);
               setActiveLogId(logId);
           } else {
-              alert("Fila finalizada! Parabéns.");
+              alert("Fila finalizada!");
               setActiveSubTab('DASHBOARD');
           }
       }
@@ -125,11 +139,10 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                         userId: auth.currentUser?.uid || ''
                     };
                     
-                    // Create remote campaign first
                     try {
                         await createWACampaignRemote(newCamp, target);
                     } catch (e) {
-                        console.warn("Falha ao criar campanha remota, salvando local.");
+                        console.warn("Falha sincronização remota.");
                     }
 
                     await saveWACampaign(newCamp);
@@ -166,7 +179,7 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                             <Wand2 size={32} />
                         </div>
                         <h3 className="text-2xl font-black mb-2">Novo Disparo Estratégico</h3>
-                        <p className="text-sm text-gray-500 max-w-md mx-auto mb-8">Segmente seu público, utilize IA para copy persuasiva e execute com segurança anti-bloqueio.</p>
+                        <p className="text-sm text-gray-500 max-w-md mx-auto mb-8">Segmente seu público e execute com segurança anti-bloqueio.</p>
                         <div className="flex gap-4">
                           <button onClick={() => setShowWizard(true)} className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-bold shadow-xl shadow-indigo-900/30 hover:scale-105 transition-all">Iniciar Wizard</button>
                           <button onClick={handleExportToServer} disabled={exporting} className="px-6 py-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl font-bold flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all disabled:opacity-50">
@@ -220,7 +233,7 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                                     <ArrowRight size={24}/>
                                 </button>
                                 <button onClick={() => handleAction('TTS')} disabled={generatingAudio} className="w-full py-2 text-xs font-bold text-blue-500 flex items-center justify-center gap-2 opacity-70 hover:opacity-100">
-                                    <Volume2 size={14}/> {generatingAudio ? 'Gerando...' : 'Ouvir Versão Profissional IA'}
+                                    <Volume2 size={14}/> {generatingAudio ? 'Gerando...' : 'Ouvir IA'}
                                 </button>
                             </div>
 
@@ -229,7 +242,6 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                                 <button onClick={() => handleAction('CONFIRM')} className={`px-6 py-4 rounded-2xl font-bold ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-gray-100 text-gray-500'}`}>Pular</button>
                             </div>
                         </div>
-                        <p className="text-[10px] text-center text-gray-500 uppercase tracking-widest">Aguarde 15 segundos entre cada disparo para total segurança.</p>
                     </div>
 
                     <div className="hidden lg:flex items-center justify-center">
@@ -243,7 +255,7 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                     {campaigns.length > 0 ? (
                         <WhatsAppDashboard campaignId={activeCampaign?.id || campaigns[0].id} darkMode={darkMode} />
                     ) : (
-                        <div className="p-20 text-center opacity-50">Sem dados para exibir.</div>
+                        <div className="p-20 text-center opacity-50">Sem dados.</div>
                     )}
                 </div>
             )}

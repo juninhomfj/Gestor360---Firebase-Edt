@@ -313,7 +313,8 @@ export interface LogEntry { timestamp: number; level: LogLevel; message: string;
 export interface WAContact { id: string; name: string; phone: string; tags: string[]; createdAt: string; updatedAt: string; deleted: boolean; source?: string; variables?: Record<string, string>; deletedAt?: string; userId: string; isSeed?: boolean; }
 export interface WATag { id: string; name: string; deleted: boolean; updatedAt: string; userId: string; isSeed?: boolean; }
 export interface WACampaign { id: string; name: string; status: string; totalContacts: number; sentCount: number; messageTemplate: string; targetTags: string[]; config: { speed: 'FAST' | 'SAFE' | 'SLOW'; startTime: string; endTime: string; }; abTest?: any; media?: any; archived?: boolean; deleted: boolean; createdAt: string; updatedAt: string; userId: string; isSeed?: boolean; }
-export interface WAMessageQueue { id: string; campaignId: string; contactId: string; phone: string; message: string; status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'; variant: 'A' | 'B'; media?: any; sentAt?: string; deleted: boolean; isSeed?: boolean; }
+/* Fix: Added missing 'userId' property to WAMessageQueue interface */
+export interface WAMessageQueue { id: string; campaignId: string; contactId: string; phone: string; message: string; status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'; variant: 'A' | 'B'; media?: any; sentAt?: string; deleted: boolean; isSeed: boolean; userId: string; }
 
 // Updated ManualInteractionLog with missing fields
 export interface ManualInteractionLog { 

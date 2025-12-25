@@ -45,11 +45,13 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
   };
 
   const handleSave = () => {
+    /* Fix: Ensured isActive property is included in the CommissionRule object */
     const finalRules: CommissionRule[] = rules.map(r => ({
         id: r.id,
         minPercent: parseFloat(r.minPercent) || 0,
         maxPercent: r.maxPercent === '' ? null : parseFloat(r.maxPercent),
-        commissionRate: (parseFloat(r.commissionRate) || 0) / 100
+        commissionRate: (parseFloat(r.commissionRate) || 0) / 100,
+        isActive: true
     }));
     onSave(type, finalRules); // Passa o tipo explicitamente
     setIsDirty(false);
@@ -89,11 +91,13 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
                 <>
                     <label className="p-2 cursor-pointer hover:bg-white/10 rounded text-gray-600" title="Importar Tabela"><Upload size={18}/><input type="file" className="hidden" accept=".json" onChange={handleImport}/></label>
                     <button onClick={() => {
+                        /* Fix: Ensured isActive property is included in exported objects */
                         const finalRules = rules.map(r => ({
                             id: r.id,
                             minPercent: parseFloat(r.minPercent) || 0,
                             maxPercent: r.maxPercent === '' ? null : parseFloat(r.maxPercent),
-                            commissionRate: (parseFloat(r.commissionRate) || 0) / 100
+                            commissionRate: (parseFloat(r.commissionRate) || 0) / 100,
+                            isActive: true
                         }));
                         const blob = new Blob([JSON.stringify(finalRules)], {type:'application/json'});
                         const url = URL.createObjectURL(blob);

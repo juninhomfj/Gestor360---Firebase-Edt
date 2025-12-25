@@ -130,35 +130,11 @@ const App: React.FC = () => {
         init();
     }, []);
 
-    const requestModulePermissions = async () => {
-        try {
-            // Solicita permissões de mídia apenas se o navegador suportar e for necessário
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
-                    .then(stream => {
-                        // Fecha o stream imediatamente, queremos apenas garantir a permissão
-                        stream.getTracks().forEach(track => track.stop());
-                        console.info("[Permissions] Mídia autorizada para o módulo WhatsApp.");
-                    })
-                    .catch(err => {
-                        console.warn("[Permissions] Usuário negou ou falha na permissão de mídia:", err);
-                    });
-            }
-        } catch (e) {
-            console.error("[Permissions] Erro ao solicitar permissões:", e);
-        }
-    };
-
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
         await bootstrapProductionData();
         await loadDataForUser();
         
-        // Regra Granular: Solicitar permissão de câmera/mic apenas se tiver acesso ao WhatsApp
-        if (canAccess(user, 'whatsapp')) {
-            await requestModulePermissions();
-        }
-
         setAuthView('APP');
         setLoading(false);
     };
@@ -224,7 +200,6 @@ const App: React.FC = () => {
     if (authView === 'REQUEST_RESET')
         return <RequestReset onBack={() => setAuthView('LOGIN')} />;
 
-    // --- RENDERIZADOR DE ABAS ---
     const renderActiveTab = () => {
         switch (activeTab) {
             case 'dashboard':
@@ -244,7 +219,7 @@ const App: React.FC = () => {
                 return (
                     <SalesList
                         sales={sales}
-                        onEdit={(s) => { /* logic to open edit */ }}
+                        onEdit={(s) => { /* logic */ }}
                         onDelete={async (s) => {
                             await saveSingleSale({ ...s, deleted: true });
                             loadDataForUser();
@@ -305,8 +280,7 @@ const App: React.FC = () => {
                         accounts={accounts} 
                         categories={categories} 
                         onDelete={async (id) => {
-                            const tx = transactions.find(t => t.id === id);
-                            if(tx) await saveFinanceData(accounts, cards, transactions.filter(t => t.id !== id), categories);
+                            await saveFinanceData(accounts, cards, transactions.filter(t => t.id !== id), categories);
                             loadDataForUser();
                         }} 
                         darkMode={theme !== 'neutral' && theme !== 'rose'} 
@@ -319,7 +293,6 @@ const App: React.FC = () => {
                         accounts={accounts} 
                         sales={sales}
                         onUpdate={async (items) => {
-                            // save logic for receivables
                             loadDataForUser();
                         }}
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
@@ -384,7 +357,7 @@ const App: React.FC = () => {
             case 'dev_roadmap':
                 return isDev ? <DevRoadmap /> : null;
             default:
-                return <div className="p-8 text-center text-gray-500">Módulo em desenvolvimento ou não encontrado.</div>;
+                return <div className="p-8 text-center text-gray-500">Módulo não encontrado.</div>;
         }
     };
 
@@ -399,7 +372,6 @@ const App: React.FC = () => {
                     onClose={() => setShowSalesForm(false)}
                     onSave={saveSingleSale}
                     onSaved={loadDataForUser}
-                    userId={currentUser.id}
                 />
             )}
 
