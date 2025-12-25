@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Code2, Terminal, Database, Server, Cpu, RefreshCw, 
@@ -17,10 +16,8 @@ const DevRoadmap: React.FC = () => {
   const [dbStats, setDbStats] = useState({ sales: 0, transactions: 0, clients: 0, size: 'Calculando...' });
   const [isRefreshing, setIsRefreshing] = useState(false);
   
-  // Real-time Traffic Simulator (Baseado em atividade real ou mockada para fins de UI)
   const [cloudTraffic, setCloudTraffic] = useState({ reads: 0, writes: 0, lastActivity: 'Nenhuma' });
 
-  // Database Inspector State
   const [selectedStore, setSelectedStore] = useState('profiles');
   const [tableData, setTableData] = useState<any[]>([]);
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
@@ -31,7 +28,6 @@ const DevRoadmap: React.FC = () => {
   useEffect(() => {
     loadSystemStats();
     
-    // Realtime Listener para simular monitoramento de tráfego
     const unsub = onSnapshot(query(collection(db, "sales"), limit(1)), () => {
         setCloudTraffic(prev => ({ 
             ...prev, 
@@ -112,7 +108,6 @@ const DevRoadmap: React.FC = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300 pb-20">
-        {/* Banner de Engenharia */}
         <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 text-slate-300 relative overflow-hidden shadow-2xl">
             <div className="absolute top-0 right-0 p-4 opacity-10"><Terminal size={140} /></div>
             <div className="relative z-10 flex flex-col md:flex-row justify-between items-end gap-4">
@@ -129,7 +124,6 @@ const DevRoadmap: React.FC = () => {
             </div>
         </div>
 
-        {/* Menu de Abas */}
         <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar border-b border-gray-200 dark:border-slate-800">
             <TabBtn id="CLOUD" label="Cloud Status" icon={<Globe size={14}/>} active={activeTab} onClick={setActiveTab} />
             <TabBtn id="DATABASE" label="Banco de Dados" icon={<Database size={14}/>} active={activeTab} onClick={setActiveTab} />
@@ -137,7 +131,6 @@ const DevRoadmap: React.FC = () => {
             <TabBtn id="ROADMAP" label="Project Roadmap" icon={<CheckCircle2 size={14}/>} active={activeTab} onClick={setActiveTab} />
         </div>
 
-        {/* ABA: CLOUD STATUS */}
         {activeTab === 'CLOUD' && (
             <div className="space-y-6 animate-in slide-in-from-bottom-4">
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -193,7 +186,6 @@ const DevRoadmap: React.FC = () => {
 
                 <div className="bg-red-500/10 border border-red-500/30 p-6 rounded-2xl">
                     <div className="flex items-center gap-3 text-red-500 mb-4">
-                        {/* Add comment: Fixed missing AlertTriangle import by adding it to lucide-react import list */}
                         <AlertTriangle size={24}/>
                         <h4 className="font-bold">Zona de Perigo</h4>
                     </div>
@@ -205,7 +197,6 @@ const DevRoadmap: React.FC = () => {
             </div>
         )}
 
-        {/* ABA: DATABASE INSPECTOR */}
         {activeTab === 'DATABASE' && (
             <div className="space-y-4 animate-in slide-in-from-right-4 h-[650px] flex flex-col">
                 <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white dark:bg-slate-900 p-4 rounded-xl border dark:border-slate-800">
@@ -238,7 +229,6 @@ const DevRoadmap: React.FC = () => {
                 </div>
 
                 <div className="flex-1 flex gap-4 overflow-hidden">
-                    {/* Lista Lateral */}
                     <div className="w-1/3 bg-white dark:bg-slate-900 rounded-xl border dark:border-slate-800 overflow-y-auto custom-scrollbar">
                         {filteredData.map((row, idx) => (
                             <button 
@@ -255,7 +245,6 @@ const DevRoadmap: React.FC = () => {
                         {!filteredData.length && <div className="p-10 text-center opacity-30 italic">Tabela vazia ou sem acesso.</div>}
                     </div>
 
-                    {/* Preview Area */}
                     <div className="flex-1 bg-slate-950 rounded-xl border border-slate-800 p-4 relative group overflow-hidden flex flex-col">
                         <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity z-20">
                             <button 
@@ -276,7 +265,6 @@ const DevRoadmap: React.FC = () => {
             </div>
         )}
 
-        {/* ABA: CÓDIGO FONTE */}
         {activeTab === 'CODE' && (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 h-[500px]">
                 <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-y-auto p-2">
@@ -294,7 +282,6 @@ const DevRoadmap: React.FC = () => {
             </div>
         )}
 
-        {/* ABA: ROADMAP */}
         {activeTab === 'ROADMAP' && (
             <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-8">
                 <div className="flex items-center gap-4 mb-8">

@@ -1,4 +1,3 @@
-
 import React, { useMemo, useState, useEffect } from 'react';
 import { FinanceAccount, Transaction, CreditCard as CardType, Receivable, DashboardWidgetConfig, FinancialPacing, TransactionCategory } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, AreaChart, Area } from 'recharts';
@@ -27,7 +26,6 @@ const formatCurrency = (val: number, hidden: boolean) => {
 };
 
 const StatCard = ({ title, value, icon: Icon, type, darkMode }: any) => {
-  // Enhanced Colors for "Dark Neon" vibe
   let iconBg = darkMode ? 'bg-slate-800' : 'bg-gray-100';
   let iconColor = darkMode ? 'text-cyan-400' : 'text-gray-600';
   let valueColor = darkMode ? 'text-white' : 'text-gray-900';
@@ -176,7 +174,6 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
       
-      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
             <h1 className={`text-3xl font-black tracking-tight ${darkMode ? 'text-white' : 'text-gray-900'} mb-1`}>
@@ -194,7 +191,6 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
         </div>
       </div>
 
-      {/* Hero Stats */}
       {config.showStats && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div 
@@ -243,7 +239,6 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
           </div>
       )}
 
-      {/* Pacing Widget - Glass Upgrade */}
       {config.showPacing && pacing && (
           <div className={`relative overflow-hidden rounded-2xl p-8 transition-all hover:scale-[1.01] ${darkMode ? 'glass-panel border-indigo-500/30 shadow-[0_0_30px_rgba(99,102,241,0.1)]' : 'bg-indigo-50 border border-indigo-100 shadow-md'}`}>
               <div className="flex flex-col md:flex-row justify-between gap-8 relative z-10">
@@ -276,14 +271,12 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                   </div>
               </div>
               
-              {/* Background Decoration */}
               <div className="absolute -right-10 -bottom-20 opacity-5 pointer-events-none">
                   <PlayCircle size={250} className="text-indigo-500" />
               </div>
           </div>
       )}
 
-      {/* Detail Stats */}
       {config.showStats && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div onClick={handleEasterEgg} className="cursor-pointer select-none">
@@ -308,7 +301,6 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
       {(config.showCharts || config.showRecents || config.showBudgets) && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               
-              {/* BUDGETS WIDGET */}
               {(config.showBudgets !== false) && budgets.length > 0 && (
                   <div className={`col-span-1 rounded-2xl p-6 border ${darkMode ? 'glass-panel' : 'bg-white border-gray-200 shadow-sm'}`}>
                       <h2 className={`text-lg font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
@@ -337,7 +329,6 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                   </div>
               )}
 
-              {/* Main Chart: Cash Flow */}
               {config.showCharts && (
                   <div className={`col-span-1 rounded-2xl p-6 min-w-0 border ${darkMode ? 'glass-panel' : 'bg-white border-gray-200 shadow-sm'}`}>
                      <h2 className={`text-lg font-bold mb-6 flex items-center gap-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
@@ -388,7 +379,6 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                   </div>
               )}
 
-              {/* Recent Transactions List */}
               {config.showRecents && (
                   <div className={`col-span-1 rounded-2xl p-6 border ${darkMode ? 'glass-panel' : 'bg-white border-gray-200 shadow-sm'}`}>
                       <h2 className={`text-lg font-bold mb-4 ${darkMode ? 'text-white' : 'text-gray-800'}`}>Últimas Movimentações</h2>
@@ -415,7 +405,6 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
           </div>
       )}
 
-      {/* CONFIG MODAL (Keep existing styling logic, functional) */}
       {showConfig && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
               <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95`}>

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Download, FileText, Database, Shield, CheckCircle, X } from 'lucide-react';
 import { getStoredSales, getFinanceData, exportReportToCSV, exportEncryptedBackup } from '../services/logic';
@@ -86,7 +85,6 @@ const DataExportWizard: React.FC<DataExportWizardProps> = ({ onClose }) => {
                 </p>
 
                 <div className="space-y-4">
-                    {/* OPÇÃO 1: RELATÓRIOS SIMPLES */}
                     <div className="p-4 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 hover:border-blue-300 transition-colors">
                         <div className="flex items-start gap-3">
                             <div className="bg-blue-100 dark:bg-blue-900/30 p-2 rounded text-blue-600"><FileText size={20}/></div>
@@ -105,7 +103,6 @@ const DataExportWizard: React.FC<DataExportWizardProps> = ({ onClose }) => {
                         </div>
                     </div>
 
-                    {/* OPÇÃO 2: BACKUP COMPLETO */}
                     <div className="p-4 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/50 hover:border-emerald-300 transition-colors">
                         <div className="flex items-start gap-3">
                             <div className="bg-emerald-100 dark:bg-emerald-900/30 p-2 rounded text-emerald-600"><Database size={20}/></div>

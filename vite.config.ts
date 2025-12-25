@@ -9,11 +9,8 @@ export default defineConfig({
   root: '.',
   publicDir: 'public',
   resolve: {
-    alias: {
-      // Garante que referências relativas funcionem bem, 
-      // mas removemos aliases complexos já que estamos na raiz.
-      '@': path.resolve('./'),
-    },
+    // Removed @ alias to avoid resolution errors in flat structures
+    alias: {},
   },
   build: {
     outDir: 'dist',

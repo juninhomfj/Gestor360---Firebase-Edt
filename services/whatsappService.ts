@@ -1,4 +1,3 @@
-
 import {
   WAContact,
   WATag,
@@ -226,6 +225,7 @@ export const createCampaignQueue = async (
 
     const ref = doc(collection(db, 'wa_queue'));
 
+    /* Fix: added missing 'isSeed' property */
     const item: WAMessageQueue = {
       id: ref.id,
       campaignId,
@@ -236,6 +236,7 @@ export const createCampaignQueue = async (
       variant,
       media,
       deleted: false,
+      isSeed: false,
       userId: uid
     };
 

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Sale, ProductType, DashboardWidgetConfig, Transaction, User, SalesTargets } from '../types'; 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -15,9 +14,8 @@ interface DashboardProps {
   onToggleHide: () => void;
   onUpdateConfig: (cfg: DashboardWidgetConfig) => void;
   currentUser?: User;
-  salesTargets?: SalesTargets; // New prop
-  onUpdateTargets?: (targets: SalesTargets) => void; // New prop
-  // Fix: Added missing isAdmin and isDev props to match App.tsx usage
+  salesTargets?: SalesTargets; 
+  onUpdateTargets?: (targets: SalesTargets) => void; 
   isAdmin: boolean;
   isDev: boolean;
 }
@@ -49,15 +47,13 @@ const StatCard: React.FC<{ title: string; value: string; sub: string; icon: Reac
 const Dashboard: React.FC<DashboardProps> = ({ 
   sales, onNewSale, darkMode, hideValues, config, onToggleHide, onUpdateConfig, 
   currentUser, salesTargets, onUpdateTargets,
-  // Fix: Destructure isAdmin and isDev from props
   isAdmin, isDev 
 }) => {
   const [showConfig, setShowConfig] = useState(false);
-  const [showAi, setShowAi] = useState(false); // AI State
-  const [transactions, setTransactions] = useState<Transaction[]>([]); // Data for AI
+  const [showAi, setShowAi] = useState(false); 
+  const [transactions, setTransactions] = useState<Transaction[]>([]); 
   const [aiGlobalEnabled, setAiGlobalEnabled] = useState(false);
   
-  // Targets Modal
   const [showTargetModal, setShowTargetModal] = useState(false);
   const [tempTargets, setTempTargets] = useState({ basic: '0', natal: '0' });
 
@@ -69,7 +65,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   const capitalizedMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
 
   useEffect(() => {
-      // Check if AI is enabled globally
       getSystemConfig().then(cfg => {
           setAiGlobalEnabled(cfg.modules?.ai ?? true);
       });
@@ -93,7 +88,6 @@ const Dashboard: React.FC<DashboardProps> = ({
       setShowTargetModal(false);
   };
 
-  // Lazy load finance data when AI is opened to save perf
   const handleOpenAi = async () => {
       const data = await getFinanceData();
       setTransactions(data.transactions || []);
@@ -109,7 +103,6 @@ const Dashboard: React.FC<DashboardProps> = ({
       onNewSale();
   };
 
-  // Filters
   const basicSalesMonth = sales.filter(s => {
     if (!s.date) return false;
     const d = new Date(s.date);
@@ -135,7 +128,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   const natalCommissionYear = natalSalesYear.reduce((acc, curr) => acc + curr.commissionValueTotal, 0);
   const showNatalCard = natalSalesYear.length > 0 || (salesTargets?.natal || 0) > 0;
 
-  // Chart Data
   const chartData = React.useMemo(() => {
     const months = new Map<string, { name: string; basica: number; natal: number; total: number }>();
     for (let i = 11; i >= 0; i--) {
@@ -174,17 +166,14 @@ const Dashboard: React.FC<DashboardProps> = ({
     ? 'bg-slate-800/60 border-slate-700/50 backdrop-blur-md' 
     : 'bg-white border-gray-100';
 
-  // AI Logic: Global Config must be ON AND User Preference must be ON
   const isUserAiEnabled = currentUser?.keys?.isGeminiEnabled === true;
   const showAiButton = aiGlobalEnabled && isUserAiEnabled;
 
-  // Progress Calcs
   const basicProgress = salesTargets?.basic ? Math.min((basicQtyMonth / salesTargets.basic) * 100, 100) : 0;
   const natalProgress = salesTargets?.natal ? Math.min((natalQtyYear / salesTargets.natal) * 100, 100) : 0;
 
   return (
     <div className="space-y-6 relative">
-      {/* AI CONSULTANT MODAL */}
       <AiConsultant 
         isOpen={showAi} 
         onClose={() => setShowAi(false)} 
@@ -201,7 +190,6 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
         
         <div className="flex gap-2 items-center">
-            {/* AI BUTTON */}
             {showAiButton && (
                 <>
                     <button 
@@ -233,7 +221,6 @@ const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
       
-      {/* SALES TARGETS WIDGET */}
       {config.showStats && salesTargets && (salesTargets.basic > 0 || salesTargets.natal > 0) && (
           <div className={`${containerClass} rounded-xl p-6 shadow-sm border`}>
               <div className="flex justify-between items-center mb-4">
@@ -385,7 +372,6 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
       )}
 
-      {/* CONFIG MODAL */}
       {showConfig && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
               <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-xl p-6 w-full max-w-sm shadow-2xl`}>
@@ -418,7 +404,6 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
       )}
 
-      {/* TARGETS MODAL */}
       {showTargetModal && (
           <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
               <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95`}>
