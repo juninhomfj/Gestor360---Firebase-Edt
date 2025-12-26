@@ -10,12 +10,12 @@ import * as officialAdapter from './adapters/officialAdapter.js';
 import { CloudTasksClient } from '@google-cloud/tasks';
 import { v4 as uuidv4 } from 'uuid';
 import { normalizePhoneToE164 } from './utils/phoneUtils.js';
+import whatsappRoutes from './routes/whatsapp.routes.js';
 
 dotenv.config();
 
 const app = express();
 app.use(cors());
-/* Fix: Used express.json instead of bodyParser to resolve middleware overload mismatch and ensured correct typing */
 app.use(express.json({ limit: '10mb' }) as any);
 
 const PORT = process.env.PORT || 3333;
@@ -23,8 +23,7 @@ const WA_KEY = process.env.WA_MODULE_KEY || '';
 const USE_OFFICIAL = process.env.USE_OFFICIAL_WABA === 'true';
 const USE_CLOUD_TASKS = process.env.USE_CLOUD_TASKS === 'true';
 
-// Middleware de Autenticação
-/* Fix: Explicitly typed middleware parameters as any to resolve type conflicts with express overloads */
+// Middleware de Autenticação Legado para rotas v1
 app.use((req: any, res: any, next: any) => {
   if (req.path.startsWith('/api/v1')) {
     const key = req.headers['x-wa-module-key'];
@@ -35,6 +34,9 @@ app.use((req: any, res: any, next: any) => {
   next();
 });
 
+// Novas rotas integradas com Evolution API
+app.use('/whatsapp', whatsappRoutes);
+
 const adapter = USE_OFFICIAL ? officialAdapter : baileysAdapter;
 const tasksClient = USE_CLOUD_TASKS ? new CloudTasksClient() : null;
 
@@ -42,13 +44,10 @@ const tasksClient = USE_CLOUD_TASKS ? new CloudTasksClient() : null;
 
 app.post('/api/v1/sessions/create', async (req, res) => {
   try {
-    /* Fix: Cast req.body to any to safely access sessionId from potentially unknown body type */
     const sessionId = (req.body as any).sessionId || `sess_${Date.now()}`;
     await createSessionDoc(sessionId, { status: 'STARTING' });
     const initRes = await adapter.initSession(sessionId);
     
-    // O adapter pode retornar um QR ou apenas status STARTED
-    /* Fix: Cast initRes to any to resolve property access on unknown type error */
     return res.json({ 
       sessionId, 
       status: (initRes as any).status || 'STARTED', 
@@ -148,9 +147,6 @@ app.post('/api/v1/campaigns', async (req, res) => {
     
     const campaignId = await createCampaign(campaign, recipients);
     
-    // Se não estiver usando Cloud Tasks, as mensagens serão processadas pelo worker Redis
-    // que monitora as campanhas no status 'CREATED' no Firestore.
-    
     return res.json({ campaignId, status: 'CREATED' });
   } catch (e: any) {
     console.error('[API] campaigns.create error:', e.message);
@@ -170,8 +166,7 @@ app.get('/api/v1/campaigns/:campaignId/status', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`✅ [WhatsApp Backend] Rodando na porta ${PORT}`);
-  console.log(`🔗 Adapter: ${USE_OFFICIAL ? 'Oficial' : 'Baileys'}`);
-  console.log(`⚙️ Queue: ${USE_CLOUD_TASKS ? 'Cloud Tasks' : 'Redis/BullMQ'}`);
+  console.log(`🔗 Evolution API integrated at /whatsapp`);
 });
 
 export default app;
