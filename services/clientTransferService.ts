@@ -1,7 +1,5 @@
-
 import { dbPut, dbGet, dbGetAll, enqueueSync } from '../storage/db';
 import { Client, ClientTransferRequest } from '../types';
-import { markDirty } from './sync';
 
 /**
  * Cria uma solicitação de transferência de cliente.
@@ -30,7 +28,6 @@ export const requestClientTransfer = async (
         throw new Error("Já existe uma solicitação pendente para este cliente.");
     }
 
-    /* Fix: Included message and updatedAt in ClientTransferRequest */
     const newRequest: ClientTransferRequest = {
         id: crypto.randomUUID(),
         clientId,
@@ -42,20 +39,17 @@ export const requestClientTransfer = async (
         updatedAt: new Date().toISOString()
     };
 
-    // Persistir Local
+    // Persistir Local (Cache)
     await dbPut('client_transfer_requests', newRequest);
 
-    // Enfileirar Sync
+    // Enfileirar Sync (Firebase Native lida com isso via Firestore SDK)
     await enqueueSync({
         table: 'client_transfer_requests',
         type: 'INSERT',
-        /* Fix: SyncEntry data is now handled correctly */
         data: newRequest,
         rowId: newRequest.id
     } as any);
     
-    markDirty();
-
     return newRequest;
 };
 
@@ -71,7 +65,6 @@ export const approveClientTransfer = async (
 
     if (request.status !== 'PENDING') throw new Error("Solicitação não está pendente.");
 
-    // Validação de segurança (conforme regra do prompt 2A-3, mas aplicada no serviço para garantir integridade)
     if (request.toUserId !== approverUserId) {
         throw new Error("Apenas o destinatário pode aprovar esta transferência.");
     }
@@ -93,11 +86,9 @@ export const approveClientTransfer = async (
         updatedAt: new Date().toISOString()
     };
 
-    // Transação Atômica (Conceitual via Promises sequenciais no IndexedDB)
     await dbPut('client_transfer_requests', updatedRequest);
     await dbPut('clients', updatedClient);
 
-    // Enfileirar Syncs
     await enqueueSync({
         table: 'client_transfer_requests',
         type: 'UPDATE',
@@ -111,8 +102,6 @@ export const approveClientTransfer = async (
         data: updatedClient,
         rowId: updatedClient.id
     } as any);
-
-    markDirty();
 };
 
 /**
@@ -120,14 +109,13 @@ export const approveClientTransfer = async (
  */
 export const rejectClientTransfer = async (
     requestId: string,
-    rejectorUserId: string // Pode ser usado para log/validação futura
+    rejectorUserId: string
 ): Promise<void> => {
     const request = await dbGet('client_transfer_requests', requestId);
     if (!request) throw new Error("Solicitação não encontrada.");
 
     if (request.status !== 'PENDING') throw new Error("Solicitação não está pendente.");
 
-    // Atualizar Solicitação
     const updatedRequest: ClientTransferRequest = {
         ...request,
         status: 'REJECTED',
@@ -142,6 +130,4 @@ export const rejectClientTransfer = async (
         data: updatedRequest,
         rowId: updatedRequest.id
     } as any);
-
-    markDirty();
 };

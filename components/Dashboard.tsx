@@ -173,7 +173,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   const natalProgress = salesTargets?.natal ? Math.min((natalQtyYear / salesTargets.natal) * 100, 100) : 0;
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-6 relative h-auto">
       <AiConsultant 
         isOpen={showAi} 
         onClose={() => setShowAi(false)} 
@@ -263,7 +263,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {config.showStats && (
-          <div className={`grid grid-cols-1 ${showNatalCard ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-6`}>
+          <div className={`grid grid-cols-1 ${showNatalCard ? 'sm:grid-cols-2 md:grid-cols-3' : 'sm:grid-cols-2'} gap-6`}>
             <StatCard 
               title={`Comissão Estimada (${capitalizedMonth})`} 
               value={formatCurrency(totalCommissionMonth, hideValues)} 
@@ -294,14 +294,14 @@ const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {(config.showCharts || config.showRecents) && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-12">
             {config.showCharts && (
-                <div className={`lg:col-span-2 ${containerClass} p-6 rounded-xl shadow-sm border min-w-0 relative`}>
+                <div className={`lg:col-span-2 ${containerClass} p-6 rounded-xl shadow-sm border min-w-0 relative min-h-[400px]`}>
                   <h3 className={`text-lg font-semibold mb-6 flex items-center ${darkMode ? 'text-white' : 'text-gray-800'}`}>
                     <Calendar className={`w-4 h-4 mr-2 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}/>
                     Evolução de Comissões (12 Meses)
                   </h3>
-                  <div className="h-72 w-full">
+                  <div className="h-[300px] w-full">
                     {hideValues ? (
                         <div className="h-full flex items-center justify-center text-slate-500">
                             <EyeOff size={32} />
@@ -334,7 +334,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             {config.showRecents && (
                 <div className={`${containerClass} p-6 rounded-xl shadow-sm border overflow-hidden`}>
                   <h3 className={`text-lg font-semibold mb-4 ${darkMode ? 'text-white' : 'text-gray-800'}`}>Últimas Vendas</h3>
-                  <div className="overflow-y-auto max-h-[300px] space-y-3">
+                  <div className="overflow-y-auto max-h-[350px] space-y-3 custom-scrollbar">
                     {recentSales.map(sale => (
                       <div key={sale.id} className={`flex flex-col p-3 rounded-lg border-l-4 ${!sale.date ? 'border-orange-500' : 'border-emerald-500'} ${darkMode ? 'bg-slate-900/50' : 'bg-gray-50'}`}>
                         <div className="flex justify-between items-start">
@@ -373,8 +373,8 @@ const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {showConfig && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-              <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-xl p-6 w-full max-w-sm shadow-2xl`}>
+          <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+              <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95`}>
                   <div className="flex justify-between items-center mb-6">
                       <h3 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Personalizar Dashboard</h3>
                       <button onClick={() => setShowConfig(false)}><X className="text-gray-500 hover:text-gray-700"/></button>
@@ -405,7 +405,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       )}
 
       {showTargetModal && (
-          <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4 backdrop-blur-sm">
               <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95`}>
                   <h3 className={`text-lg font-bold mb-4 flex items-center gap-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
                       <Target size={20} className="text-blue-500"/> Definir Metas

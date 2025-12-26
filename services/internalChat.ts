@@ -1,4 +1,3 @@
-
 import { 
     collection, 
     doc, 
@@ -44,8 +43,7 @@ export const sendMessage = async (
     await dbPut('internal_messages', msg);
 
     // 2. Salva no Firestore se disponível
-    // @ts-ignore
-    if (db && db.type !== 'mock' && auth.currentUser) {
+    if (auth.currentUser) {
         try {
             await setDoc(doc(db, "internal_messages", msg.id), {
                 ...msg,
@@ -83,23 +81,23 @@ export const subscribeToMessages = (
     isAdmin: boolean, 
     onNewMessage: (msg: InternalMessage) => void
 ) => {
-    // @ts-ignore
-    if (!db || db.type === 'mock') return null;
-
-    // Build query based on relevance
+    // Build query based on relevance - removed orderBy to avoid index requirements
     const msgRef = collection(db, "internal_messages");
     
-    // Security: Only messages where user is sender or recipient (simplified for client-side filtering or complex rules)
     const q = query(
         msgRef, 
-        orderBy("createdAt", "desc"),
         limit(50)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
         snapshot.docChanges().forEach(async (change) => {
             if (change.type === "added") {
-                const newMsg = change.doc.data() as InternalMessage;
+                const data = change.doc.data();
+                const newMsg = {
+                    ...data,
+                    id: change.doc.id,
+                    timestamp: data.timestamp || (data.createdAt as Timestamp)?.toDate().toISOString() || new Date().toISOString()
+                } as InternalMessage;
                 
                 // Client-side relevance check
                 const isRelevant = isAdmin || 
@@ -116,6 +114,8 @@ export const subscribeToMessages = (
                 }
             }
         });
+    }, (error) => {
+        console.warn("[Chat] Erro no listener (snapshot):", error.message);
     });
 
     return { unsubscribe };
@@ -139,8 +139,7 @@ export const markMessageRead = async (msgId: string, userId: string) => {
 
         await dbPut('internal_messages', updated);
         
-        // @ts-ignore
-        if (db && db.type !== 'mock' && auth.currentUser) {
+        if (auth.currentUser) {
             try {
                 await setDoc(doc(db, "internal_messages", msgId), { 
                     read: updated.read, 

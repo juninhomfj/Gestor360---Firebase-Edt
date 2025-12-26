@@ -1,0 +1,74 @@
+📌 GUIA DEFINITIVO: WHATSAPP 100% REAL EM PRODUÇÃO
+Este guia é destinado a usuários leigos. Siga cada passo para ativar a automação.
+
+---
+
+PASSO 1: O "MOTOR" DE FILA (UPSTASH REDIS)
+O sistema precisa de uma fila para as mensagens não serem bloqueadas.
+1. Acesse: https://upstash.com/
+2. Crie uma conta (pode usar o Google).
+3. Clique em "Create Database".
+4. Dê um nome (ex: gestor360-redis).
+5. Selecione a região mais próxima (ex: us-east-1).
+6. Clique em "Create".
+7. Role até a seção "Node.js Connect" e COPIE a linha que começa com "rediss://...".
+   * Guarde isso, chamaremos de REDIS_URL.
+
+---
+
+PASSO 2: A "CHAVE MESTRA" DO FIREBASE
+O servidor precisa de permissão para ler seus contatos e campanhas.
+1. Acesse o Console do Firebase (https://console.firebase.google.com/).
+2. Clique na engrenagem (Configurações do Projeto) > "Contas de Serviço".
+3. Clique no botão azul "Gerar nova chave privada".
+4. Um arquivo .json será baixado no seu computador.
+5. Abra esse arquivo no bloco de notas, selecione TUDO e converta para BASE64.
+   * Dica: Use o site https://www.base64encode.org/ para colar o conteúdo do arquivo e gerar o código Base64.
+   * Guarde esse código longo, chamaremos de FIREBASE_SERVICE_ACCOUNT_JSON.
+
+---
+
+PASSO 3: HOSPEDAGEM DO SERVIDOR (RENDER.COM)
+Aqui o cérebro do WhatsApp vai morar.
+1. Acesse: https://render.com/ e crie uma conta.
+2. Clique em "New" > "Web Service".
+3. Conecte seu GitHub onde está o código ou use a opção "Deploy from a public repo".
+4. Configurações Importantes:
+   * Name: gestor360-backend
+   * Environment: Node
+   * Build Command: npm install && npm run build
+   * Start Command: npm start
+5. Clique em "Advanced" > "Add Environment Variable" e adicione as seguintes:
+
+   - PORT = 3333
+   - NODE_ENV = production
+   - FIREBASE_PROJECT_ID = (Seu ID do projeto Firebase)
+   - SESSIONS_BUCKET = (Seu bucket no storage, ex: gestor360-app.firebasestorage.app)
+   - SESSIONS_ENC_KEY = (Gere 32 letras aleatórias e coloque aqui)
+   - WA_MODULE_KEY = (Crie uma senha forte aqui, ex: MinhaSenhaSecreta123)
+   - REDIS_URL = (Cole aquela linha do Passo 1 aqui)
+   - FIREBASE_SERVICE_ACCOUNT_JSON = (Cole o código Base64 do Passo 2 aqui)
+
+6. Clique em "Create Web Service".
+7. Aguarde alguns minutos. Quando terminar, o Render te dará um link (ex: https://gestor360-backend.onrender.com).
+
+---
+
+PASSO 4: LIGANDO O SISTEMA AO SERVIDOR
+1. No Gestor360 (Frontend), vá em Configurações.
+2. Procure a seção WhatsApp.
+3. Cole o link que o Render te deu no campo "URL do Backend".
+4. Cole a senha que você criou (WA_MODULE_KEY) no campo "Chave da API".
+5. Salve.
+
+---
+
+COMO TESTAR:
+1. Vá na aba "Conexão" no módulo WhatsApp.
+2. Se aparecer o botão "Iniciar Conexão Cloud", clique nele.
+3. Um QR Code aparecerá. Escaneie com seu celular.
+4. Se o status mudar para "CONNECTED", você está 100% operacional.
+
+DÚVIDAS FREQUENTES:
+- O servidor do Render (gratuito) "dorme" após 15 min de inatividade. O primeiro envio do dia pode demorar 1 minuto para acordar o servidor.
+- Nunca compartilhe seu arquivo JSON do Firebase com ninguém.

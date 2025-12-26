@@ -401,7 +401,7 @@ const App: React.FC = () => {
                 onNewTransfer={() => setShowTxForm(true)}
                 isAdmin={isAdmin} isDev={isDev}
             >
-                <div className="p-4 h-full overflow-hidden">
+                <div className="md:p-4">
                     {renderActiveTab()}
                 </div>
             </Layout>

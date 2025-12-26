@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { CommissionRule, ProductType, ReportConfig, SystemConfig, AppTheme, User, Sale, AiUsageStats, ProductLabels, DuplicateGroup, Transaction, SyncEntry } from '../types';
 import CommissionEditor from './CommissionEditor';
 import ClientList from './ClientList';
 import { Settings, Shield, Server, Volume2, Trash2, Database, User as UserIcon, Palette, Activity, Hammer, X, ArrowLeft, Users, Save, PlayCircle, Plus } from 'lucide-react';
 import { getSystemConfig, saveSystemConfig, DEFAULT_SYSTEM_CONFIG } from '../services/logic';
-import { getPendingSyncs } from '../storage/db';
+import { dbGetAll } from '../storage/db';
 import { auth, db } from '../services/firebase';
 import { fileToBase64 } from '../utils/fileHelper';
 import BackupModal from './BackupModal';
@@ -102,91 +101,101 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
       return (
           <button 
             onClick={() => handleTabSelect(id)}
-            className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-all mb-1 text-left ${
+            className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-xl transition-all mb-1 text-left ${
                 active 
-                ? 'bg-indigo-600 text-white shadow-lg'
+                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/20'
                 : (darkMode ? 'text-slate-400 hover:bg-white/5 hover:text-white' : 'text-gray-600 hover:bg-gray-100')
             }`}
           >
-              <Icon size={18} />
+              <Icon size={18} className={active ? 'text-white' : 'text-indigo-500'} />
               {label}
           </button>
       )
   };
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col md:flex-row gap-6 relative animate-in fade-in">
+    <div className="min-h-[calc(100vh-10rem)] flex flex-col md:flex-row gap-6 relative animate-in fade-in pb-20">
        <input type="file" ref={audioInputRef} className="hidden" accept="audio/*" onChange={handleAudioUpload} />
 
-       <div className={`w-full md:w-64 shrink-0 flex flex-col ${darkMode ? 'bg-slate-800/50' : 'bg-gray-50'} rounded-xl p-4 h-fit border border-gray-200 dark:border-slate-700 ${showMobileContent ? 'hidden md:flex' : 'flex'} overflow-y-auto max-h-full`}>
-           <h2 className="px-4 mb-2 mt-4 text-[10px] font-black uppercase tracking-widest opacity-40">Perfil & App</h2>
-           <NavBtn id="PROFILE" icon={UserIcon} label="Meu Perfil" />
-           <NavBtn id="SOUNDS" icon={Volume2} label="Sons & Avisos" />
-           
-           <h2 className="px-4 mb-2 mt-4 text-[10px] font-black uppercase tracking-widest opacity-40">Módulos</h2>
-           <NavBtn id="COMMISSIONS" icon={Settings} label="Tabelas de Comissão" />
-           <NavBtn id="CLIENTS" icon={Users} label="Gestão de Clientes" />
-           <NavBtn id="TRASH" icon={Trash2} label="Lixeira" />
+       {/* Sidebar Menu - Mobile Stack View */}
+       <div className={`w-full md:w-64 shrink-0 flex flex-col gap-1 ${showMobileContent ? 'hidden md:flex' : 'flex'}`}>
+           <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-gray-200'} shadow-sm`}>
+               <h2 className="px-2 mb-4 text-[10px] font-black uppercase tracking-widest text-indigo-500">Perfil & App</h2>
+               <NavBtn id="PROFILE" icon={UserIcon} label="Meu Perfil" />
+               <NavBtn id="SOUNDS" icon={Volume2} label="Sons & Avisos" />
+               
+               <h2 className="px-2 mb-4 mt-6 text-[10px] font-black uppercase tracking-widest text-indigo-500">Módulos</h2>
+               <NavBtn id="COMMISSIONS" icon={Settings} label="Tabelas de Comissão" />
+               <NavBtn id="CLIENTS" icon={Users} label="Gestão de Clientes" />
+               <NavBtn id="TRASH" icon={Trash2} label="Lixeira" />
 
-           {(isAdmin || isDev) && (
-               <>
-                   <div className="my-4 border-t dark:border-slate-700 border-gray-200"></div>
-                   <h2 className="px-4 mb-2 text-[10px] font-black uppercase tracking-widest text-amber-500">Administração</h2>
-                   <NavBtn id="USERS" icon={Shield} label="Gerenciar Usuários" />
-                   <NavBtn id="ROADMAP" icon={Hammer} label="Roadmap & Engenharia" />
-               </>
-           )}
+               {(isAdmin || isDev) && (
+                   <>
+                       <div className="my-6 border-t dark:border-slate-800 border-gray-100"></div>
+                       <h2 className="px-2 mb-4 text-[10px] font-black uppercase tracking-widest text-amber-500">Administração</h2>
+                       <NavBtn id="USERS" icon={Shield} label="Usuários Cloud" />
+                       <NavBtn id="ROADMAP" icon={Hammer} label="Roadmap" />
+                   </>
+               )}
+           </div>
        </div>
 
-       <div className={`flex-1 overflow-y-auto pr-2 custom-scrollbar ${!showMobileContent ? 'hidden md:block' : 'block'}`}>
-           <div className="md:hidden mb-4 flex items-center">
-               <button onClick={() => setShowMobileContent(false)} className="flex items-center gap-2 text-sm font-bold px-3 py-2 bg-slate-800 text-white rounded-lg">
-                   <ArrowLeft size={16} /> Voltar ao Menu
-               </button>
+       {/* Content Area */}
+       <div className={`flex-1 ${!showMobileContent ? 'hidden md:block' : 'block'}`}>
+           {showMobileContent && (
+               <div className="md:hidden mb-6 flex items-center">
+                   <button onClick={() => setShowMobileContent(false)} className="flex items-center gap-2 text-xs font-black uppercase tracking-widest px-4 py-3 bg-slate-900 text-white rounded-xl shadow-xl active:scale-95 transition-all border border-white/10">
+                       <ArrowLeft size={16} /> Voltar ao Menu
+                   </button>
+               </div>
+           )}
+
+           <div className="space-y-6">
+               {activeTab === 'PROFILE' && <UserProfile user={currentUser} onUpdate={onUpdateUser} />}
+               {activeTab === 'USERS' && (isAdmin || isDev) && <AdminUsers currentUser={currentUser} />}
+               
+               {activeTab === 'COMMISSIONS' && (
+                  <div className="space-y-6 animate-in fade-in slide-in-from-right-2">
+                    <div className="flex p-1 rounded-xl w-fit flex-wrap gap-2 bg-gray-100 dark:bg-slate-800 shadow-inner">
+                        <button onClick={() => setCommissionTab(ProductType.BASICA)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${commissionTab === ProductType.BASICA ? 'bg-emerald-600 text-white shadow-md' : 'text-gray-500'}`}>Cesta Básica</button>
+                        <button onClick={() => setCommissionTab(ProductType.NATAL)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${commissionTab === ProductType.NATAL ? 'bg-red-600 text-white shadow-md' : 'text-gray-500'}`}>Cesta de Natal</button>
+                    </div>
+                    <div className="overflow-x-hidden">
+                        <CommissionEditor 
+                            type={commissionTab} 
+                            initialRules={commissionTab === ProductType.BASICA ? rulesBasic : rulesNatal} 
+                            onSave={(t, r) => onSaveRules(t, r)} 
+                            readOnly={!isDev && !isAdmin} 
+                            currentUser={currentUser} 
+                        />
+                    </div>
+                  </div>
+               )}
+               
+               {activeTab === 'SOUNDS' && (
+                    <div className={`p-8 rounded-2xl border shadow-sm animate-in fade-in slide-in-from-right-2 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-100'}`}>
+                        <div className="flex items-center gap-3 mb-8">
+                            <Volume2 className="text-indigo-500" size={28}/>
+                            <h3 className="text-xl font-black">Sons de Alerta</h3>
+                        </div>
+                        <div className="space-y-4">
+                            <SoundRow label="Notificação Padrão" value={notificationSound} onUpload={() => { setTargetAudioField('notificationSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(notificationSound).play()} onDelete={() => setNotificationSound('')} />
+                            <SoundRow label="Sucesso em Lançamento" value={successSound} onUpload={() => { setTargetAudioField('successSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(successSound).play()} onDelete={() => setSuccessSound('')} />
+                            <SoundRow label="Alerta Crítico / Erro" value={alertSound} onUpload={() => { setTargetAudioField('alertSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(alertSound).play()} onDelete={() => setAlertSound('')} />
+                            <SoundRow label="Aviso de Pendência" value={warningSound} onUpload={() => { setTargetAudioField('warningSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(warningSound).play()} onDelete={() => setWarningSound('')} />
+                        </div>
+                        <div className="mt-10 pt-6 border-t dark:border-slate-800 flex justify-end">
+                            <button onClick={handleSaveSystemSettings} className="w-full md:w-auto px-10 py-4 bg-emerald-600 text-white font-black rounded-xl active:scale-95 transition-all shadow-xl hover:bg-emerald-700 uppercase text-xs tracking-widest">
+                               <Save size={18} className="inline mr-2"/> Salvar Configurações
+                            </button>
+                        </div>
+                    </div>
+               )}
+
+               {activeTab === 'TRASH' && <TrashBin darkMode={!!darkMode} />}
+               {activeTab === 'ROADMAP' && (isAdmin || isDev) && <DevRoadmap />}
+               {activeTab === 'CLIENTS' && <ClientList currentUser={currentUser} darkMode={!!darkMode} />}
            </div>
-
-           {activeTab === 'PROFILE' && <UserProfile user={currentUser} onUpdate={onUpdateUser} />}
-           {activeTab === 'USERS' && (isAdmin || isDev) && <AdminUsers currentUser={currentUser} />}
-           
-           {activeTab === 'COMMISSIONS' && (
-              <div className="space-y-6 animate-in fade-in">
-                <div className="flex p-1 rounded-xl w-fit flex-wrap gap-2 bg-gray-100 dark:bg-slate-800 shadow-inner">
-                    <button onClick={() => setCommissionTab(ProductType.BASICA)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${commissionTab === ProductType.BASICA ? 'bg-emerald-600 text-white shadow-md' : 'text-gray-500'}`}>Cesta Básica</button>
-                    <button onClick={() => setCommissionTab(ProductType.NATAL)} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${commissionTab === ProductType.NATAL ? 'bg-red-600 text-white shadow-md' : 'text-gray-500'}`}>Cesta de Natal</button>
-                </div>
-                <CommissionEditor 
-                    type={commissionTab} 
-                    initialRules={commissionTab === ProductType.BASICA ? rulesBasic : rulesNatal} 
-                    onSave={(t, r) => onSaveRules(t, r)} 
-                    readOnly={!isDev && !isAdmin} 
-                    currentUser={currentUser} 
-                />
-              </div>
-           )}
-           
-           {activeTab === 'SOUNDS' && (
-                <div className={`p-6 rounded-xl border shadow-sm ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-100'}`}>
-                    <div className="flex items-center gap-3 mb-6">
-                        <Volume2 className="text-indigo-500" size={24}/>
-                        <h3 className="text-lg font-bold">Eventos Sonoros do Sistema</h3>
-                    </div>
-                    <div className="space-y-4">
-                        <SoundRow label="Notificação Padrão" value={notificationSound} onUpload={() => { setTargetAudioField('notificationSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(notificationSound).play()} onDelete={() => setNotificationSound('')} />
-                        <SoundRow label="Sucesso em Lançamento" value={successSound} onUpload={() => { setTargetAudioField('successSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(successSound).play()} onDelete={() => setSuccessSound('')} />
-                        <SoundRow label="Alerta Crítico / Erro" value={alertSound} onUpload={() => { setTargetAudioField('alertSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(alertSound).play()} onDelete={() => setAlertSound('')} />
-                        <SoundRow label="Aviso de Pendência" value={warningSound} onUpload={() => { setTargetAudioField('warningSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(warningSound).play()} onDelete={() => setWarningSound('')} />
-                    </div>
-                    <div className="mt-8 pt-6 border-t dark:border-slate-700">
-                        <button onClick={handleSaveSystemSettings} className="px-8 py-3 bg-emerald-600 text-white font-bold rounded-xl active:scale-95 transition-all shadow-lg hover:bg-emerald-700">
-                           <Save size={20} className="inline mr-2"/> Salvar Configuração de Áudio
-                        </button>
-                    </div>
-                </div>
-           )}
-
-           {activeTab === 'TRASH' && <TrashBin darkMode={!!darkMode} />}
-           {activeTab === 'ROADMAP' && (isAdmin || isDev) && <DevRoadmap />}
-           {activeTab === 'CLIENTS' && <ClientList currentUser={currentUser} darkMode={!!darkMode} />}
        </div>
 
        <BackupModal isOpen={showBackupModal} mode="BACKUP" onClose={() => setShowBackupModal(false)} onSuccess={() => {}} />
@@ -195,15 +204,15 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
 };
 
 const SoundRow = ({ label, value, onUpload, onTest, onDelete }: any) => (
-    <div className="p-4 rounded-xl border bg-black/5 dark:bg-black/20 border-gray-200 dark:border-slate-700 flex items-center justify-between group transition-all hover:bg-black/10 dark:hover:bg-black/30">
+    <div className="p-5 rounded-2xl border bg-black/5 dark:bg-white/5 border-gray-100 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 group transition-all hover:border-indigo-500/30">
         <div>
-            <span className="font-bold text-sm block">{label}</span>
-            <span className="text-[10px] text-gray-500 font-mono">{value ? 'Arquivo Carregado' : 'Sem áudio definido (Mudo)'}</span>
+            <span className="font-bold text-sm block mb-0.5">{label}</span>
+            <span className="text-[10px] text-gray-500 font-mono tracking-tighter">{value ? '✓ Áudio customizado carregado' : '× Som padrão (Silencioso)'}</span>
         </div>
-        <div className="flex gap-2">
-            {value && <button onClick={onTest} className="p-2 text-emerald-500 hover:scale-110 transition-transform" title="Testar Som"><PlayCircle size={20}/></button>}
-            <button onClick={onUpload} className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors">{value ? 'Trocar' : 'Upload'}</button>
-            {value && <button onClick={onDelete} className="p-2 text-red-400 hover:text-red-500 transition-colors" title="Remover"><Trash2 size={20}/></button>}
+        <div className="flex gap-2 w-full sm:w-auto">
+            {value && <button onClick={onTest} className="p-3 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 rounded-xl hover:scale-110 transition-transform"><PlayCircle size={18}/></button>}
+            <button onClick={onUpload} className="flex-1 sm:flex-none px-5 py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-900/20">{value ? 'Trocar' : 'Carregar'}</button>
+            {value && <button onClick={onDelete} className="p-3 bg-red-100 dark:bg-red-900/30 text-red-600 rounded-xl hover:bg-red-500 hover:text-white transition-all"><Trash2 size={18}/></button>}
         </div>
     </div>
 );

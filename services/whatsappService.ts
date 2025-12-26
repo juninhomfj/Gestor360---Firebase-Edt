@@ -19,26 +19,63 @@ import {
   updateDoc
 } from 'firebase/firestore';
 
-const BACKEND_URL = (import.meta as any).env?.VITE_WA_BACKEND_URL || 'http://localhost:3001';
-const WA_KEY = (import.meta as any).env?.VITE_WA_MODULE_KEY || 'default-dev-key';
+// Tenta pegar a URL salva nas configurações locais, senão usa a do ambiente ou localhost
+const getBackendUrl = () => {
+    const savedUrl = localStorage.getItem('wa_backend_url_override');
+    if (savedUrl) return savedUrl;
+    return (import.meta as any).env?.VITE_WA_BACKEND_URL || 'http://localhost:3333';
+};
+
+const getWaKey = () => {
+    return localStorage.getItem('wa_module_key_override') || (import.meta as any).env?.VITE_WA_MODULE_KEY || 'default-dev-key';
+};
 
 const getHeaders = (uid?: string) => ({
   'Content-Type': 'application/json',
-  'x-wa-module-key': WA_KEY,
+  'x-wa-module-key': getWaKey(),
   ...(uid ? { 'x-user-id': uid } : {})
 });
 
 export const normalizePhone = (phone: string): string => {
+  if (!phone) return '';
   const digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('55') && digits.length === 13) return digits;
   if (digits.length === 11) return `55${digits}`;
   if (digits.length === 10) return `55${digits.slice(0, 2)}9${digits.slice(2)}`;
-  return digits.length >= 8 ? digits : ''; 
+  if (digits.startsWith('55') && digits.length >= 12) return digits;
+  return digits; 
+};
+
+export const parseCSVContacts = (text: string): WAContact[] => {
+    const lines = text.split('\n').filter(l => l.trim());
+    const contacts: WAContact[] = [];
+    const uid = auth.currentUser?.uid || '';
+
+    lines.forEach(line => {
+        const parts = line.split(/[,;]/);
+        if (parts.length >= 2) {
+            const name = parts[0].trim();
+            const phone = normalizePhone(parts[1].trim());
+            if (phone) {
+                contacts.push({
+                    id: crypto.randomUUID(),
+                    name,
+                    phone,
+                    tags: ['IMPORT'],
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                    deleted: false,
+                    userId: uid,
+                    source: 'IMPORT'
+                });
+            }
+        }
+    });
+    return contacts;
 };
 
 export const checkBackendHealth = async (): Promise<boolean> => {
   try {
-    const res = await fetch(`${BACKEND_URL}/health`, { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(`${getBackendUrl()}/api/v1/health`, { signal: AbortSignal.timeout(2000) });
     return res.ok;
   } catch { return false; }
 };
@@ -47,7 +84,7 @@ export const createSession = async (sessionId: string) => {
   const uid = auth.currentUser?.uid;
   if (!uid) throw new Error('Usuário não autenticado');
   try {
-    const res = await fetch(`${BACKEND_URL}/api/v1/sessions/create`, {
+    const res = await fetch(`${getBackendUrl()}/api/v1/sessions/create`, {
       method: 'POST',
       headers: getHeaders(uid),
       body: JSON.stringify({ sessionId })
@@ -58,37 +95,43 @@ export const createSession = async (sessionId: string) => {
 
 export const getSessionStatus = async (sessionId: string) => {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/v1/sessions/${sessionId}/status`, { headers: getHeaders() });
+    const res = await fetch(`${getBackendUrl()}/api/v1/sessions/${sessionId}/status`, { headers: getHeaders() });
     return res.ok ? res.json() : { status: 'STANDALONE' };
   } catch { return { status: 'STANDALONE' }; }
 };
 
 export const logoutSession = async (sessionId: string) => {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/v1/sessions/${sessionId}/logout`, { method: 'POST', headers: getHeaders() });
+    const res = await fetch(`${getBackendUrl()}/api/v1/sessions/${sessionId}/logout`, { method: 'POST', headers: getHeaders() });
     return res.ok ? res.json() : { status: 'STANDALONE' };
   } catch { return { status: 'STANDALONE' }; }
 };
 
 export const getWAContacts = async (): Promise<WAContact[]> => {
   if (!auth.currentUser) return [];
-  const q = query(collection(db, 'wa_contacts'), where('userId', '==', auth.currentUser.uid), where('deleted', '==', false));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() } as WAContact));
+  try {
+      const q = query(collection(db, 'wa_contacts'), where('userId', '==', auth.currentUser.uid), where('deleted', '==', false));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as WAContact));
+  } catch (e) { return []; }
 };
 
 export const getWATags = async (): Promise<WATag[]> => {
   if (!auth.currentUser) return [];
-  const q = query(collection(db, 'wa_tags'), where('userId', '==', auth.currentUser.uid), where('deleted', '==', false));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() } as WATag));
+  try {
+      const q = query(collection(db, 'wa_tags'), where('userId', '==', auth.currentUser.uid), where('deleted', '==', false));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as WATag));
+  } catch (e) { return []; }
 };
 
 export const getWACampaigns = async (): Promise<WACampaign[]> => {
   if (!auth.currentUser) return [];
-  const q = query(collection(db, 'wa_campaigns'), where('userId', '==', auth.currentUser.uid), where('deleted', '==', false));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() } as WACampaign));
+  try {
+      const q = query(collection(db, 'wa_campaigns'), where('userId', '==', auth.currentUser.uid), where('deleted', '==', false));
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as WACampaign));
+  } catch (e) { return []; }
 };
 
 export const saveWAContact = async (contact: WAContact) => {
@@ -125,36 +168,15 @@ export const createCampaignQueue = async (campaignId: string, template: string, 
 };
 
 export const getWAQueue = async (campaignId: string): Promise<WAMessageQueue[]> => {
-    const q = query(collection(db, 'wa_queue'), where('campaignId', '==', campaignId), where('deleted', '==', false));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as WAMessageQueue));
+    try {
+        const q = query(collection(db, 'wa_queue'), where('campaignId', '==', campaignId), where('deleted', '==', false));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as WAMessageQueue));
+    } catch (e) { return []; }
 };
 
 export const updateQueueStatus = async (id: string, status: WAMessageQueue['status']) => {
     await updateDoc(doc(db, 'wa_queue', id), { status, updatedAt: serverTimestamp() });
-};
-
-export const parseCSVContacts = (content: string): WAContact[] => {
-  const lines = content.split(/\r?\n/).filter(Boolean);
-  if (!lines.length) return [];
-  const headers = lines[0].split(/[;,]/).map(h => h.trim().toLowerCase());
-  const phoneIdx = headers.findIndex(h => /fone|tel|phone|cel/.test(h));
-  const nameIdx = headers.findIndex(h => /nome|name|cliente/.test(h));
-  const tagIdx = headers.findIndex(h => h.includes('tag'));
-  if (phoneIdx === -1) return [];
-  return lines.slice(1).map(line => {
-    const cols = line.split(/[;,]/);
-    return {
-      id: crypto.randomUUID(),
-      name: cols[nameIdx] || 'Sem Nome',
-      phone: normalizePhone(cols[phoneIdx] || ''),
-      tags: tagIdx !== -1 ? cols[tagIdx].split('|').map(t => t.trim()) : [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      deleted: false,
-      userId: auth.currentUser?.uid || ''
-    };
-  });
 };
 
 export const copyToClipboard = async (text: string) => {
@@ -188,7 +210,7 @@ export const exportWAContactsToServer = async () => {
     const contacts = await getWAContacts();
     if (!contacts.length) return;
     const uid = auth.currentUser?.uid;
-    await fetch(`${BACKEND_URL}/api/v1/contacts/sync`, {
+    await fetch(`${getBackendUrl()}/api/v1/contacts/sync`, {
         method: 'POST',
         headers: getHeaders(uid),
         body: JSON.stringify({ contacts })
@@ -197,9 +219,9 @@ export const exportWAContactsToServer = async () => {
 
 export const createWACampaignRemote = async (campaign: WACampaign, recipients: WAContact[]) => {
     const uid = auth.currentUser?.uid;
-    await fetch(`${BACKEND_URL}/api/v1/campaigns`, {
-        method: 'POST',
-        headers: getHeaders(uid),
-        body: JSON.stringify({ campaign, recipients })
+    await fetch(`${getBackendUrl()}/api/v1/campaigns`, {
+      method: 'POST',
+      headers: getHeaders(uid),
+      body: JSON.stringify({ campaign, recipients })
     });
 };

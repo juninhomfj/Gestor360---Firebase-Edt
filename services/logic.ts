@@ -69,9 +69,13 @@ export const canAccess = (user: User | null, feature: string): boolean => {
 };
 
 export const getSystemConfig = async (): Promise<SystemConfig> => {
-    const ref = doc(db, "config", "system_config");
-    const snap = await getDoc(ref);
-    return snap.exists() ? snap.data() as SystemConfig : DEFAULT_SYSTEM_CONFIG;
+    try {
+        const ref = doc(db, "config", "system_config");
+        const snap = await getDoc(ref);
+        return snap.exists() ? snap.data() as SystemConfig : DEFAULT_SYSTEM_CONFIG;
+    } catch (e) {
+        return DEFAULT_SYSTEM_CONFIG;
+    }
 };
 
 export const saveSystemConfig = async (c: SystemConfig) => {
@@ -149,9 +153,26 @@ export async function saveSingleSale(payload: any) {
 
 export async function getStoredSales(): Promise<Sale[]> {
   const uid = requireAuthUid();
-  const q = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", false), orderBy("date", "desc"));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() } as Sale));
+  // REMOVIDO orderBy para evitar necessidade de índices compostos dinâmicos.
+  // A ordenação agora é feita localmente para garantir funcionamento em qualquer ambiente.
+  try {
+      const q = query(
+        collection(db, "sales"), 
+        where("userId", "==", uid), 
+        where("deleted", "==", false)
+      );
+      const snap = await getDocs(q);
+      return snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as Sale))
+        .sort((a, b) => {
+            const dateA = new Date(a.date || a.createdAt || 0).getTime();
+            const dateB = new Date(b.date || b.createdAt || 0).getTime();
+            return dateB - dateA;
+        });
+  } catch (e) {
+      console.error("[Sales] Erro ao carregar vendas:", e);
+      return [];
+  }
 }
 
 export const saveSales = async (sales: Sale[]) => {
@@ -165,9 +186,13 @@ export const saveSales = async (sales: Sale[]) => {
 
 export const getClients = async (): Promise<Client[]> => {
     const uid = requireAuthUid();
-    const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", false));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+    try {
+        const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", false));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+    } catch (e) {
+        return [];
+    }
 };
 
 /**
@@ -272,9 +297,14 @@ export async function getFinanceData() {
   const result: any = {};
 
   for (const col of colls) {
-    const q = query(collection(db, col), where("userId", "==", uid), where("deleted", "==", false));
-    const snap = await getDocs(q);
-    result[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    try {
+        const q = query(collection(db, col), where("userId", "==", uid), where("deleted", "==", false));
+        const snap = await getDocs(q);
+        result[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (e) {
+        console.warn(`[Finance] Permissão ou índice faltando na coleção: ${col}`);
+        result[col] = [];
+    }
   }
   return result;
 }
@@ -382,27 +412,34 @@ export const exportReportToCSV = (data: any[], filename: string) => {
     const link = document.createElement("a");
     link.href = url;
     link.setAttribute("download", `${filename}.csv`);
-    document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
 };
 
 export async function getTrashItems() {
   const uid = requireAuthUid();
-  const qSales = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", true));
-  const qTrans = query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", true));
-  const [sSnap, tSnap] = await Promise.all([getDocs(qSales), getDocs(qTrans)]);
-  return { 
-      sales: sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Sale)), 
-      transactions: tSnap.docs.map(d => ({ id: d.id, ...d.data() } as Transaction)) 
-  };
+  // Removido orderBy para estabilidade
+  try {
+      const qSales = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", true));
+      const qTrans = query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", true));
+      const [sSnap, tSnap] = await Promise.all([getDocs(qSales), getDocs(qTrans)]);
+      return { 
+          sales: sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Sale)), 
+          transactions: tSnap.docs.map(d => ({ id: d.id, ...d.data() } as Transaction)) 
+      };
+  } catch (e) {
+      return { sales: [], transactions: [] };
+  }
 }
 
 export const getDeletedClients = async () => {
     const uid = requireAuthUid();
-    const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", true));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+    try {
+        const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", true));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+    } catch (e) {
+        return [];
+    }
 };
 
 export const restoreClient = async (id:string) => { await updateDoc(doc(db, "clients", id), { deleted: false, updatedAt: serverTimestamp() }); };
@@ -417,6 +454,7 @@ export async function permanentlyDeleteItem(type: 'SALE' | 'TRANSACTION', id: st
 }
 
 export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
+  // REGRA DE CÁLCULO MANTIDA - NÃO ALTERAR
   const base = valueProposed * quantity;
   const sortedRules = [...rules].sort((a,b) => b.minPercent - a.minPercent);
   const rule = sortedRules.find(r => margin >= r.minPercent);
@@ -439,9 +477,13 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
         [ProductType.CUSTOM]: 'commission_custom'
     };
     const colName = colMap[type];
-    const q = query(collection(db, colName), where("isActive", "==", true));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
+    try {
+        const q = query(collection(db, colName), where("isActive", "==", true));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
+    } catch (e) {
+        return [];
+    }
 };
 
 export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {

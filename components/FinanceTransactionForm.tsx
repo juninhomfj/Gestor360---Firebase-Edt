@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { FinanceAccount, CreditCard, Transaction, TransactionCategory, PersonType } from '../types';
 import { X, Save, TrendingUp, TrendingDown, ArrowLeftRight, CreditCard as CardIcon, Wallet, Tag, Calendar, Building2, User, CheckCircle, Clock, Hash, AlignLeft } from 'lucide-react';
@@ -28,7 +27,7 @@ const FinanceTransactionForm: React.FC<Props> = ({
   
   // Identificação e Classificação
   const [accountId, setAccountId] = useState('');
-  const [targetAccountId, setTargetAccountId] = useState(''); // Para transferências
+  const [targetAccountId, setTargetAccountId] = useState(''); 
   const [categoryId, setCategoryId] = useState('');
   const [subcategory, setSubcategory] = useState('');
   const [personType, setPersonType] = useState<PersonType>('PF');
@@ -43,7 +42,6 @@ const FinanceTransactionForm: React.FC<Props> = ({
   useEffect(() => {
     if (isOpen) {
         setType(initialType);
-        // Default account
         if (accounts.length > 0 && !accountId) setAccountId(accounts[0].id);
     }
   }, [isOpen, initialType, accounts]);
@@ -51,19 +49,17 @@ const FinanceTransactionForm: React.FC<Props> = ({
   if (!isOpen) return null;
 
   const handleSave = async () => {
-    // Validações Obrigatórias Inegociáveis
     if (amount <= 0) { alert("Informe um valor maior que zero."); return; }
     if (!description) { alert("Informe a descrição."); return; }
-    if (!accountId) { alert("Selecione a conta de movimentação."); return; }
+    if (!accountId) { alert("Selecione uma conta de movimentação."); return; }
     
     if (type !== 'TRANSFER' && !categoryId) { alert("A categoria é obrigatória."); return; }
     
     if (type === 'TRANSFER') {
-        if (!targetAccountId) { alert("Selecione a conta de destino para a transferência."); return; }
-        if (accountId === targetAccountId) { alert("As contas de origem e destino devem ser diferentes."); return; }
+        if (!targetAccountId) { alert("Selecione uma conta de destino."); return; }
+        if (accountId === targetAccountId) { alert("As contas devem ser diferentes."); return; }
     }
 
-    // Fix: Included missing required properties for Transaction
     const tx: Transaction = {
       id: crypto.randomUUID(),
       type,
@@ -100,8 +96,11 @@ const FinanceTransactionForm: React.FC<Props> = ({
   const selectedCategory = categories.find(c => c.id === categoryId);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95">
+    <div 
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-2 md:p-4 backdrop-blur-sm overflow-y-auto"
+        onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-4xl max-h-[95vh] overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 my-auto">
         
         {/* HEADER MODES */}
         <div className="p-1 bg-gray-100 dark:bg-slate-950 flex shrink-0">
@@ -116,14 +115,13 @@ const FinanceTransactionForm: React.FC<Props> = ({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-8 scrollbar-thin">
+        <div className="flex-1 overflow-y-auto p-6 md:p-10 scrollbar-thin">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
             
-            {/* COLUNA ESQUERDA: CORE DATA */}
             <div className="space-y-6">
                 <div className="flex flex-col items-center mb-8">
                     <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Valor do Lançamento</span>
-                    <div className="relative">
+                    <div className="relative w-full max-w-[250px]">
                         <span className="absolute left-0 top-1/2 -translate-y-1/2 text-2xl font-black opacity-30">R$</span>
                         <input 
                             type="number" 
@@ -138,16 +136,16 @@ const FinanceTransactionForm: React.FC<Props> = ({
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Descrição</label>
                     <input 
                         className="w-full text-xl font-bold p-3 bg-transparent border-b-2 border-gray-100 dark:border-slate-800 text-left outline-none focus:border-indigo-500 transition-colors dark:text-white"
-                        placeholder="Ex: Recebimento Comissões Setembro"
+                        placeholder="Ex: Recebimento Comissões"
                         value={description} onChange={e => setDescription(e.target.value)}
                     />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">{type === 'TRANSFER' ? 'Conta de Origem' : 'Conta Financeira'}</label>
                         <select 
-                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
+                            className="w-full p-4 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none text-gray-900 dark:text-white text-sm"
                             value={accountId} onChange={e => setAccountId(e.target.value)}
                         >
                             <option value="">Selecione...</option>
@@ -159,7 +157,7 @@ const FinanceTransactionForm: React.FC<Props> = ({
                         <div className="animate-in slide-in-from-right-1">
                             <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Conta de Destino</label>
                             <select 
-                                className="w-full p-3 rounded-xl border border-blue-200 dark:border-blue-900 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-blue-500"
+                                className="w-full p-4 rounded-xl border border-blue-200 dark:border-blue-900 dark:bg-slate-800 outline-none text-gray-900 dark:text-white text-sm"
                                 value={targetAccountId} onChange={e => setTargetAccountId(e.target.value)}
                             >
                                 <option value="">Selecione...</option>
@@ -168,9 +166,9 @@ const FinanceTransactionForm: React.FC<Props> = ({
                         </div>
                     ) : (
                         <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Categoria Principal</label>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Categoria</label>
                             <select 
-                                className="w-full p-3 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none focus:ring-2 focus:ring-indigo-500"
+                                className="w-full p-4 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none text-gray-900 dark:text-white text-sm"
                                 value={categoryId} onChange={e => { setCategoryId(e.target.value); setSubcategory(''); }}
                             >
                                 <option value="">Selecione...</option>
@@ -180,103 +178,88 @@ const FinanceTransactionForm: React.FC<Props> = ({
                     )}
                 </div>
 
-                {selectedCategory?.subcategories && selectedCategory.subcategories.length > 0 && (
-                    <div className="animate-in fade-in">
-                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Subcategoria</label>
-                        <select 
-                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none"
-                            value={subcategory} onChange={e => setSubcategory(e.target.value)}
-                        >
-                            <option value="">Selecione...</option>
-                            {selectedCategory.subcategories.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                    </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Data da Movimentação</label>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Data</label>
                         <input 
-                            type="date" className="w-full p-3 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none"
+                            type="date" className="w-full p-4 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none text-gray-900 dark:text-white text-sm"
                             value={date} onChange={e => setDate(e.target.value)}
                         />
                     </div>
                     {type !== 'TRANSFER' && (
                         <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Forma de Pagamento</label>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Pagamento</label>
                             <select 
-                                className="w-full p-3 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none"
+                                className="w-full p-4 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none text-gray-900 dark:text-white text-sm"
                                 value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}
                             >
                                 <option value="PIX">PIX</option>
-                                <option value="BOLETO">Boleto Bancário</option>
-                                <option value="CREDITO">Cartão de Crédito</option>
-                                <option value="DEBITO">Cartão de Débito</option>
-                                <option value="DINHEIRO">Dinheiro Espécie</option>
-                                <option value="TRANSFERENCIA">TED/DOC</option>
+                                <option value="BOLETO">Boleto</option>
+                                <option value="CREDITO">Crédito</option>
+                                <option value="DEBITO">Débito</option>
+                                <option value="DINHEIRO">Dinheiro</option>
                             </select>
                         </div>
                     )}
                 </div>
             </div>
 
-            {/* COLUNA DIREITA: ADVANCED & CONTEXT */}
             <div className="space-y-6">
                 <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                    <AlignLeft size={14} /> Detalhamento e Classificação
+                    <AlignLeft size={14} /> Classificação Avançada
                 </h3>
 
                 <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Entidade Responsável</label>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Pessoa</label>
                     <div className="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-xl">
-                        <button onClick={() => setPersonType('PF')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all flex items-center justify-center gap-1 ${personType === 'PF' ? 'bg-white dark:bg-slate-700 text-purple-600 shadow' : 'text-gray-500'}`}>
-                            <User size={12}/> Pessoa Física
+                        <button onClick={() => setPersonType('PF')} className={`flex-1 py-3 text-[10px] font-black uppercase rounded-lg transition-all flex items-center justify-center gap-1 ${personType === 'PF' ? 'bg-white dark:bg-slate-700 text-purple-600 shadow' : 'text-gray-500'}`}>
+                            <User size={12}/> Pessoal
                         </button>
-                        <button onClick={() => setPersonType('PJ')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all flex items-center justify-center gap-1 ${personType === 'PJ' ? 'bg-white dark:bg-slate-700 text-blue-600 shadow' : 'text-gray-500'}`}>
-                            <Building2 size={12}/> Pessoa Jurídica
+                        <button onClick={() => setPersonType('PJ')} className={`flex-1 py-3 text-[10px] font-black uppercase rounded-lg transition-all flex items-center justify-center gap-1 ${personType === 'PJ' ? 'bg-white dark:bg-slate-700 text-blue-600 shadow' : 'text-gray-500'}`}>
+                            <Building2 size={12}/> Empresa
                         </button>
                     </div>
                 </div>
 
                 {type === 'EXPENSE' && paymentMethod === 'CREDITO' && (
-                    <div className="p-4 rounded-2xl bg-purple-50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-800 animate-in zoom-in-95">
-                        <div className="mb-4">
-                            <label className="block text-xs font-bold text-purple-600 dark:text-purple-400 uppercase mb-1">Selecione o Cartão</label>
+                    <div className="p-5 rounded-2xl bg-purple-50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-800 animate-in zoom-in-95 space-y-4">
+                        <div>
+                            <label className="block text-xs font-bold text-purple-600 dark:text-purple-400 uppercase mb-1">Qual Cartão?</label>
                             <select 
-                                className="w-full p-2.5 rounded-lg border border-purple-200 dark:border-purple-800 dark:bg-slate-800 outline-none"
+                                className="w-full p-3 rounded-lg border border-purple-200 dark:border-purple-800 dark:bg-slate-800 outline-none text-gray-900 dark:text-white text-sm"
                                 value={cardId || ''} onChange={e => setCardId(e.target.value || null)}
                             >
-                                <option value="">Qual cartão?</option>
+                                <option value="">Selecione o cartão...</option>
                                 {cards.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                             </select>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-purple-600 dark:text-purple-400 uppercase mb-1">Parcelamento (Vezes)</label>
+                            <label className="block text-xs font-bold text-purple-600 dark:text-purple-400 uppercase mb-1">Parcelas</label>
                             <input 
                                 type="number" min="1" max="48"
-                                className="w-full p-2.5 rounded-lg border border-purple-200 dark:border-purple-800 dark:bg-slate-800 outline-none font-bold"
+                                className="w-full p-3 rounded-lg border border-purple-200 dark:border-purple-800 dark:bg-slate-800 outline-none font-bold text-gray-900 dark:text-white"
                                 value={installments} onChange={e => setInstallments(Number(e.target.value))}
                             />
                         </div>
                     </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
                         <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Centro de Custo</label>
                         <input 
-                            className="w-full p-3 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none"
+                            className="w-full p-4 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none text-gray-900 dark:text-white text-sm"
                             placeholder="Ex: Comercial"
                             value={costCenter} onChange={e => setCostCenter(e.target.value)}
                         />
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tags (Separadas por vírgula)</label>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Tags</label>
                         <div className="relative">
-                            <Hash size={14} className="absolute left-3 top-3.5 text-gray-400"/>
+                            <Hash size={14} className="absolute left-3 top-4 text-gray-400"/>
                             <input 
-                                className="w-full pl-8 p-3 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none text-xs"
-                                placeholder="fixo, recorrente, vip"
+                                className="w-full pl-8 p-4 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 outline-none text-xs text-gray-900 dark:text-white"
+                                placeholder="fixo, vip..."
                                 value={tags} onChange={e => setTags(e.target.value)}
                             />
                         </div>
@@ -284,14 +267,14 @@ const FinanceTransactionForm: React.FC<Props> = ({
                 </div>
 
                 {type !== 'TRANSFER' && !cardId && (
-                    <div className="flex items-center justify-between p-4 rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/30">
+                    <div className="flex items-center justify-between p-5 rounded-xl border border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/30">
                         <div className="flex items-center gap-3">
                             <div className={`p-2 rounded-lg ${isPaid ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
                                 {isPaid ? <CheckCircle size={20}/> : <Clock size={20}/>}
                             </div>
                             <div>
-                                <span className="block text-sm font-black text-gray-800 dark:text-white">{isPaid ? 'Efetivado / Realizado' : 'Provisionado / Pendente'}</span>
-                                <span className="text-[10px] text-gray-500 uppercase">Status da Liquidação</span>
+                                <span className="block text-sm font-black text-gray-800 dark:text-white">{isPaid ? 'Realizado' : 'Provisionado'}</span>
+                                <span className="text-[10px] text-gray-500 uppercase">Status da Baixa</span>
                             </div>
                         </div>
                         <input 
@@ -304,10 +287,10 @@ const FinanceTransactionForm: React.FC<Props> = ({
           </div>
         </div>
 
-        <div className="p-6 border-t border-gray-100 dark:border-slate-800 flex gap-3 bg-gray-50 dark:bg-slate-950/50">
-          <button onClick={onClose} className="flex-1 py-4 rounded-xl border border-gray-300 dark:border-slate-700 font-bold text-gray-500 hover:bg-gray-100 transition-all uppercase text-xs tracking-widest">Cancelar</button>
-          <button onClick={handleSave} className={`flex-1 py-4 rounded-xl text-white font-black shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 uppercase text-xs tracking-widest ${type === 'INCOME' ? 'bg-emerald-600 hover:bg-emerald-700' : type === 'EXPENSE' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
-            <Save size={20}/> Gravar {type === 'TRANSFER' ? 'Transferência' : (type === 'INCOME' ? 'Receita' : 'Despesa')}
+        <div className="p-6 border-t border-gray-100 dark:border-slate-800 flex gap-4 bg-gray-50 dark:bg-slate-950/50 shrink-0">
+          <button onClick={onClose} className="flex-1 py-4 rounded-xl border border-gray-300 dark:border-slate-700 font-bold text-gray-500 hover:bg-gray-100 transition-all uppercase text-xs">Cancelar</button>
+          <button onClick={handleSave} className={`flex-1 py-4 rounded-xl text-white font-black shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 uppercase text-xs ${type === 'INCOME' ? 'bg-emerald-600 hover:bg-emerald-700' : type === 'EXPENSE' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+            <Save size={20}/> Gravar Lançamento
           </button>
         </div>
       </div>

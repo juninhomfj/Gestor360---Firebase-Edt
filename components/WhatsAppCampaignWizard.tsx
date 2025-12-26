@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { WAContact, WATag, WACampaign, WASpeed, WAMediaType } from '../types';
 import { Users, MessageSquare, Play, CheckCircle, Tag, Wand2, Split, Image as ImageIcon, X, ChevronRight, ChevronLeft, Save, ShieldAlert } from 'lucide-react';
@@ -74,8 +73,6 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
         if (!text) return;
         setIsOptimizing(true);
         try {
-            const user = getSession();
-            // A IA Gemini não depende do backend Redis, funciona diretamente com a API Key
             const optimized = await optimizeMessage(text, 'PERSUASIVE');
             if (target === 'A') setTemplate(optimized); else setTemplateB(optimized);
         } catch (e: any) {
@@ -103,16 +100,18 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
     };
 
     // --- STYLES ---
-    const bgClass = darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200';
-    const textClass = darkMode ? 'text-white' : 'text-gray-900';
+    const bgClass = darkMode ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900';
     const inputClass = darkMode ? 'bg-black/20 border-slate-700 text-white focus:border-indigo-500' : 'bg-white border-gray-300 text-gray-900 focus:border-indigo-500';
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in zoom-in-95">
-            <div className={`w-full max-w-4xl h-[85vh] flex flex-col rounded-2xl shadow-2xl border overflow-hidden ${bgClass}`}>
+        <div 
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-2 md:p-4 backdrop-blur-sm animate-in zoom-in-95"
+            onClick={(e) => e.target === e.currentTarget && onClose()}
+        >
+            <div className={`w-full max-w-4xl max-h-[95vh] flex flex-col rounded-2xl shadow-2xl border overflow-hidden ${bgClass}`}>
                 
                 {/* HEADER */}
-                <div className="p-6 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center bg-gradient-to-r from-indigo-900 to-slate-900 text-white">
+                <div className="p-6 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center bg-gradient-to-r from-indigo-900 to-slate-900 text-white shrink-0">
                     <div>
                         <h2 className="text-xl font-bold flex items-center gap-2">
                             <Wand2 size={24} className="text-indigo-400"/> Criador de Campanha
@@ -123,8 +122,8 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                 </div>
 
                 {/* PROGRESS STEPS */}
-                <div className="flex border-b border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-950/50">
-                    {STEPS.map((s, idx) => {
+                <div className="flex border-b border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-950/50 shrink-0">
+                    {STEPS.map((s) => {
                         const isActive = s.id === step;
                         const isDone = s.id < step;
                         return (
@@ -142,13 +141,13 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                 <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
                     
                     {/* LEFT PANEL (FORM) */}
-                    <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+                    <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6 custom-scrollbar">
                         
                         {/* STEP 1: AUDIENCE */}
                         {step === 1 && (
                             <div className="space-y-6 animate-in slide-in-from-right">
                                 <div>
-                                    <label className={`block text-sm font-bold mb-2 ${textClass}`}>Nome da Campanha</label>
+                                    <label className="block text-sm font-bold mb-2 uppercase tracking-wide opacity-70">Nome da Campanha</label>
                                     <input 
                                         className={`w-full p-3 rounded-xl border outline-none ${inputClass}`}
                                         placeholder="Ex: Promoção Cesta VIP"
@@ -158,7 +157,7 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                                 </div>
 
                                 <div>
-                                    <label className={`block text-sm font-bold mb-3 ${textClass}`}>Segmentação (Tags)</label>
+                                    <label className="block text-sm font-bold mb-3 uppercase tracking-wide opacity-70">Segmentação (Tags)</label>
                                     <div className="flex flex-wrap gap-2">
                                         {tags.map(tag => (
                                             <button
@@ -211,7 +210,7 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
 
                                 <div className="space-y-2">
                                     <div className="flex justify-between items-center">
-                                        <label className={`text-sm font-bold ${textClass}`}>Corpo da Mensagem</label>
+                                        <label className="text-sm font-bold uppercase tracking-wide opacity-70">Corpo da Mensagem</label>
                                         <button onClick={() => handleOptimize('A')} disabled={isOptimizing} className="text-xs text-indigo-500 flex items-center gap-1 font-bold hover:underline">
                                             <Wand2 size={12}/> Refinar com Gemini
                                         </button>
@@ -224,7 +223,7 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                                     />
                                     <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                                         {['{primeiro_nome}', '{nome}', '{saudacao}'].map(v => (
-                                            <button key={v} onClick={() => setTemplate(prev => prev + ' ' + v)} className="text-[10px] font-black uppercase tracking-wider bg-gray-100 dark:bg-slate-800 px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors">
+                                            <button key={v} onClick={() => setTemplate(prev => prev + ' ' + v)} className="text-[10px] font-black uppercase tracking-wider bg-gray-100 dark:bg-slate-800 px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 transition-colors whitespace-nowrap">
                                                 {v}
                                             </button>
                                         ))}
@@ -264,7 +263,7 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                     </div>
 
                     {/* RIGHT PANEL (PREVIEW) */}
-                    <div className={`w-80 hidden md:flex flex-col border-l border-gray-200 dark:border-slate-800 ${darkMode ? 'bg-black/20' : 'bg-gray-50'} p-6 items-center justify-center`}>
+                    <div className={`w-80 hidden md:flex flex-col border-l border-gray-200 dark:border-slate-800 ${darkMode ? 'bg-black/20' : 'bg-gray-50'} p-6 items-center justify-center shrink-0`}>
                         <div className="scale-90 transform origin-top">
                             <WhatsAppPreview 
                                 text={template}
@@ -278,7 +277,7 @@ const WhatsAppCampaignWizard: React.FC<WhatsAppCampaignWizardProps> = ({ contact
                 </div>
 
                 {/* FOOTER */}
-                <div className={`p-4 border-t border-gray-200 dark:border-slate-800 flex justify-between ${darkMode ? 'bg-slate-900' : 'bg-white'}`}>
+                <div className={`p-4 border-t border-gray-200 dark:border-slate-800 flex justify-between ${darkMode ? 'bg-slate-900' : 'bg-white'} shrink-0`}>
                     <button 
                         onClick={() => setStep(prev => Math.max(1, prev - 1))}
                         disabled={step === 1}

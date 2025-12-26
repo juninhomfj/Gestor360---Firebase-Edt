@@ -1,26 +1,20 @@
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-# Gestor360 v2.4.2 (Full Auth Edition)
+# Run and deploy your AI Studio app
 
-Sistema profissional de gestão empresarial **Local-First (PWA)** com autenticação avançada Supabase.
+This contains everything you need to run your app locally.
 
-## 🔑 Configuração de Autenticação (Dashboard Supabase)
+View your app in AI Studio: https://ai.studio/apps/drive/1RmZFQH4m4fC0HtWJlgoKI8qDt-I1eAAI
 
-Para que os fluxos de e-mail funcionem, siga estes passos no painel do Supabase:
+## Run Locally
 
-1.  **Authentication > URL Configuration**:
-    *   **Site URL**: Coloque o link onde o app está hospedado.
-    *   **Redirect URLs**: Adicione o mesmo link.
-2.  **Authentication > Email Templates**:
-    *   Ative o template de **Magic Link** e **Reset Password**.
-    *   Certifique-se que o link contém os parâmetros de token.
-3.  **Authentication > Providers**:
-    *   Verifique se o provider "Email" está habilitado.
-    *   "Confirm Email" pode ser desabilitado para testes rápidos, mas é recomendado em produção.
+**Prerequisites:**  Node.js
 
-## 🤖 Novidades v2.4.2
-*   **Magic Link Login:** Acesso rápido por e-mail sem precisar lembrar senhas.
-*   **Self-Service Password Reset:** Recuperação de conta autônoma e segura.
-*   **Auth State Observer:** Detecção inteligente de tokens de recuperação na URL para troca imediata de tela.
 
----
-**Desenvolvido para alta performance e segurança total.**
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

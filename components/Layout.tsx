@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { LayoutDashboard, ShoppingCart, Settings, Menu, X, ShoppingBag, Users, FileText, Wallet, PieChart, Moon, Target, Trophy, Tag, ArrowLeftRight, PiggyBank, List, LogOut, Sun, Palette, ClipboardList, BarChart2, Sparkles, HelpCircle, PartyPopper, CalendarClock, Cloud, MessageCircle, Zap, Trees, Flame, Lock, MessageSquare, Newspaper, Rocket, FlaskConical, Terminal } from 'lucide-react';
 import { AppMode, User, AppTheme, AppNotification, SystemModules, InternalMessage } from '../types';
@@ -33,7 +32,7 @@ interface LayoutProps {
 const THEME_CONFIG: Record<AppTheme, { background: string; sidebar: string; navActive: (mode: AppMode) => string; navInactive: string }> = {
     glass: {
         background: 'bg-slate-950 animate-aurora', 
-        sidebar: 'bg-black/30 backdrop-blur-2xl border-r border-white/10 text-gray-100 shadow-[4px_0_24px_rgba(0,0,0,0.5)]',
+        sidebar: 'bg-black/80 md:bg-black/30 backdrop-blur-2xl border-r border-white/10 text-gray-100 shadow-[4px_0_24px_rgba(0,0,0,0.5)]',
         navActive: (mode) => mode === 'SALES' 
             ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] backdrop-blur-md' 
             : (mode === 'WHATSAPP' ? 'bg-green-500/20 text-green-300 ring-1 ring-green-500/50' : 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)]'),
@@ -99,11 +98,17 @@ const Layout: React.FC<LayoutProps> = ({
       return canAccess(currentUser, mod);
   };
 
+  const navigate = (tabId: string) => {
+    setActiveTab(tabId);
+    setIsMobileMenuOpen(false);
+  };
+
   const salesNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, show: true },
     { id: 'reports', label: 'Relatórios & BI', icon: BarChart2, show: hasAccess('reports') },
     { id: 'sales', label: 'Minhas Vendas', icon: ShoppingCart, show: true },
     { id: 'boletos', label: 'Tarefas (Envios)', icon: ClipboardList, show: true }, 
+    { id: 'settings', label: 'Configurações', icon: Settings, show: true }, 
   ];
 
   const financeNavItems = [
@@ -115,6 +120,7 @@ const Layout: React.FC<LayoutProps> = ({
     { id: 'fin_categories', label: 'Categorias', icon: Tag, show: true },
     { id: 'fin_goals', label: 'Metas', icon: Target, show: true },
     { id: 'fin_challenges', label: 'Desafios', icon: Trophy, show: true },
+    { id: 'settings', label: 'Configurações', icon: Settings, show: true },
   ];
 
   let currentNavItems = (appMode === 'SALES' ? salesNavItems : (appMode === 'FINANCE' ? financeNavItems : [])).filter(i => i.show);
@@ -122,6 +128,7 @@ const Layout: React.FC<LayoutProps> = ({
   const toggleAppMode = () => {
     setAppMode(appMode === 'SALES' ? 'FINANCE' : 'SALES');
     setActiveTab(appMode === 'SALES' ? 'fin_dashboard' : 'dashboard');
+    setIsMobileMenuOpen(false);
   };
 
   const UserAvatar = () => {
@@ -131,14 +138,27 @@ const Layout: React.FC<LayoutProps> = ({
 
   return (
     <div className={`flex h-[100dvh] overflow-hidden transition-all duration-500 relative ${currentStyle.background}`}>
-      <aside className={`hidden md:flex flex-col w-64 z-20 transition-colors duration-300 ${currentStyle.sidebar}`}>
+      
+      {/* Backdrop Mobile */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] md:hidden animate-in fade-in duration-300"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar - Desktop & Mobile Drawer */}
+      <aside className={`fixed md:static inset-y-0 left-0 w-64 z-[70] flex flex-col transition-all duration-300 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} ${currentStyle.sidebar}`}>
         <div className={`p-6 flex items-center justify-between border-b border-white/5`}>
           <Logo size="sm" variant="full" lightMode={['glass', 'cyberpunk', 'dark'].includes(currentTheme)} planUser={currentUser} />
+          <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden text-white/50 hover:text-white">
+            <X size={20} />
+          </button>
         </div>
         
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
           {currentNavItems.map((item) => (
-                <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${activeTab === item.id ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}>
+                <button key={item.id} onClick={() => navigate(item.id)} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${activeTab === item.id ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}>
                     <item.icon size={20} />
                     <span className="font-medium text-sm">{item.label}</span>
                 </button>
@@ -146,12 +166,12 @@ const Layout: React.FC<LayoutProps> = ({
 
           <div className="pt-2 border-t border-white/5 space-y-1">
               {hasAccess('whatsapp') && (
-                  <button onClick={() => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); }} className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-300 border ${appMode === 'WHATSAPP' ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500' : 'text-slate-400 hover:bg-white/5'}`}>
+                  <button onClick={() => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-300 border ${appMode === 'WHATSAPP' ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500' : 'text-slate-400 hover:bg-white/5'}`}>
                       <MessageCircle size={18} className="mr-3" /> <span className="font-bold text-sm">WhatsApp 360</span>
                   </button>
               )}
               {isDev && (
-                  <button onClick={() => setActiveTab('dev_roadmap')} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${activeTab === 'dev_roadmap' ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 'text-slate-400 hover:bg-white/5'}`}>
+                  <button onClick={() => { setActiveTab('dev_roadmap'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${activeTab === 'dev_roadmap' ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 'text-slate-400 hover:bg-white/5'}`}>
                       <Terminal size={20} className="text-amber-500" /> <span className="font-bold text-sm text-amber-500">Engenharia v2.5</span>
                   </button>
               )}
@@ -172,24 +192,34 @@ const Layout: React.FC<LayoutProps> = ({
                     <span className="text-[9px] font-black uppercase text-indigo-500">{currentUser.role}</span>
                 </div>
             </div>
-            <button onClick={toggleAppMode} className={`w-full py-2 rounded-xl font-bold text-sm border ${appMode === 'SALES' ? 'bg-blue-600 text-white' : 'bg-emerald-600 text-white'}`}>{`Ir para ${appMode === 'SALES' ? 'Finanças' : 'Vendas'}`}</button>
-            <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 text-red-500 hover:text-red-400 text-sm py-2"><LogOut size={16} /> Sair</button>
+            <button onClick={toggleAppMode} className={`w-full py-2 rounded-xl font-bold text-sm border ${appMode === 'SALES' ? 'bg-blue-600 text-white shadow-lg' : 'bg-emerald-600 text-white shadow-lg'}`}>{`Ir para ${appMode === 'SALES' ? 'Finanças' : 'Vendas'}`}</button>
+            <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 text-red-500 hover:text-red-400 text-sm py-2 font-bold"><LogOut size={16} /> Sair</button>
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden z-10">
-        <header className="md:hidden h-16 flex items-center justify-between px-4 z-20 bg-slate-950 border-b border-white/5">
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden z-10 relative">
+        <header className="md:hidden h-16 flex items-center justify-between px-4 z-[50] bg-slate-950 border-b border-white/5 shrink-0">
           <Logo size="xs" variant="full" lightMode />
           <div className="flex items-center gap-3">
               <SyncStatus />
-              <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-white"><Menu size={24} /></button>
+              <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-white p-2 hover:bg-white/10 rounded-xl transition-all">
+                <Menu size={24} />
+              </button>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 relative scrollbar-thin">
-          {children}
+        {/* This container MUST allow scrolling */}
+        <main className="flex-1 overflow-y-auto relative scrollbar-thin scroll-smooth custom-scrollbar">
+          <div className="max-w-7xl mx-auto w-full pb-32">
+            {children}
+          </div>
         </main>
-        <FAB appMode={appMode} onNewSale={onNewSale} onNewIncome={onNewIncome} onNewExpense={onNewExpense} onNewTransfer={onNewTransfer} />
+        
+        {/* FAB position adjustment for mobile */}
+        <div className="relative z-[40]">
+           <FAB appMode={appMode} onNewSale={onNewSale} onNewIncome={onNewIncome} onNewExpense={onNewExpense} onNewTransfer={onNewTransfer} />
+        </div>
       </div>
 
       {isChatOpen && <InternalChatSystem currentUser={currentUser} isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} darkMode={true} />}
