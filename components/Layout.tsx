@@ -1,5 +1,6 @@
+
 import React, { useEffect, useState } from 'react';
-import { LayoutDashboard, ShoppingCart, Settings, Menu, X, ShoppingBag, Users, FileText, Wallet, PieChart, Moon, Target, Trophy, Tag, ArrowLeftRight, PiggyBank, List, LogOut, Sun, Palette, ClipboardList, BarChart2, Sparkles, HelpCircle, PartyPopper, CalendarClock, Cloud, MessageCircle, Zap, Trees, Flame, Lock, MessageSquare, Newspaper, Rocket, FlaskConical, Terminal } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Settings, Menu, X, ShoppingBag, Users, FileText, Wallet, PieChart, Moon, Target, Trophy, Tag, ArrowLeftRight, PiggyBank, List, LogOut, Sun, Palette, ClipboardList, BarChart2, Sparkles, HelpCircle, PartyPopper, CalendarClock, Cloud, MessageCircle, Zap, Trees, Flame, Lock, MessageSquare, Newspaper, Rocket, FlaskConical, Terminal, Snowflake } from 'lucide-react';
 import { AppMode, User, AppTheme, AppNotification, SystemModules, InternalMessage } from '../types';
 import { getSystemConfig, canAccess, getUserPlanLabel } from '../services/logic';
 import { getMessages } from '../services/internalChat';
@@ -27,6 +28,8 @@ interface LayoutProps {
   onNewTransfer: () => void;
   isAdmin: boolean;
   isDev: boolean;
+  showSnow: boolean;
+  onToggleSnow: () => void;
 }
 
 const THEME_CONFIG: Record<AppTheme, { background: string; sidebar: string; navActive: (mode: AppMode) => string; navInactive: string }> = {
@@ -68,7 +71,8 @@ const Layout: React.FC<LayoutProps> = ({
     children, activeTab, setActiveTab, appMode, setAppMode, darkMode, currentTheme, setTheme,
     currentUser, onLogout,
     onNewSale, onNewIncome, onNewExpense, onNewTransfer,
-    isAdmin, isDev
+    isAdmin, isDev,
+    showSnow, onToggleSnow
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -165,6 +169,14 @@ const Layout: React.FC<LayoutProps> = ({
           ))}
 
           <div className="pt-2 border-t border-white/5 space-y-1">
+              <button 
+                onClick={onToggleSnow}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-300 ${showSnow ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/50' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+              >
+                <Snowflake size={20} className={showSnow ? 'animate-spin-slow' : ''} />
+                <span className="font-medium text-sm">Let it Snow ❄️</span>
+              </button>
+
               {hasAccess('whatsapp') && (
                   <button onClick={() => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-300 border ${appMode === 'WHATSAPP' ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500' : 'text-slate-400 hover:bg-white/5'}`}>
                       <MessageCircle size={18} className="mr-3" /> <span className="font-bold text-sm">WhatsApp 360</span>

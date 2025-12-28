@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 import Layout from './components/Layout';
@@ -51,6 +52,15 @@ const App: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [authView, setAuthView] = useState<AuthView>('LOGIN');
     const [authError, setAuthError] = useState<string | null>(null);
+
+    // Neve State
+    const [showSnow, setShowSnow] = useState(() => localStorage.getItem('sys_snow_enabled') === 'true');
+
+    const toggleSnow = () => {
+        const nextValue = !showSnow;
+        setShowSnow(nextValue);
+        localStorage.setItem('sys_snow_enabled', String(nextValue));
+    };
 
     const { isDev, isAdmin } = useMemo(() => {
         if (!currentUser) return { isDev: false, isAdmin: false };
@@ -362,7 +372,7 @@ const App: React.FC = () => {
 
     return (
         <div className={theme}>
-            <SnowOverlay />
+            {showSnow && <SnowOverlay />}
             <ToastContainer toasts={toasts} removeToast={removeToast} />
 
             {showSalesForm && (
@@ -400,6 +410,7 @@ const App: React.FC = () => {
                 onNewExpense={() => setShowTxForm(true)}
                 onNewTransfer={() => setShowTxForm(true)}
                 isAdmin={isAdmin} isDev={isDev}
+                showSnow={showSnow} onToggleSnow={toggleSnow}
             >
                 <div className="md:p-4">
                     {renderActiveTab()}

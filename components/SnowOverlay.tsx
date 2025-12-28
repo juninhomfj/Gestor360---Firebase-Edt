@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef } from 'react';
 
 const SnowOverlay: React.FC = () => {
@@ -13,8 +12,9 @@ const SnowOverlay: React.FC = () => {
     let w = (canvas.width = window.innerWidth);
     let h = (canvas.height = window.innerHeight);
     
+    // Configuração das partículas de neve
     const particles: { x: number; y: number; radius: number; speed: number; opacity: number; sway: number }[] = [];
-    const maxParticles = 60; // Lightweight count
+    const maxParticles = 60; // Quantidade otimizada para performance
 
     const createParticle = (initialY?: number) => ({
       x: Math.random() * w,
@@ -41,11 +41,11 @@ const SnowOverlay: React.FC = () => {
         ctx.globalAlpha = p.opacity;
         ctx.fill();
 
-        // Update position
+        // Atualiza posição (queda e balanço lateral)
         p.y += p.speed;
         p.x += Math.sin(p.y * p.sway) * 0.5;
 
-        // Reset if out of view
+        // Resetar partícula se sair da tela
         if (p.y > h) {
           Object.assign(p, createParticle(-10));
         }

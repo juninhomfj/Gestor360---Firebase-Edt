@@ -1,4 +1,3 @@
-
 import {
     signInWithEmailAndPassword,
     signOut,
@@ -6,7 +5,8 @@ import {
     sendPasswordResetEmail,
     updatePassword,
     createUserWithEmailAndPassword,
-    User as FirebaseUser
+    User as FirebaseUser,
+    getAuth
 } from "firebase/auth";
 
 import {
@@ -17,12 +17,17 @@ import {
     collection,
     getDocs,
     query,
-    orderBy,
     updateDoc
 } from "firebase/firestore";
 
-import { auth, db } from "./firebase";
+import { initializeApp } from "firebase/app";
+import { auth, db, firebaseConfig } from "./firebase";
+import { dbPut } from "../storage/db";
 import { User, UserRole, UserPermissions } from "../types";
+
+// Instância secundária para criar usuários sem deslogar o Admin atual
+const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+const secondaryAuth = getAuth(secondaryApp);
 
 const DEFAULT_PERMISSIONS: UserPermissions = {
     sales: true, finance: true, crm: true, whatsapp: false,
@@ -54,30 +59,17 @@ async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null
                 userStatus: 'ACTIVE',
                 theme: 'glass',
                 permissions: defaultPerms,
+                profilePhoto: "",
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp()
             };
             await setDoc(profileRef, newProfile);
             profileSnap = await getDoc(profileRef);
-        } else {
-            // ETAPA 1: Auditoria de campos críticos e Auto-healing Mandatório
-            const data = profileSnap.data();
-            const needsFix = !data.permissions || !data.role || data.isActive === undefined;
-            
-            if (needsFix) {
-                await updateDoc(profileRef, {
-                    permissions: data.permissions || defaultPerms,
-                    role: data.role || defaultRole,
-                    isActive: data.isActive ?? true,
-                    updatedAt: serverTimestamp()
-                });
-                profileSnap = await getDoc(profileRef);
-            }
         }
 
         const data = profileSnap.data()!;
         
-        return {
+        const user: User = {
             id: fbUser.uid,
             uid: fbUser.uid,
             username: data.username,
@@ -92,7 +84,12 @@ async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null
             permissions: data.permissions,
             profilePhoto: data.profilePhoto || "",
             tel: data.tel || ""
-        } as User;
+        };
+
+        // Sync local cache
+        await dbPut('users', user);
+        
+        return user;
     } catch (e) {
         console.error("[Auth] Erro crítico ao carregar perfil:", e);
         return null;
@@ -118,10 +115,6 @@ export const reloadSession = (): Promise<User | null> => {
     });
 };
 
-// Fix: implemented missing getSession to resolve module export errors.
-/**
- * Retorna o usuário da sessão atual armazenado localmente.
- */
 export const getSession = (): User | null => {
     const session = localStorage.getItem("sys_session_v1");
     if (!session) return null;
@@ -146,6 +139,7 @@ export const login = async (email: string, password?: string): Promise<{ user: U
         localStorage.setItem("sys_session_v1", JSON.stringify(user));
         return { user };
     } catch (e: any) {
+        console.error("[Auth] Erro login:", e);
         let msg = "Falha na autenticação.";
         if (e.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
         return { user: null, error: msg };
@@ -160,16 +154,21 @@ export const logout = async () => {
 
 export const listUsers = async (): Promise<User[]> => {
     try {
-        const q = query(collection(db, "profiles"), orderBy("name"));
+        const q = query(collection(db, "profiles"));
         const snap = await getDocs(q);
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as User));
-    } catch (e) { return []; }
+        const users = snap.docs.map(d => ({ id: d.id, ...d.data() } as User));
+        return users.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    } catch (e: any) { 
+        console.error("[Auth] Erro ao listar usuários:", e.message);
+        return []; 
+    }
 };
 
 export const createUser = async (adminId: string, userData: any) => {
-    const userCredential = await createUserWithEmailAndPassword(auth, userData.email, "Gestor360!");
+    const userCredential = await createUserWithEmailAndPassword(secondaryAuth, userData.email, "Gestor360!");
     const fbUser = userCredential.user;
     const role: UserRole = userData.role || 'USER';
+    
     await setDoc(doc(db, "profiles", fbUser.uid), {
         uid: fbUser.uid,
         username: userData.username || userData.email.split('@')[0],
@@ -178,24 +177,45 @@ export const createUser = async (adminId: string, userData: any) => {
         role: role,
         isActive: true,
         userStatus: 'ACTIVE',
-        permissions: role === 'DEV' ? DEV_PERMISSIONS : DEFAULT_PERMISSIONS,
+        permissions: role === 'DEV' ? DEV_PERMISSIONS : (userData.modules_config || DEFAULT_PERMISSIONS),
+        profilePhoto: "",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
     });
+
+    await signOut(secondaryAuth);
     return { success: true };
 };
 
 export const updateUser = async (userId: string, data: any) => {
-    await updateDoc(doc(db, "profiles", userId), { ...data, updatedAt: serverTimestamp() });
+    // 1. Update Firestore
+    const userRef = doc(db, "profiles", userId);
+    await updateDoc(userRef, { 
+        ...data, 
+        updatedAt: serverTimestamp() 
+    });
+
+    // 2. Update Local IndexedDB for DevRoadmap visibility
+    const current = await getDoc(userRef);
+    if (current.exists()) {
+        const fullData = current.data();
+        const userObj: User = {
+            id: userId,
+            uid: userId,
+            ...fullData,
+            createdAt: fullData.createdAt?.toDate?.()?.toISOString(),
+            updatedAt: new Date().toISOString()
+        } as User;
+        await dbPut('users', userObj);
+    }
 };
 
 export const deactivateUser = async (userId: string) => {
     await updateUser(userId, { isActive: false, userStatus: 'INACTIVE' });
 };
 
-export const sendMagicLink = async (email: string) => { await sendPasswordResetEmail(auth, email); };
+export const sendPasswordResetEmailAction = async (email: string) => { await sendPasswordResetEmail(auth, email); };
 export const requestPasswordReset = async (email: string) => { await sendPasswordResetEmail(auth, email); };
 export const changePassword = async (userId: string, newPassword: string) => {
-    // Fix: replaced 'fbAuth' with 'auth' as it was not defined.
     if (auth.currentUser?.uid === userId) await updatePassword(auth.currentUser, newPassword);
 };

@@ -13,7 +13,7 @@ const getEnv = (key: string): string => {
   return (import.meta as any).env?.[key] || (process as any).env?.[key] || "";
 };
 
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: getEnv('VITE_FIREBASE_API_KEY') || "AIzaSyAoHj36s8WBZlzjC1ekCa0evr4N7Eb8jhY",
   authDomain: getEnv('VITE_FIREBASE_AUTH_DOMAIN') || "gestor360-app.firebaseapp.com",
   projectId: getEnv('VITE_FIREBASE_PROJECT_ID') || "gestor360-app",
