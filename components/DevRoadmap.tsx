@@ -3,17 +3,18 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Code2, Terminal, Database, Server, Cpu, RefreshCw, 
     CheckCircle2, Cloud, Activity, 
-    Shield, Download, FileJson, Copy, AlertTriangle, Trash2
+    Shield, Download, FileJson, Copy, AlertTriangle, Trash2, ArrowUpRight, ArrowDownLeft
 } from 'lucide-react';
 import { db } from '../services/firebase';
 import { Logger } from '../services/logger';
+import { SessionTraffic } from '../services/logic';
 import { collection, onSnapshot, query, limit } from 'firebase/firestore';
 import { dbGetAll } from '../storage/db';
 
 const DevRoadmap: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'CLOUD' | 'DATABASE' | 'LOGS' | 'ROADMAP'>('CLOUD');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [cloudTraffic, setCloudTraffic] = useState({ reads: 0, lastActivity: 'Nenhuma' });
+  const [traffic, setTraffic] = useState({ reads: 0, writes: 0, last: 'Nunca' });
 
   const [selectedStore, setSelectedStore] = useState('sales');
   const [tableData, setTableData] = useState<any[]>([]);
@@ -24,14 +25,14 @@ const DevRoadmap: React.FC = () => {
   const STORES = ['profiles', 'sales', 'clients', 'config', 'accounts', 'transactions', 'sync_queue'];
 
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, "sales"), limit(1)), () => {
-        setCloudTraffic(prev => ({ 
-            ...prev, 
-            reads: prev.reads + 1, 
-            lastActivity: new Date().toLocaleTimeString() 
-        }));
-    });
-    return () => unsub();
+    const interval = setInterval(() => {
+        setTraffic({
+            reads: SessionTraffic.reads,
+            writes: SessionTraffic.writes,
+            last: SessionTraffic.lastActivity ? SessionTraffic.lastActivity.toLocaleTimeString() : 'Nenhuma'
+        });
+    }, 1000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -90,7 +91,7 @@ const DevRoadmap: React.FC = () => {
                     <p className="text-slate-400 mt-2 text-xs font-mono uppercase tracking-widest">Painel de Diagnóstico & Auditoria</p>
                 </div>
                 <div className="flex gap-2">
-                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-black border border-emerald-500/30">v2.5.1 STABLE</span>
+                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-black border border-emerald-500/30">v2.5.2 INTELLIGENCE</span>
                 </div>
             </div>
         </div>
@@ -105,8 +106,8 @@ const DevRoadmap: React.FC = () => {
         {activeTab === 'CLOUD' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in slide-in-from-bottom-4">
                 <StatusCard icon={<Cloud/>} title="Status API" value="CONECTADO" sub="Firestore Direct" color="blue" />
-                <StatusCard icon={<Activity/>} title="Tráfego Sessão" value={cloudTraffic.reads} sub={`Last: ${cloudTraffic.lastActivity}`} color="emerald" />
-                <StatusCard icon={<Server/>} title="Provedor" value="Google Cloud" sub="Multi-Region" color="amber" />
+                <StatusCard icon={<ArrowDownLeft/>} title="Reads (Sessão)" value={traffic.reads} sub={`Last: ${traffic.last}`} color="emerald" />
+                <StatusCard icon={<ArrowUpRight/>} title="Writes (Sessão)" value={traffic.writes} sub="Atomic Sync" color="amber" />
                 <StatusCard icon={<Shield/>} title="Segurança" value="Firestore Guard" sub="Clean Writes Active" color="purple" />
             </div>
         )}
@@ -193,10 +194,10 @@ const DevRoadmap: React.FC = () => {
         
         {activeTab === 'ROADMAP' && (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 space-y-6">
+                <RoadmapItem done title="StatusCloud Monitoring" desc="Monitoramento de tráfego de sessão (Reads/Writes) realtime." />
                 <RoadmapItem done title="Motor de Chunking" desc="Processamento de lotes Firestore com limite de 500 operações." />
                 <RoadmapItem done title="Auditoria Granular" desc="Logs detalhados de sessões de importação e diagnóstico remoto." />
                 <RoadmapItem done title="Firestore Guard (Sanitização)" desc="Intercepção de escritas para remover chaves 'undefined' que causam crash." />
-                <RoadmapItem done title="Restauração de Módulos" desc="Backups, DRE e Lixeira totalmente operacionais em Firebase Native." />
             </div>
         )}
     </div>

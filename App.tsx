@@ -280,7 +280,7 @@ const App: React.FC = () => {
             const toUpdate = sales.filter(s => {
                 if (filterType !== 'ALL' && s.type !== filterType) return false;
                 if (onlyEmpty && s.date) return false;
-                const launchDate = s.createdAt.split('T')[0];
+                const launchDate = (s.date || s.completionDate || s.createdAt).split('T')[0];
                 return launchDate >= launchDateFrom;
             });
 
@@ -320,16 +320,26 @@ const App: React.FC = () => {
         link.click();
     };
 
-    const handleRecalculatePending = async () => {
+    const handleRecalculateAdvanced = async (includeBilled: boolean, filterType: ProductType | 'ALL', dateFrom: string) => {
         try {
             setLoading(true);
-            const pendingSales = sales.filter(s => !s.date && !s.deleted);
-            if (pendingSales.length === 0) {
-                addToast('INFO', 'Sem vendas pendentes para recalcular.');
+            const targets = sales.filter(s => {
+                if (s.deleted) return false;
+                if (!includeBilled && s.date) return false;
+                if (filterType !== 'ALL' && s.type !== filterType) return false;
+                if (dateFrom) {
+                    const comp = s.date || s.completionDate || '';
+                    if (!comp.startsWith(dateFrom)) return false;
+                }
+                return true;
+            });
+
+            if (targets.length === 0) {
+                addToast('INFO', 'Nenhuma venda atende aos filtros para recálculo.');
                 return;
             }
 
-            const updatedSales = pendingSales.map(sale => {
+            const updatedSales = targets.map(sale => {
                 const rules = sale.type === ProductType.NATAL ? rulesNatal : rulesBasic;
                 const { commissionBase, commissionValue, rateUsed } = computeCommissionValues(
                     sale.quantity, 
@@ -348,23 +358,19 @@ const App: React.FC = () => {
 
             await saveSales(updatedSales);
             await loadDataForUser();
-            addToast('SUCCESS', `${updatedSales.length} cálculos atualizados!`);
+            addToast('SUCCESS', `${updatedSales.length} cálculos atualizados com precisão!`);
         } catch (e) {
-            addToast('ERROR', 'Erro no recálculo.');
+            addToast('ERROR', 'Erro no recálculo avançado.');
         } finally {
             setLoading(false);
         }
     };
 
-    const handleSystemRefresh = () => {
-        window.location.reload();
-    };
-
+    const handleSystemRefresh = () => { window.location.reload(); };
     const addToast = (type: 'SUCCESS' | 'ERROR' | 'INFO', message: string) => {
         const id = crypto.randomUUID();
         setSortedToasts(prev => [...prev, { id, type, message }]);
     };
-
     const removeToast = (id: string) => setSortedToasts(prev => prev.filter(t => t.id !== id));
 
     if (loading) return <LoadingScreen />;
@@ -432,10 +438,11 @@ const App: React.FC = () => {
                             await saveSales(toUpdate);
                             loadDataForUser();
                         }}
-                        onRecalculate={handleRecalculatePending}
+                        onRecalculate={handleRecalculateAdvanced}
                         onBulkAdd={handleBulkAddSales}
                         hasUndo={false}
                         onNotify={addToast}
+                        darkMode={theme !== 'neutral' && theme !== 'rose'}
                     />
                 );
             case 'reports':
@@ -449,15 +456,7 @@ const App: React.FC = () => {
                     />
                 );
             case 'boletos':
-                return (
-                    <BoletoControl 
-                        sales={sales} 
-                        onUpdateSale={async (s) => {
-                            await saveSingleSale(s);
-                            loadDataForUser();
-                        }} 
-                    />
-                );
+                return ( <BoletoControl sales={sales} onUpdateSale={async (s) => { await saveSingleSale(s); loadDataForUser(); }} /> );
             case 'whatsapp_main':
                 return <WhatsAppModule darkMode={theme !== 'neutral' && theme !== 'rose'} sales={sales} />;
             case 'fin_dashboard':
@@ -489,9 +488,7 @@ const App: React.FC = () => {
                         receivables={receivables} 
                         accounts={accounts} 
                         sales={sales}
-                        onUpdate={async (items) => {
-                            loadDataForUser();
-                        }}
+                        onUpdate={async (items) => { loadDataForUser(); }}
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
                     />
                 );
@@ -562,86 +559,14 @@ const App: React.FC = () => {
         <div className={theme}>
             {showSnow && <SnowOverlay />}
             <ToastContainer toasts={toasts} removeToast={removeToast} />
-            
-            {updateAvailable && (
-                <SystemUpdateNotify 
-                    onUpdate={handleSystemRefresh} 
-                    onDismiss={() => setUpdateAvailable(false)} 
-                />
-            )}
-
-            {showSalesForm && (
-                <SalesForm
-                    isOpen={showSalesForm}
-                    onClose={() => { setShowSalesForm(false); setEditingSale(null); }}
-                    initialData={editingSale}
-                    onSave={saveSingleSale}
-                    onSaved={loadDataForUser}
-                />
-            )}
-
-            {showTxForm && (
-                <FinanceTransactionForm
-                    isOpen={showTxForm}
-                    onClose={() => setShowTxForm(false)}
-                    accounts={accounts}
-                    cards={cards}
-                    categories={categories}
-                    onSave={async (tx: Transaction) => {
-                        await saveFinanceData(accounts, cards, [...transactions, tx], categories);
-                    }}
-                    onSaved={loadDataForUser}
-                />
-            )}
-
-            {isBackupModalOpen && (
-                <BackupModal 
-                    isOpen={isBackupModalOpen} 
-                    onClose={() => setIsBackupModalOpen(false)} 
-                    mode="RESTORE" 
-                    onSuccess={() => {}} 
-                    onRestoreSuccess={loadDataForUser}
-                />
-            )}
-
-            {isBulkDateModalOpen && (
-                <BulkDateModal 
-                    isOpen={isBulkDateModalOpen} 
-                    onClose={() => setIsBulkDateModalOpen(false)} 
-                    onConfirm={handleBulkUpdateDate}
-                    darkMode={theme !== 'neutral' && theme !== 'rose'}
-                />
-            )}
-
-            {isClearLocalModalOpen && (
-                <ConfirmationModal 
-                    isOpen={isClearLocalModalOpen}
-                    onClose={() => setIsClearLocalModalOpen(false)}
-                    onConfirm={handleClearLocalData}
-                    title="Limpar Cache Local?"
-                    message="Isso apagará o cache deste navegador. Seus dados no Firebase NÃO serão afetados e serão baixados novamente."
-                    type="WARNING"
-                    confirmText="Limpar e Sincronizar"
-                />
-            )}
-
-            <Layout
-                currentUser={currentUser}
-                activeTab={activeTab} setActiveTab={setActiveTab}
-                appMode={appMode} setAppMode={setAppMode}
-                currentTheme={theme} setTheme={setTheme}
-                darkMode={theme !== 'neutral' && theme !== 'rose'}
-                onLogout={logout}
-                onNewSale={() => { setEditingSale(null); setShowSalesForm(true); }}
-                onNewIncome={() => setShowTxForm(true)}
-                onNewExpense={() => setShowTxForm(true)}
-                onNewTransfer={() => setShowTxForm(true)}
-                isAdmin={isAdmin} isDev={isDev}
-                showSnow={showSnow} onToggleSnow={toggleSnow}
-            >
-                <div className="md:p-4">
-                    {renderActiveTab()}
-                </div>
+            {updateAvailable && ( <SystemUpdateNotify onUpdate={handleSystemRefresh} onDismiss={() => setUpdateAvailable(false)} /> )}
+            {showSalesForm && ( <SalesForm isOpen={showSalesForm} onClose={() => { setShowSalesForm(false); setEditingSale(null); }} initialData={editingSale} onSave={saveSingleSale} onSaved={loadDataForUser} /> )}
+            {showTxForm && ( <FinanceTransactionForm isOpen={showTxForm} onClose={() => setShowTxForm(false)} accounts={accounts} cards={cards} categories={categories} onSave={async (tx: Transaction) => { await saveFinanceData(accounts, cards, [...transactions, tx], categories); }} onSaved={loadDataForUser} /> )}
+            {isBackupModalOpen && ( <BackupModal isOpen={isBackupModalOpen} onClose={() => setIsBackupModalOpen(false)} mode="RESTORE" onSuccess={() => {}} onRestoreSuccess={loadDataForUser} /> )}
+            {isBulkDateModalOpen && ( <BulkDateModal isOpen={isBulkDateModalOpen} onClose={() => setIsBulkDateModalOpen(false)} onConfirm={handleBulkUpdateDate} darkMode={theme !== 'neutral' && theme !== 'rose'} /> )}
+            {isClearLocalModalOpen && ( <ConfirmationModal isOpen={isClearLocalModalOpen} onClose={() => setIsClearLocalModalOpen(false)} onConfirm={handleClearLocalData} title="Limpar Cache Local?" message="Isso apagará o cache deste navegador. Seus dados no Firebase NÃO serão afetados e serão baixados novamente." type="WARNING" confirmText="Limpar e Sincronizar" /> )}
+            <Layout currentUser={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} appMode={appMode} setAppMode={setAppMode} currentTheme={theme} setTheme={setTheme} darkMode={theme !== 'neutral' && theme !== 'rose'} onLogout={logout} onNewSale={() => { setEditingSale(null); setShowSalesForm(true); }} onNewIncome={() => setShowTxForm(true)} onNewExpense={() => setShowTxForm(true)} onNewTransfer={() => setShowTxForm(true)} isAdmin={isAdmin} isDev={isDev} showSnow={showSnow} onToggleSnow={toggleSnow} >
+                <div className="md:p-4"> {renderActiveTab()} </div>
             </Layout>
         </div>
     );

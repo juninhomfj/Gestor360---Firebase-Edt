@@ -103,29 +103,33 @@ const Dashboard: React.FC<DashboardProps> = ({
       onNewSale();
   };
 
+  // Vendas de Básica do Mês Vigente
   const basicSalesMonth = sales.filter(s => {
     if (!s.date) return false;
     const d = new Date(s.date);
     return s.type === ProductType.BASICA && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
   });
 
+  // Vendas de Natal do Ano Inteiro
   const natalSalesYear = sales.filter(s => {
     if (!s.date) return false;
     const d = new Date(s.date);
     return s.type === ProductType.NATAL && d.getFullYear() === currentYear;
   });
 
-  const allSalesMonth = sales.filter(s => {
-    if (!s.date) return false;
-    const d = new Date(s.date);
-    return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-  });
+  // COMISSÃO TOTAL DO MÊS
+  const totalCommissionMonth = sales.filter(s => {
+      if (!s.date) return false;
+      const d = new Date(s.date);
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+  }).reduce((acc, curr) => acc + curr.commissionValueTotal, 0);
 
-  const totalCommissionMonth = allSalesMonth.reduce((acc, curr) => acc + curr.commissionValueTotal, 0);
   const basicQtyMonth = basicSalesMonth.reduce((acc, curr) => acc + curr.quantity, 0);
   const basicCommissionMonth = basicSalesMonth.reduce((acc, curr) => acc + curr.commissionValueTotal, 0);
+  
   const natalQtyYear = natalSalesYear.reduce((acc, curr) => acc + curr.quantity, 0);
   const natalCommissionYear = natalSalesYear.reduce((acc, curr) => acc + curr.commissionValueTotal, 0);
+  
   const showNatalCard = natalSalesYear.length > 0 || (salesTargets?.natal || 0) > 0;
 
   const chartData = React.useMemo(() => {
@@ -350,21 +354,12 @@ const Dashboard: React.FC<DashboardProps> = ({
                         </div>
                         
                         <div className="mt-2 pt-2 border-t border-dashed border-gray-200 dark:border-slate-700 flex items-center justify-between">
-                            <span className="text-xs text-gray-400">Status:</span>
-                            {sale.date ? (
-                                <span className="text-xs font-medium text-emerald-600 flex items-center gap-1">
-                                    <CheckCircle2 size={12}/> Faturamento: {new Date(sale.date).toLocaleDateString('pt-BR')}
-                                </span>
-                            ) : (
-                                <span className="text-xs font-bold text-orange-500 flex items-center gap-1 animate-pulse">
-                                    <Clock size={12}/> Faturamento: Pendente
-                                </span>
-                            )}
+                            <span className="text-xs text-gray-400">Status: {sale.date ? 'Faturado' : 'Pendente'}</span>
                         </div>
                       </div>
                     ))}
                     {recentSales.length === 0 && (
-                        <div className={`py-8 text-center ${darkMode ? 'text-slate-500' : 'text-gray-400'}`}>Nenhuma venda recente</div>
+                        <p className={`text-center py-12 ${darkMode ? 'text-slate-500' : 'text-gray-400'}`}>Nenhuma venda recente.</p>
                     )}
                   </div>
                 </div>
@@ -372,68 +367,62 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
       )}
 
+      {/* CONFIG MODAL */}
       {showConfig && (
-          <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
-              <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95`}>
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+              <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95`}>
                   <div className="flex justify-between items-center mb-6">
                       <h3 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Personalizar Dashboard</h3>
                       <button onClick={() => setShowConfig(false)}><X className="text-gray-500 hover:text-gray-700"/></button>
                   </div>
-                  <div className="space-y-4">
-                      <label className="flex items-center justify-between cursor-pointer p-2 rounded hover:bg-black/5 dark:hover:bg-white/5">
-                          <span className={darkMode ? 'text-gray-200' : 'text-gray-800'}>Mostrar Cartões de Resumo</span>
-                          <input type="checkbox" checked={config.showStats} onChange={e => onUpdateConfig({...config, showStats: e.target.checked})} className="w-5 h-5 rounded text-emerald-600"/>
+                  <div className="space-y-2">
+                      <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                          <span className={darkMode ? 'text-gray-200' : 'text-gray-800'}>Metas</span>
+                          <input type="checkbox" checked={config.showStats} onChange={e => onUpdateConfig({...config, showStats: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 accent-indigo-600"/>
                       </label>
-                      <label className="flex items-center justify-between cursor-pointer p-2 rounded hover:bg-black/5 dark:hover:bg-white/5">
-                          <span className={darkMode ? 'text-gray-200' : 'text-gray-800'}>Mostrar Gráficos</span>
-                          <input type="checkbox" checked={config.showCharts} onChange={e => onUpdateConfig({...config, showCharts: e.target.checked})} className="w-5 h-5 rounded text-emerald-600"/>
+                      <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                          <span className={darkMode ? 'text-gray-200' : 'text-gray-800'}>Gráficos</span>
+                          <input type="checkbox" checked={config.showCharts} onChange={e => onUpdateConfig({...config, showCharts: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 accent-indigo-600"/>
                       </label>
-                      <label className="flex items-center justify-between cursor-pointer p-2 rounded hover:bg-black/5 dark:hover:bg-white/5">
-                          <span className={darkMode ? 'text-gray-200' : 'text-gray-800'}>Mostrar Lista Recente</span>
-                          <input type="checkbox" checked={config.showRecents} onChange={e => onUpdateConfig({...config, showRecents: e.target.checked})} className="w-5 h-5 rounded text-emerald-600"/>
+                      <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                          <span className={darkMode ? 'text-gray-200' : 'text-gray-800'}>Vendas Recentes</span>
+                          <input type="checkbox" checked={config.showRecents} onChange={e => onUpdateConfig({...config, showRecents: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 accent-indigo-600"/>
                       </label>
-                      
-                      <div className="pt-2 border-t border-gray-200 dark:border-slate-700">
-                          <button onClick={() => { setShowConfig(false); handleOpenTargetModal(); }} className="w-full py-2 bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 rounded-lg font-bold text-sm">
-                              Definir Metas de Vendas
-                          </button>
-                      </div>
                   </div>
-                  <button onClick={() => setShowConfig(false)} className="w-full mt-6 py-2 bg-emerald-600 text-white rounded-lg font-bold">Concluir</button>
+                  <button onClick={() => setShowConfig(false)} className="w-full mt-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg">Salvar Preferências</button>
               </div>
           </div>
       )}
 
+      {/* TARGET MODAL */}
       {showTargetModal && (
-          <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4 backdrop-blur-sm">
-              <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95`}>
-                  <h3 className={`text-lg font-bold mb-4 flex items-center gap-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
-                      <Target size={20} className="text-blue-500"/> Definir Metas
-                  </h3>
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+              <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95`}>
+                  <div className="flex justify-between items-center mb-6">
+                      <h3 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Definir Metas de Vendas</h3>
+                      <button onClick={() => setShowTargetModal(false)}><X className="text-gray-500 hover:text-gray-700"/></button>
+                  </div>
                   <div className="space-y-4">
                       <div>
-                          <label className={`block text-xs font-bold uppercase mb-1 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Cesta Básica (Mensal)</label>
+                          <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Cestas Básicas (Meta Mensal)</label>
                           <input 
-                            type="number" 
-                            className={`w-full p-2 border rounded ${darkMode ? 'bg-black border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                            value={tempTargets.basic}
-                            onChange={e => setTempTargets({...tempTargets, basic: e.target.value})}
+                              type="number" 
+                              value={tempTargets.basic} 
+                              onChange={e => setTempTargets({...tempTargets, basic: e.target.value})}
+                              className={`w-full p-3 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
                           />
                       </div>
                       <div>
-                          <label className={`block text-xs font-bold uppercase mb-1 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Cesta Natal (Anual)</label>
+                          <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Cestas Natal (Meta Anual)</label>
                           <input 
-                            type="number" 
-                            className={`w-full p-2 border rounded ${darkMode ? 'bg-black border-slate-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                            value={tempTargets.natal}
-                            onChange={e => setTempTargets({...tempTargets, natal: e.target.value})}
+                              type="number" 
+                              value={tempTargets.natal} 
+                              onChange={e => setTempTargets({...tempTargets, natal: e.target.value})}
+                              className={`w-full p-3 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
                           />
                       </div>
                   </div>
-                  <div className="flex gap-2 mt-6">
-                      <button onClick={() => setShowTargetModal(false)} className={`flex-1 py-2 rounded font-bold text-sm ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-gray-100 text-gray-600'}`}>Cancelar</button>
-                      <button onClick={handleSaveTargets} className="flex-1 py-2 bg-blue-600 text-white rounded font-bold text-sm">Salvar Metas</button>
-                  </div>
+                  <button onClick={handleSaveTargets} className="w-full mt-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg">Salvar Metas</button>
               </div>
           </div>
       )}

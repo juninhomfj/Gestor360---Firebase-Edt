@@ -239,7 +239,7 @@ export const deactivateUser = async (userId: string) => {
 export const requestPasswordReset = async (email: string) => { await sendPasswordResetEmail(auth, email); };
 
 export const changePassword = async (userId: string, newPassword: string) => {
-    // Fix: Used the correctly imported 'auth' instance instead of undefined 'fbAuth'
+    // FIX: Using correctly imported 'auth' instance instead of undefined 'fbAuth'
     if (auth.currentUser?.uid === userId) {
         await updatePassword(auth.currentUser, newPassword);
         const userRef = doc(db, "profiles", userId);

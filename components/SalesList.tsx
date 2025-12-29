@@ -1,8 +1,7 @@
-
 import React, { useState, useMemo, useEffect } from 'react';
 import { Sale, ProductType, ProductLabels, SaleFormData } from '../types';
-import { Edit2, Plus, Download, Upload, Trash2, History, Settings, RotateCcw, CalendarCheck, X, ChevronLeft, ChevronRight, ArrowUpDown, AlertTriangle, Search, Clock, Database, Loader2, CheckCircle, Printer, Calculator } from 'lucide-react';
-import { getSystemConfig, DEFAULT_PRODUCT_LABELS, processSalesImport } from '../services/logic';
+import { Edit2, Plus, Download, Upload, Trash2, History, Settings, RotateCcw, CalendarCheck, X, ChevronLeft, ChevronRight, ArrowUpDown, AlertTriangle, Search, Clock, Database, Loader2, CheckCircle, Printer, Calculator, Eye, EyeOff, Filter, BarChart3 } from 'lucide-react';
+import { getSystemConfig, DEFAULT_PRODUCT_LABELS, processSalesImport, formatCurrency } from '../services/logic';
 import SalesImportModal from './ImportModal'; 
 
 interface SalesListProps {
@@ -20,65 +19,47 @@ interface SalesListProps {
   onBillBulk: (ids: string[], date: string) => void;
   onDeleteBulk: (ids: string[]) => void;
   onBulkAdd?: (newSalesData: SaleFormData[]) => void; 
-  onRecalculate?: () => void; // New Prop
+  onRecalculate?: (includeBilled: boolean, filterType: ProductType | 'ALL', dateFrom: string) => void;
   
   hasUndo: boolean;
   allowImport?: boolean; 
   onNotify?: (type: 'SUCCESS' | 'ERROR' | 'INFO', msg: string) => void;
+  darkMode?: boolean;
 }
 
-const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
-
 const SalesList: React.FC<SalesListProps> = ({ 
-    sales, 
-    onEdit,
-    onDelete,
-    onNew, 
-    onExportTemplate, 
-    onImportFile, 
-    onClearAll, 
-    onRestore, 
-    onOpenBulkAdvanced, 
-    onUndo,
-    onBillSale,
-    onBillBulk,
-    onDeleteBulk,
-    onBulkAdd,
-    onRecalculate,
-    hasUndo,
-    allowImport = true,
-    onNotify
+    sales, onEdit, onDelete, onNew, onExportTemplate, onImportFile, onClearAll, onRestore, onOpenBulkAdvanced, onUndo,
+    onBillSale, onBillBulk, onDeleteBulk, onBulkAdd, onRecalculate,
+    hasUndo, allowImport = true, onNotify, darkMode 
 }) => {
   const [filterType, setFilterType] = useState<ProductType | 'ALL'>('ALL');
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'PENDING' | 'BILLED'>('ALL');
   const [filterMonth, setFilterMonth] = useState<string>(''); 
-  const [filterYear, setFilterYear] = useState<string>(''); 
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: keyof Sale | 'netValue' | 'status', direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState<number | 'ALL'>(10);
+  const [itemsPerPage, setItemsPerPage] = useState<number | 'ALL'>(25);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [showProjection, setShowProjection] = useState(true);
+  
   const [billingModal, setBillingModal] = useState<{ isOpen: boolean, ids: string[] }>({ isOpen: false, ids: [] });
   const [billingDate, setBillingDate] = useState(new Date().toISOString().split('T')[0]);
+  const [recalcModal, setRecalcModal] = useState(false);
+  const [recalcIncludeBilled, setRecalcIncludeBilled] = useState(false);
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean, ids: string[] }>({ isOpen: false, ids: [] });
-  const [labels, setLabels] = useState<ProductLabels>(DEFAULT_PRODUCT_LABELS);
   
   const [isImporting, setIsImporting] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importData, setImportData] = useState<any[][]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-      getSystemConfig().then(cfg => {
-          if (cfg.productLabels) setLabels(cfg.productLabels);
-      });
-  }, []);
-
-  const getLabel = (type: ProductType) => {
-      if (type === ProductType.BASICA) return labels.basica || 'Básica';
-      if (type === ProductType.NATAL) return labels.natal || 'Natal';
-      return labels.custom || 'Outros';
+  // Added missing handleSort function
+  const handleSort = (key: keyof Sale | 'netValue' | 'status') => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
+    }));
   };
 
   const processedSales = useMemo(() => {
@@ -89,16 +70,8 @@ const SalesList: React.FC<SalesListProps> = ({
       if (filterStatus === 'PENDING' && !isPending) return false;
       if (filterStatus === 'BILLED' && isPending) return false;
       if (filterMonth) {
-          if (isPending) {
-               const compDate = sale.completionDate;
-               if (!compDate || !compDate.startsWith(filterMonth)) return false;
-          } else {
-               if (!sale.date.startsWith(filterMonth)) return false;
-          }
-      }
-      if (filterYear && sale.type === ProductType.NATAL) {
-        const d = sale.date || sale.completionDate;
-        if (!d || d.split('-')[0] !== filterYear) return false;
+          const comp = sale.date || sale.completionDate || '';
+          if (!comp.startsWith(filterMonth)) return false;
       }
       return true;
     });
@@ -109,17 +82,15 @@ const SalesList: React.FC<SalesListProps> = ({
         if (sortConfig.key === 'netValue') { valA = a.commissionValueTotal; valB = b.commissionValueTotal; } 
         else if (sortConfig.key === 'status') { valA = a.date ? 1 : 0; valB = b.date ? 1 : 0; } 
         else if (sortConfig.key === 'date') {
-            const dateA = a.date || a.completionDate || '1970-01-01';
-            const dateB = b.date || b.completionDate || '1970-01-01';
-            valA = new Date(dateA).getTime();
-            valB = new Date(dateB).getTime();
+            valA = new Date(a.date || a.completionDate || '1970-01-01').getTime();
+            valB = new Date(b.date || b.completionDate || '1970-01-01').getTime();
         }
         if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
         if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
         return 0;
     });
     return result;
-  }, [sales, searchTerm, filterType, filterStatus, filterMonth, filterYear, sortConfig]);
+  }, [sales, searchTerm, filterType, filterStatus, filterMonth, sortConfig]);
 
   const paginatedSales = useMemo(() => {
       if (itemsPerPage === 'ALL') return processedSales;
@@ -129,431 +100,247 @@ const SalesList: React.FC<SalesListProps> = ({
 
   const totalPages = itemsPerPage === 'ALL' ? 1 : Math.ceil(processedSales.length / itemsPerPage);
 
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, filterType, filterStatus, filterMonth, filterYear]);
+  const stats = useMemo(() => {
+      const billed = processedSales.filter(s => !!s.date);
+      const pending = processedSales.filter(s => !s.date);
+      return {
+          billedComm: billed.reduce((acc, s) => acc + s.commissionValueTotal, 0),
+          pendingComm: pending.reduce((acc, s) => acc + s.commissionValueTotal, 0),
+          billedQty: billed.reduce((acc, s) => acc + s.quantity, 0),
+          pendingQty: pending.reduce((acc, s) => acc + s.quantity, 0),
+      };
+  }, [processedSales]);
 
-  const handleSort = (key: string) => {
-      setSortConfig(prev => ({
-          key: key as any,
-          direction: prev.key === key && prev.direction === 'desc' ? 'asc' : 'desc'
-      }));
-  };
-
-  const isAllPageSelected = paginatedSales.length > 0 && paginatedSales.every(s => selectedIds.includes(s.id));
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const pageIds = paginatedSales.map(s => s.id);
-      if (e.target.checked) setSelectedIds(prev => Array.from(new Set([...prev, ...pageIds])));
-      else setSelectedIds(prev => prev.filter(id => !pageIds.includes(id)));
+      if (e.target.checked) setSelectedIds(processedSales.map(s => s.id));
+      else setSelectedIds([]);
   };
-  const handleSelectOne = (id: string) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
-  const openBillModal = (ids: string[]) => { setBillingModal({ isOpen: true, ids }); setBillingDate(new Date().toISOString().split('T')[0]); };
-  const confirmBilling = () => {
-      if (!billingDate) { if(onNotify) onNotify('ERROR', 'Selecione uma data.'); return; }
-      if (billingModal.ids.length === 1) { const sale = sales.find(s => s.id === billingModal.ids[0]); if (sale) onBillSale(sale, billingDate); } 
-      else { onBillBulk(billingModal.ids, billingDate); }
-      setBillingModal({ isOpen: false, ids: [] }); setSelectedIds([]); 
+  const handleSelectOne = (id: string) => {
+      setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
-  const openDeleteModal = (ids: string[]) => { setDeleteModal({ isOpen: true, ids }); };
-  const confirmDelete = () => { onDeleteBulk(deleteModal.ids); setDeleteModal({ isOpen: false, ids: [] }); setSelectedIds([]); };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      setIsImporting(true);
-      try {
-          const { readExcelFile } = await import('../services/logic');
-          const rows = await readExcelFile(file);
-          if (rows && rows.length > 0) {
-              setImportData(rows);
-              setImportModalOpen(true);
-          } else {
-              if(onNotify) onNotify('ERROR', 'Arquivo vazio ou inválido.');
-          }
-      } catch (err) {
-          if(onNotify) onNotify('ERROR', 'Erro ao ler arquivo.');
-      } finally {
-          setIsImporting(false);
-          e.target.value = '';
+  const handleRecalcConfirm = () => {
+      if (onRecalculate) {
+          onRecalculate(recalcIncludeBilled, filterType, filterMonth);
       }
+      setRecalcModal(false);
   };
 
-  const confirmImport = (mapping: any) => {
-      if (onBulkAdd) {
-          try {
-              const processedItems = processSalesImport(importData, mapping);
-              if (processedItems.length > 0) {
-                  onBulkAdd(processedItems);
-                  if(onNotify) onNotify('SUCCESS', `${processedItems.length} vendas importadas com sucesso!`);
-              } else {
-                  if(onNotify) onNotify('INFO', 'Nenhuma venda processada. Verifique o mapeamento.');
-              }
-          } catch (e) {
-              if(onNotify) onNotify('ERROR', 'Erro ao processar importação.');
-          }
-      } else {
-          if(onNotify) onNotify('ERROR', 'Função de salvamento em massa não disponível.');
-      }
-      setImportModalOpen(false);
-  };
-
-  const handleRecalcClick = () => {
-      if(onRecalculate) {
-          if(confirm("Esta ação recalculará as comissões de TODAS as vendas PENDENTES (não faturadas) usando as tabelas atuais. Vendas faturadas não serão alteradas. Deseja continuar?")) {
-              onRecalculate();
-          }
-      }
-  };
-
-  const handlePrint = () => {
-      window.print();
-  };
-
-  const totalBase = processedSales.reduce((acc, s) => acc + s.commissionBaseTotal, 0);
-  const totalCommission = processedSales.reduce((acc, s) => acc + s.commissionValueTotal, 0);
+  const containerClass = darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-200 shadow-sm';
+  const tableHeadClass = darkMode ? 'bg-slate-800 text-slate-400' : 'bg-gray-50 text-gray-500';
 
   return (
-    <div className="space-y-6 relative">
-      <SalesImportModal 
-          isOpen={importModalOpen}
-          onClose={() => setImportModalOpen(false)}
-          fileData={importData}
-          onConfirm={confirmImport}
-      />
+    <div className="space-y-6 relative pb-20">
+      
+      {/* TOOLBAR FLUTUANTE DE AÇÕES EM MASSA */}
+      {selectedIds.length > 0 && (
+          <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[60] bg-indigo-600 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-6 animate-in slide-in-from-bottom-10">
+              <span className="font-bold text-sm">{selectedIds.length} selecionados</span>
+              <div className="h-6 w-px bg-white/20"></div>
+              <div className="flex gap-2">
+                  <button onClick={() => setBillingModal({ isOpen: true, ids: selectedIds })} className="flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-black uppercase tracking-widest transition-all">
+                      <CalendarCheck size={16}/> Faturar
+                  </button>
+                  <button onClick={() => setDeleteModal({ isOpen: true, ids: selectedIds })} className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/40 text-red-200 rounded-lg text-xs font-black uppercase tracking-widest transition-all">
+                      <Trash2 size={16}/> Excluir
+                  </button>
+                  <button onClick={() => setSelectedIds([])} className="p-1.5 hover:bg-white/10 rounded-lg"><X size={18}/></button>
+              </div>
+          </div>
+      )}
 
-      <div className="print-header">
-          <h1 className="text-2xl font-bold">Relatório de Vendas</h1>
-          <p className="text-sm">Gerado em {new Date().toLocaleDateString()} às {new Date().toLocaleTimeString()}</p>
-          <div className="mt-2 text-xs border p-2 rounded inline-block">
-              Filtros: {filterType} | Status: {filterStatus} | Mês: {filterMonth || 'Todos'}
+      {/* HEADER E PROJEÇÃO */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
+          <div>
+            <h1 className={`text-2xl font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>Gestão de Vendas</h1>
+            <p className="text-sm text-gray-500">Histórico e conferência de comissões.</p>
+          </div>
+          <div className="flex gap-2 w-full md:w-auto">
+              <button onClick={() => setShowProjection(!showProjection)} className={`p-2.5 rounded-xl border ${darkMode ? 'border-slate-700 bg-slate-800 text-slate-400' : 'border-gray-200 bg-white text-gray-600'}`}>
+                  {showProjection ? <Eye size={20}/> : <EyeOff size={20}/>}
+              </button>
+              <button onClick={onNew} className="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2">
+                  <Plus size={18}/> Nova Venda
+              </button>
           </div>
       </div>
 
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Minhas Vendas</h1>
-        
-        <div className="flex gap-2 flex-wrap items-center w-full md:w-auto">
-            {allowImport && (
-                <>
-                    <button 
-                        onClick={onExportTemplate}
-                        className="bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm text-sm"
-                        title="Modelo CSV"
-                    >
-                        <Download size={18} className="mr-2" /> <span className="hidden md:inline">Modelo</span>
-                    </button>
-                    
-                    <label className={`bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm text-sm cursor-pointer ${isImporting ? 'opacity-50 cursor-wait' : ''}`}>
-                        {isImporting ? <Loader2 size={18} className="mr-2 animate-spin"/> : <Upload size={18} className="mr-2" />}
-                        <span className="hidden md:inline">{isImporting ? 'Lendo...' : 'Importar'}</span>
-                        <input type="file" className="hidden" accept=".csv,.xlsx,.xls" onChange={handleFileChange} ref={fileInputRef} disabled={isImporting} />
-                    </label>
-                </>
-            )}
+      {showProjection && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-4">
+              <div className={`p-6 rounded-2xl border border-l-4 border-l-emerald-500 ${containerClass}`}>
+                  <div className="flex justify-between items-start mb-2">
+                      <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Comissão Faturada (Mês/Filtro)</p>
+                      <CheckCircle size={16} className="text-emerald-500" />
+                  </div>
+                  <p className="text-3xl font-black text-emerald-600">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.billedComm)}</p>
+                  <p className="text-xs text-gray-500 mt-1">{stats.billedQty} cestas entregues.</p>
+              </div>
+              <div className={`p-6 rounded-2xl border border-l-4 border-l-amber-500 ${containerClass}`}>
+                  <div className="flex justify-between items-start mb-2">
+                      <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">Comissão Pendente (Expectativa)</p>
+                      <Clock size={16} className="text-amber-500" />
+                  </div>
+                  <p className="text-3xl font-black text-amber-500">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(stats.pendingComm)}</p>
+                  <p className="text-xs text-gray-500 mt-1">{stats.pendingQty} cestas aguardando faturamento.</p>
+              </div>
+          </div>
+      )}
 
-            {onRecalculate && (
-                <button 
-                    onClick={handleRecalcClick}
-                    className="bg-orange-50 border border-orange-200 text-orange-700 px-3 py-2 rounded-lg hover:bg-orange-100 flex items-center shadow-sm text-sm"
-                    title="Recalcular Vendas Pendentes"
-                >
-                    <Calculator size={18} className="mr-2" /> <span className="hidden md:inline">Recalcular Pendentes</span>
-                </button>
-            )}
-
-            <button 
-                onClick={handlePrint}
-                className="bg-white border border-gray-300 text-gray-700 p-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm transition-colors"
-                title="Imprimir Relatório"
-            >
-                <Printer size={20} />
-            </button>
-
-            <div className="relative">
-                <button 
-                    onClick={() => setIsMenuOpen(!isMenuOpen)}
-                    className={`bg-white border border-gray-300 text-gray-700 p-2 rounded-lg hover:bg-gray-50 flex items-center shadow-sm transition-colors ${isMenuOpen ? 'ring-2 ring-blue-500' : ''}`}
-                >
-                    <Settings size={20} />
-                </button>
-                {isMenuOpen && (
-                    <>
-                        <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)}></div>
-                        <div className="absolute right-0 mt-2 w-64 max-w-[85vw] bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 origin-top-right">
-                            {hasUndo && (
-                                <button 
-                                    onClick={(e) => { e.stopPropagation(); onUndo(); setIsMenuOpen(false); }} 
-                                    className="w-full text-left px-4 py-3 text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/40 flex items-center border-b border-gray-100 dark:border-slate-700"
-                                >
-                                    <RotateCcw size={16} className="mr-2" /> Desfazer Última Ação
-                                </button>
-                            )}
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); onRestore(); setIsMenuOpen(false); }} 
-                                className="w-full text-left px-4 py-3 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800 flex items-center"
-                            >
-                                <History size={16} className="mr-2 text-blue-500" /> Restaurar Backup (.v360)
-                            </button>
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); onOpenBulkAdvanced(); setIsMenuOpen(false); }} 
-                                className="w-full text-left px-4 py-3 text-sm text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 flex items-center"
-                            >
-                                <CalendarCheck size={16} className="mr-2" /> Faturamento em Massa
-                            </button>
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); onClearAll(); setIsMenuOpen(false); }} 
-                                className="w-full text-left px-4 py-3 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center border-t border-gray-100 dark:border-slate-700"
-                            >
-                                <Database size={16} className="mr-2" /> Limpar Base de Dados
-                            </button>
-                        </div>
-                    </>
-                )}
-            </div>
-
-            <div className="w-px h-8 bg-gray-300 mx-2 hidden md:block"></div>
-
-            <button onClick={onNew} className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 flex items-center shadow-sm text-sm font-medium">
-                <Plus size={20} className="mr-2" /> Nova Venda
-            </button>
-        </div>
-      </div>
-
-      {/* FILTERS BAR (Visual Only) */}
-      <div className="bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 grid grid-cols-1 md:grid-cols-12 gap-4 items-end no-print">
+      {/* FILTROS E BUSCA */}
+      <div className={`p-4 rounded-2xl border ${containerClass} grid grid-cols-1 md:grid-cols-12 gap-4 items-end no-print`}>
           <div className="md:col-span-3">
-             <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Busca (Cliente)</label>
-             <div className="relative">
-                <Search className="absolute left-2 top-2.5 text-gray-400" size={16}/>
-                <input 
-                  type="text" 
-                  placeholder="Nome..." 
-                  className="w-full border border-gray-300 dark:border-slate-600 rounded-md py-2 pl-8 pr-2 text-sm bg-white dark:bg-slate-900 text-gray-900 dark:text-white"
-                  value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
-                />
-             </div>
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Busca Cliente</label>
+              <div className="relative">
+                  <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
+                  <input className={`w-full pl-10 pr-4 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-gray-50 border-gray-200'}`} placeholder="Nome..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+              </div>
           </div>
           <div className="md:col-span-2">
-              <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Status</label>
-              <select className="w-full border border-gray-300 dark:border-slate-600 rounded-md p-2 text-sm bg-white dark:bg-slate-900 text-gray-900 dark:text-white" value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)}>
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Status</label>
+              <select className={`w-full p-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-gray-50 border-gray-200'}`} value={filterStatus} onChange={e => setFilterStatus(e.target.value as any)}>
                   <option value="ALL">Todos</option>
                   <option value="PENDING">Pendentes</option>
                   <option value="BILLED">Faturados</option>
               </select>
           </div>
           <div className="md:col-span-2">
-              <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Tipo</label>
-              <select className="w-full border border-gray-300 dark:border-slate-600 rounded-md p-2 text-sm bg-white dark:bg-slate-900 text-gray-900 dark:text-white" value={filterType} onChange={e => setFilterType(e.target.value as any)}>
-                  <option value="ALL">Todos</option>
-                  <option value={ProductType.BASICA}>{getLabel(ProductType.BASICA)}</option>
-                  <option value={ProductType.NATAL}>{getLabel(ProductType.NATAL)}</option>
-                  <option value={ProductType.CUSTOM}>{getLabel(ProductType.CUSTOM)}</option>
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Categoria</label>
+              <select className={`w-full p-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-gray-50 border-gray-200'}`} value={filterType} onChange={e => setFilterType(e.target.value as any)}>
+                  <option value="ALL">Todas</option>
+                  <option value={ProductType.BASICA}>Básica</option>
+                  <option value={ProductType.NATAL}>Natal</option>
               </select>
           </div>
-          <div className="md:col-span-2">
-              <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Mês</label>
-              <input type="month" className="w-full border border-gray-300 dark:border-slate-600 rounded-md p-2 text-sm bg-white dark:bg-slate-900 text-gray-900 dark:text-white" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}/>
+          <div className="md:col-span-3">
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">Mês Competência</label>
+              <input type="month" className={`w-full p-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-gray-50 border-gray-200'}`} value={filterMonth} onChange={e => setFilterMonth(e.target.value)} />
           </div>
-          <div className="md:col-span-2">
-              <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Ano ({getLabel(ProductType.NATAL)})</label>
-              <input type="number" placeholder="202X" className="w-full border border-gray-300 dark:border-slate-600 rounded-md p-2 text-sm bg-white dark:bg-slate-900 text-gray-900 dark:text-white" value={filterYear} onChange={e => setFilterYear(e.target.value)}/>
+          <div className="md:col-span-2 flex gap-2">
+              <button onClick={() => setRecalcModal(true)} className="flex-1 p-2 bg-orange-100 text-orange-600 rounded-xl hover:bg-orange-200 transition-colors" title="Recalcular Comissões"><Calculator size={20} className="mx-auto"/></button>
+              <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 transition-colors"><Settings size={20}/></button>
           </div>
-           <div className="md:col-span-1 flex justify-end">
-                <button 
-                    onClick={() => { setFilterType('ALL'); setFilterStatus('ALL'); setFilterMonth(''); setFilterYear(''); setSearchTerm(''); }}
-                    className="text-sm text-gray-500 hover:text-blue-600 underline py-2"
-                >
-                    Limpar
-                </button>
-           </div>
       </div>
 
-      {/* SALES TABLE */}
-      <div className="hidden md:block bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
-              <tr>
-                <th className="w-10 p-4 no-print">
-                    <input type="checkbox" className="rounded border-gray-300 w-4 h-4 cursor-pointer" onChange={handleSelectAll} checked={isAllPageSelected} />
-                </th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400 cursor-pointer" onClick={() => handleSort('status')}>Status/Data <ArrowUpDown size={12}/></th>
-                <th className="px-4 py-3 text-left font-semibold text-gray-600 dark:text-gray-400 cursor-pointer" onClick={() => handleSort('client')}>Cliente <ArrowUpDown size={12}/></th>
-                <th className="px-4 py-3 text-center font-semibold text-gray-600 dark:text-gray-400 cursor-pointer" onClick={() => handleSort('type')}>Tipo <ArrowUpDown size={12}/></th>
-                <th className="px-4 py-3 text-right font-semibold text-gray-600 dark:text-gray-400 cursor-pointer" onClick={() => handleSort('commissionBaseTotal')}>Base <ArrowUpDown size={12}/></th>
-                <th className="px-4 py-3 text-center font-semibold text-gray-600 dark:text-gray-400 cursor-pointer" onClick={() => handleSort('marginPercent')}>Margem <ArrowUpDown size={12}/></th>
-                <th className="px-4 py-3 text-right font-semibold text-emerald-700 dark:text-emerald-400 cursor-pointer" onClick={() => handleSort('netValue')}>Comissão <ArrowUpDown size={12}/></th>
-                <th className="px-4 py-3 text-center font-semibold text-gray-600 dark:text-gray-400 no-print">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 dark:divide-slate-700">
-              {paginatedSales.map((sale) => (
-                <tr key={sale.id} className={`hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors ${selectedIds.includes(sale.id) ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
-                  <td className="p-4 text-center no-print">
-                      <input type="checkbox" className="rounded border-gray-300 w-4 h-4 cursor-pointer" checked={selectedIds.includes(sale.id)} onChange={() => handleSelectOne(sale.id)} />
-                  </td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-300 whitespace-nowrap text-sm">
-                    {sale.date ? (
-                        <div className="flex flex-col">
-                            <span className="font-medium text-gray-800 dark:text-white">{new Date(sale.date).toLocaleDateString('pt-BR')}</span>
-                            <span className="text-[10px] text-green-600 dark:text-green-400 font-bold">FATURADO</span>
-                        </div>
-                    ) : (
-                        <div className="flex items-center gap-1 text-orange-500 font-bold text-xs bg-orange-50 dark:bg-orange-900/30 px-2 py-1 rounded-full w-fit">
-                            <Clock size={12}/> Pendente
-                        </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-900 dark:text-white font-medium">{sale.client}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`px-2 py-1 rounded-full text-xs font-bold ${sale.type === ProductType.BASICA ? 'text-emerald-700 bg-emerald-100 dark:bg-emerald-900/50 dark:text-emerald-300' : (sale.type === ProductType.NATAL ? 'text-red-700 bg-red-100 dark:bg-red-900/50 dark:text-red-300' : 'text-blue-700 bg-blue-100 dark:bg-blue-900/50 dark:text-blue-300')}`}>
-                      {getLabel(sale.type)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-600 dark:text-gray-300 font-mono">{formatCurrency(sale.commissionBaseTotal)}</td>
-                  <td className="px-4 py-3 text-center font-mono">
-                    <span className={sale.marginPercent < 0 ? 'text-red-500 font-bold' : 'text-gray-700 dark:text-gray-300'}>{sale.marginPercent.toFixed(2)}%</span>
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold text-emerald-700 dark:text-emerald-400 font-mono">{formatCurrency(sale.commissionValueTotal)}</td>
-                  <td className="px-4 py-3 text-center no-print">
-                    <div className="flex items-center justify-center gap-2">
-                        {!sale.date && (
-                            <button onClick={() => openBillModal([sale.id])} className="text-white bg-emerald-500 hover:bg-emerald-600 px-2 py-1 rounded-md text-xs font-bold transition-colors shadow-sm flex items-center gap-1">
-                                <CalendarCheck size={14} /> Faturar
-                            </button>
-                        )}
-                        <button onClick={() => onEdit(sale)} className="text-amber-500 hover:text-amber-600 p-1.5 rounded hover:bg-amber-50 dark:hover:bg-amber-900/30 transition-colors"><Edit2 size={16}/></button>
-                        <button onClick={() => { onDelete(sale); }} className="text-red-500 hover:text-red-600 p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"><Trash2 size={16}/></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {paginatedSales.length === 0 && <tr><td colSpan={8} className="py-12 text-center text-gray-400">Nenhuma venda encontrada.</td></tr>}
-            </tbody>
-            <tfoot className="bg-gray-100 dark:bg-slate-800 border-t border-gray-200 dark:border-slate-700">
-                <tr className="font-bold text-gray-800 dark:text-white">
-                    <td colSpan={5} className="px-4 py-4 text-right">TOTAIS (Filtro Atual)</td>
-                    <td className="px-4 py-4 text-right font-mono">{formatCurrency(totalBase)}</td>
-                    <td className="px-4 py-4 text-right text-emerald-700 dark:text-emerald-400 text-lg font-mono">{formatCurrency(totalCommission)}</td>
-                    <td className="no-print"></td>
-                </tr>
-            </tfoot>
-          </table>
-        </div>
-        
-        {/* PAGINATION */}
-        <div className="bg-gray-50 dark:bg-slate-800 border-t border-gray-200 dark:border-slate-700 p-3 flex flex-col md:flex-row justify-between items-center gap-4 no-print">
-             <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
-                 <span>Itens por página:</span>
-                 <select className="border rounded p-1 bg-white dark:bg-slate-900 border-gray-300 dark:border-slate-600" value={itemsPerPage} onChange={e => { setItemsPerPage(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value)); setCurrentPage(1); }}>
-                     <option value={10}>10</option>
-                     <option value={25}>25</option>
-                     <option value={50}>50</option>
-                     <option value={100}>100</option>
-                     <option value="ALL">Todas</option>
-                 </select>
-                 <span className="text-xs ml-2">Total: {processedSales.length} registros</span>
-             </div>
+      {/* TABELA PRINCIPAL */}
+      <div className={`rounded-2xl border overflow-hidden ${containerClass}`}>
+          <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                  <thead className={`text-[10px] font-black uppercase tracking-widest border-b ${tableHeadClass}`}>
+                      <tr>
+                          <th className="p-4 w-10"><input type="checkbox" className="rounded" checked={selectedIds.length === processedSales.length && processedSales.length > 0} onChange={handleSelectAll} /></th>
+                          <th className="p-4 cursor-pointer" onClick={() => handleSort('date')}>Data <ArrowUpDown size={12} className="inline ml-1"/></th>
+                          <th className="p-4 cursor-pointer" onClick={() => handleSort('client')}>Cliente <ArrowUpDown size={12} className="inline ml-1"/></th>
+                          <th className="p-4 text-center">Tipo</th>
+                          <th className="p-4 text-right">Margem</th>
+                          <th className="p-4 text-right">Comissão</th>
+                          <th className="p-4 text-center">Ações</th>
+                      </tr>
+                  </thead>
+                  <tbody className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-gray-100'}`}>
+                      {paginatedSales.map(sale => (
+                          <tr key={sale.id} className={`hover:bg-black/5 dark:hover:bg-white/5 transition-colors ${selectedIds.includes(sale.id) ? 'bg-indigo-50/50 dark:bg-indigo-900/20' : ''}`}>
+                              <td className="p-4"><input type="checkbox" className="rounded" checked={selectedIds.includes(sale.id)} onChange={() => handleSelectOne(sale.id)} /></td>
+                              <td className="p-4">
+                                  <div className="flex flex-col">
+                                      <span className="font-bold">{new Date(sale.date || sale.completionDate).toLocaleDateString('pt-BR')}</span>
+                                      <span className={`text-[9px] font-black uppercase ${sale.date ? 'text-emerald-500' : 'text-amber-500'}`}>{sale.date ? 'Faturado' : 'Pendente'}</span>
+                                  </div>
+                              </td>
+                              <td className="p-4 font-bold">{sale.client}</td>
+                              <td className="p-4 text-center">
+                                  <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${sale.type === ProductType.BASICA ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{sale.type}</span>
+                              </td>
+                              <td className="p-4 text-right font-mono font-bold text-gray-500">{sale.marginPercent.toFixed(2)}%</td>
+                              <td className="p-4 text-right">
+                                  <div className="flex flex-col items-end">
+                                      <span className="font-black text-emerald-600">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(sale.commissionValueTotal)}</span>
+                                      <span className="text-[9px] text-gray-400">Base: R$ {sale.commissionBaseTotal.toFixed(2)}</span>
+                                  </div>
+                              </td>
+                              <td className="p-4">
+                                  <div className="flex justify-center gap-2">
+                                      <button onClick={() => onEdit(sale)} className="p-2 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-lg"><Edit2 size={16}/></button>
+                                      <button onClick={() => onDelete(sale)} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg"><Trash2 size={16}/></button>
+                                  </div>
+                              </td>
+                          </tr>
+                      ))}
+                  </tbody>
+              </table>
+          </div>
 
-             {itemsPerPage !== 'ALL' && totalPages > 1 && (
-                 <div className="flex items-center gap-1 text-gray-600 dark:text-gray-300">
-                     <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 disabled:opacity-50"><ChevronLeft size={20} /></button>
-                     <span className="text-sm font-medium px-2">Página {currentPage} de {totalPages}</span>
-                     <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-slate-700 disabled:opacity-50"><ChevronRight size={20} /></button>
-                 </div>
-             )}
-        </div>
-      </div>
-
-      {/* MOBILE LIST */}
-      <div className="md:hidden space-y-3 no-print">
-          {paginatedSales.map((sale) => (
-              <div key={sale.id} className={`bg-white dark:bg-slate-800 rounded-xl shadow-sm border p-4 relative ${selectedIds.includes(sale.id) ? 'border-blue-400 ring-1 ring-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-slate-700'}`}>
-                  <div className="absolute top-4 left-4">
-                      <input type="checkbox" className="w-5 h-5 rounded border-gray-300" checked={selectedIds.includes(sale.id)} onChange={() => handleSelectOne(sale.id)} />
-                  </div>
-                  <div className="pl-8">
-                      <div className="flex justify-between items-start mb-2">
-                          <div>
-                              <h3 className="font-bold text-gray-900 dark:text-white text-sm">{sale.client}</h3>
-                              <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                  {sale.date ? (
-                                      <span className="text-green-600 dark:text-green-400 font-bold">{new Date(sale.date).toLocaleDateString('pt-BR')}</span>
-                                  ) : (
-                                      <span className="text-orange-500 font-bold">Pendente</span>
-                                  )}
-                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${sale.type === ProductType.BASICA ? 'text-emerald-700 bg-emerald-100 dark:bg-emerald-900/50 dark:text-emerald-300' : 'text-red-700 bg-red-100 dark:bg-red-900/50 dark:text-red-300'}`}>
-                                      {getLabel(sale.type)}
-                                  </span>
-                              </div>
-                          </div>
-                          <div className="text-right">
-                              <p className="text-lg font-bold text-emerald-700 dark:text-emerald-400">{formatCurrency(sale.commissionValueTotal)}</p>
-                          </div>
-                      </div>
-                      <div className="flex justify-end gap-3 border-t border-gray-100 dark:border-slate-700 pt-2 mt-2">
-                           {!sale.date && (
-                                <button onClick={() => openBillModal([sale.id])} className="text-emerald-600 dark:text-emerald-400 font-bold text-xs flex items-center gap-1 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded border border-emerald-200 dark:border-emerald-800">
-                                    <CalendarCheck size={14} /> Faturar
-                                </button>
-                            )}
-                           <button onClick={() => onEdit(sale)} className="text-amber-500 font-bold text-xs flex items-center gap-1 bg-amber-50 dark:bg-amber-900/20 px-2 py-1 rounded border border-amber-200 dark:border-amber-800">
-                                <Edit2 size={14}/> Editar
-                           </button>
-                           <button onClick={() => onDelete(sale)} className="text-red-500 font-bold text-xs flex items-center gap-1 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded border border-red-200 dark:border-red-800">
-                                <Trash2 size={14}/> Excluir
-                           </button>
-                      </div>
-                  </div>
+          {/* RODAPÉ DA TABELA: PAGINAÇÃO E CONTROLE */}
+          <div className={`p-4 border-t flex flex-col md:flex-row justify-between items-center gap-4 ${tableHeadClass}`}>
+              <div className="flex items-center gap-3 text-xs font-bold">
+                  <span>Mostrar:</span>
+                  <select value={itemsPerPage} onChange={e => setItemsPerPage(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))} className={`bg-transparent border rounded p-1 ${darkMode ? 'border-slate-700' : 'border-gray-300'}`}>
+                      <option value={10}>10</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                      <option value="ALL">Todas</option>
+                  </select>
+                  <span className="opacity-60">Total: {processedSales.length} registros</span>
               </div>
-          ))}
+              {itemsPerPage !== 'ALL' && totalPages > 1 && (
+                  <div className="flex items-center gap-4">
+                      <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2 disabled:opacity-30"><ChevronLeft size={20}/></button>
+                      <span className="text-xs font-black">Página {currentPage} de {totalPages}</span>
+                      <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-2 disabled:opacity-30"><ChevronRight size={20}/></button>
+                  </div>
+              )}
+          </div>
       </div>
 
-      {/* BILLING MODAL */}
-      {billingModal.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
-                  <div className="p-4 border-b bg-gray-50 dark:bg-slate-800 flex justify-between items-center">
-                      <h3 className="font-bold text-gray-800 dark:text-white">Confirmar Faturamento</h3>
-                      <button onClick={() => setBillingModal({ isOpen: false, ids: [] })}><X size={20} className="text-gray-400"/></button>
+      {/* MODAL DE RECALCULO AVANÇADO */}
+      {recalcModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
+              <div className={`w-full max-w-md rounded-2xl shadow-2xl p-6 ${darkMode ? 'bg-slate-900 border border-slate-700' : 'bg-white border-gray-200'}`}>
+                  <div className="flex items-center gap-3 mb-6">
+                      <div className="p-3 bg-orange-100 text-orange-600 rounded-xl"><Calculator size={24}/></div>
+                      <h3 className="text-xl font-bold">Recálculo de Comissões</h3>
                   </div>
-                  <div className="p-6">
-                      <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-                          Defina a data de faturamento para <strong>{billingModal.ids.length}</strong> venda(s).
-                      </p>
-                      <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">Data de Faturamento</label>
-                      <input 
-                        type="date" 
-                        className="w-full p-3 border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-950 text-gray-900 dark:text-white rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
-                        value={billingDate}
-                        onChange={e => setBillingDate(e.target.value)}
-                      />
-                      <div className="flex gap-3 mt-6">
-                          <button onClick={() => setBillingModal({ isOpen: false, ids: [] })} className="flex-1 py-2 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-600 dark:text-gray-400 font-bold text-sm hover:bg-gray-50 dark:hover:bg-slate-800">Cancelar</button>
-                          <button onClick={confirmBilling} className="flex-1 py-2 bg-emerald-600 text-white rounded-lg font-bold text-sm hover:bg-emerald-700 shadow-md">Confirmar</button>
+                  
+                  <div className="space-y-4">
+                      <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-xl text-xs text-blue-700 dark:text-blue-300">
+                          Os cálculos usarão as tabelas de comissão vigentes para atualizar os valores de acordo com a margem atual.
                       </div>
+
+                      <label className="flex items-center gap-3 p-4 rounded-xl border border-gray-200 dark:border-slate-700 cursor-pointer hover:bg-black/5">
+                          <input type="checkbox" className="w-5 h-5 rounded text-orange-500" checked={recalcIncludeBilled} onChange={e => setRecalcIncludeBilled(e.target.checked)} />
+                          <div>
+                              <p className="text-sm font-bold">Incluir Vendas Faturadas</p>
+                              <p className="text-[10px] text-gray-500">Atenção: Isso alterará números de meses passados.</p>
+                          </div>
+                      </label>
+
+                      {recalcIncludeBilled && (
+                          <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 rounded-xl flex items-start gap-3 text-red-600 animate-in shake duration-300">
+                              <AlertTriangle size={20} className="shrink-0"/>
+                              <p className="text-[10px] font-bold uppercase tracking-tight">Cuidado: Alterar vendas já faturadas impactará diretamente seus fechamentos e extratos históricos.</p>
+                          </div>
+                      )}
+                  </div>
+
+                  <div className="mt-8 flex gap-3">
+                      <button onClick={() => setRecalcModal(false)} className="flex-1 py-3 text-gray-500 font-bold hover:bg-gray-100 rounded-xl">Cancelar</button>
+                      <button onClick={handleRecalcConfirm} className="flex-1 py-3 bg-orange-600 text-white font-black rounded-xl shadow-lg hover:bg-orange-700 active:scale-95 transition-all uppercase text-xs tracking-widest">Iniciar Recálculo</button>
                   </div>
               </div>
           </div>
       )}
 
-      {/* DELETE MODAL */}
-      {deleteModal.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-              <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
-                  <div className="p-6 text-center">
-                      <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-                          <AlertTriangle size={32} className="text-red-600" />
-                      </div>
-                      <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Tem certeza?</h3>
-                      <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
-                          Você está prestes a excluir <strong>{deleteModal.ids.length}</strong> venda(s).
-                      </p>
-                      
-                      <div className="flex gap-3">
-                          <button onClick={() => setDeleteModal({ isOpen: false, ids: [] })} className="flex-1 py-3 border border-gray-300 dark:border-slate-600 rounded-lg text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors">Cancelar</button>
-                          <button onClick={confirmDelete} className="flex-1 py-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 shadow-md transition-colors">Sim, Excluir</button>
-                      </div>
+      {/* BILLING MODAL */}
+      {billingModal.isOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in">
+              <div className={`w-full max-w-sm rounded-2xl shadow-2xl p-6 ${darkMode ? 'bg-slate-900 text-white border border-slate-700' : 'bg-white'}`}>
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><CalendarCheck className="text-emerald-500" /> Confirmar Faturamento</h3>
+                  <p className="text-sm text-gray-500 mb-6">Defina a data de faturamento para <strong>{billingModal.ids.length}</strong> vendas selecionadas.</p>
+                  <input type="date" className={`w-full p-3 rounded-xl border mb-6 outline-none ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-gray-50'}`} value={billingDate} onChange={e => setBillingDate(e.target.value)} />
+                  <div className="flex gap-3">
+                      <button onClick={() => setBillingModal({ isOpen: false, ids: [] })} className="flex-1 py-3 text-gray-400 font-bold">Sair</button>
+                      <button onClick={() => { onBillBulk(billingModal.ids, billingDate); setBillingModal({ isOpen: false, ids: [] }); setSelectedIds([]); }} className="flex-1 py-3 bg-emerald-600 text-white font-bold rounded-xl shadow-lg hover:bg-emerald-700">Confirmar</button>
                   </div>
               </div>
           </div>

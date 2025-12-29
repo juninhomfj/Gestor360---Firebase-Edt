@@ -1,27 +1,33 @@
 
 import React, { useEffect, useState } from 'react';
-import { Cloud, Loader2, Database, WifiOff } from 'lucide-react';
+import { Cloud, Loader2, Database, WifiOff, Activity } from 'lucide-react';
 import { getPendingSyncs } from '../storage/db';
 import { auth, db } from '../services/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { SessionTraffic } from '../services/logic';
 import SyncDetailsModal from './SyncDetailsModal';
 
 const SyncStatus: React.FC = () => {
     const [pendingCount, setPendingCount] = useState(0);
-    const [status, setStatus] = useState<'LOCAL_SAVED' | 'SYNCING' | 'OFFLINE' | 'CLOUD_SAVED'>('LOCAL_SAVED');
+    const [status, setStatus] = useState<'LOCAL_SAVED' | 'SYNCING' | 'OFFLINE' | 'CLOUD_SAVED' | 'QUERYING'>('LOCAL_SAVED');
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [lastTraffic, setLastTraffic] = useState(0);
     
     useEffect(() => {
         const check = async () => {
-            // Check IndexedDB queue
             const pending = await getPendingSyncs();
             setPendingCount(pending.length);
 
-            // Check Firebase / Network
             const isOnline = navigator.onLine;
-            // @ts-ignore
-            const isCloudEnabled = db && db.type !== 'mock' && !!auth.currentUser;
-
-            if (pending.length > 0 && isOnline && isCloudEnabled) {
+            const isCloudEnabled = !!auth.currentUser;
+            
+            // Monitora tráfego para piscar "QUERYING"
+            const currentTotal = SessionTraffic.reads + SessionTraffic.writes;
+            if (currentTotal > lastTraffic) {
+                setStatus('QUERYING');
+                setLastTraffic(currentTotal);
+                setTimeout(() => setStatus(isOnline && isCloudEnabled ? 'CLOUD_SAVED' : 'LOCAL_SAVED'), 800);
+            } else if (pending.length > 0 && isOnline && isCloudEnabled) {
                 setStatus('SYNCING');
             } else if (isOnline && isCloudEnabled) {
                 setStatus('CLOUD_SAVED');
@@ -32,12 +38,20 @@ const SyncStatus: React.FC = () => {
             }
         };
 
-        check();
-        const interval = setInterval(check, 3000);
+        const interval = setInterval(check, 1000);
         return () => clearInterval(interval);
-    }, []);
+    }, [lastTraffic]);
 
     const renderButton = () => {
+        if (status === 'QUERYING') {
+            return (
+                <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-xs font-black border border-indigo-400 animate-pulse transition-all">
+                    <Activity size={14} className="animate-bounce" />
+                    <span>CONSULTANDO...</span>
+                </button>
+            );
+        }
+
         if (status === 'SYNCING') {
             return (
                 <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 text-blue-600 rounded-lg text-xs font-bold border border-blue-200 animate-pulse transition-all hover:bg-blue-200">
