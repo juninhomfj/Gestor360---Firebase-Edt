@@ -178,7 +178,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                             <label className="block text-xs font-black text-gray-500 uppercase mb-4 tracking-widest">Nível de Autoridade</label>
                             <div className="flex flex-wrap gap-4">
                                 {['USER', 'ADMIN', 'DEV'].map(r => (
-                                    <button key={r} type="button" onClick={() => setNewRole(r as any)} className={`flex-1 py-3 rounded-xl font-black text-xs transition-all border ${newRole === r ? 'bg-indigo-600 text-white border-indigo-600 shadow-xl' : 'bg-white dark:bg-slate-900 text-gray-400 border-gray-200 dark:border-slate-800'}`}>{r}</button>
+                                    <button key={r} type="button" onClick={() => setNewRole(r as any)} className={`flex-1 py-3 rounded-xl font-black text-xs transition-all border ${newRole === r ? 'bg-indigo-600 text-white border-indigo-600 shadow-xl' : 'bg-white dark:bg-slate-900 text-gray-400 border-gray-200 border-slate-800'}`}>{r}</button>
                                 ))}
                             </div>
                         </div>
@@ -190,7 +190,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                     key={mod}
                                     type="button"
                                     onClick={() => toggleModule(mod as keyof UserModules)}
-                                    className={`flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${newModules[mod as keyof UserModules] ? 'bg-emerald-500/10 border-emerald-500 shadow-md ring-1 ring-emerald-500/50' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800'}`}
+                                    className={`flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${newModules[mod as keyof UserModules] ? 'bg-emerald-500/10 border-emerald-500 shadow-md ring-1 ring-emerald-500/50' : 'bg-white dark:bg-slate-900 border-gray-200 border-slate-800'}`}
                                 >
                                     <div className={`w-5 h-5 rounded flex items-center justify-center border ${newModules[mod as keyof UserModules] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300'}`}>
                                         {newModules[mod as keyof UserModules] && <CheckSquare size={14}/>}
@@ -228,8 +228,12 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                             <tr key={u.id} className={`hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${u.userStatus === 'INACTIVE' ? 'opacity-40 grayscale' : ''}`}>
                                 <td className="p-6">
                                     <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-black text-xl shadow-inner shrink-0">
-                                            {u.name.charAt(0)}
+                                        <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-black text-xl shadow-inner shrink-0 overflow-hidden">
+                                            {u.profilePhoto ? (
+                                                <img src={u.profilePhoto} className="w-full h-full object-cover" alt="" />
+                                            ) : (
+                                                u.name.charAt(0).toUpperCase()
+                                            )}
                                         </div>
                                         <div>
                                             <div className="font-black text-gray-900 dark:text-white text-lg flex items-center gap-2">
