@@ -1,4 +1,3 @@
-
 import {
   collection,
   query,
@@ -19,7 +18,9 @@ import {
 import { db } from "./firebase";
 import { getAuth } from "firebase/auth";
 import * as XLSX from 'xlsx';
-import { dbPut, dbBulkPut, dbGetAll, initDB, dbDelete } from '../storage/db';
+import { dbPut, dbBulkPut, dbGetAll, initDB, dbDelete, dbGet } from '../storage/db';
+import { Logger } from './logger';
+import { encryptData, decryptData } from '../utils/encryption';
 import { 
     User, Sale, Transaction, FinanceAccount, TransactionCategory, 
     Receivable, ReportConfig, SystemConfig, ProductType, CommissionRule, 
@@ -45,7 +46,8 @@ function requireAuthUid(): string {
 function ensureNumber(value: any, fallback = 0): number {
   if (typeof value === 'number') return value;
   if (!value) return fallback;
-  const clean = String(value).replace(/[R$\s.]/g, '').replace(',', '.');
+  // Limpa R$, pontos de milhar e troca vírgula por ponto
+  const clean = String(value).replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
   const num = parseFloat(clean);
   return !isNaN(num) ? num : fallback;
 }
@@ -160,6 +162,7 @@ export async function saveSingleSale(payload: any) {
   
   await dbPut('sales', sale);
   await setDoc(doc(db, "sales", saleId), sale, { merge: true });
+  Logger.info(`Venda individual salva: ${saleId}`, { clientId: sale.client });
 }
 
 export async function getStoredSales(): Promise<Sale[]> {
@@ -187,17 +190,35 @@ export async function getStoredSales(): Promise<Sale[]> {
   }
 }
 
+/**
+ * Salva múltiplas vendas respeitando o limite de 500 do Firestore.
+ */
 export const saveSales = async (sales: Sale[]) => {
     const uid = requireAuthUid();
-    const batch = writeBatch(db);
     
+    // 1. Gravação local rápida
     await dbBulkPut('sales', sales);
+    Logger.info(`Iniciando salvamento em massa: ${sales.length} itens.`);
 
-    sales.forEach(s => {
-        const { id, ...data } = s;
-        batch.set(doc(db, "sales", id), { ...data, userId: uid, updatedAt: serverTimestamp() }, { merge: true });
-    });
-    await batch.commit();
+    // 2. Gravação em lotes (Firestore limit: 500)
+    const CHUNK_SIZE = 450; // Margem de segurança
+    for (let i = 0; i < sales.length; i += CHUNK_SIZE) {
+        const chunk = sales.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        
+        chunk.forEach(s => {
+            const { id, ...data } = s;
+            batch.set(doc(db, "sales", id), { ...data, userId: uid, updatedAt: serverTimestamp() }, { merge: true });
+        });
+
+        try {
+            await batch.commit();
+            Logger.info(`Lote Firestore enviado: registros ${i} a ${i + chunk.length}`);
+        } catch (e: any) {
+            Logger.error("Falha ao commitar lote no Firestore", { error: e.message, firstId: chunk[0]?.id });
+            throw e;
+        }
+    }
 };
 
 export const getClients = async (): Promise<Client[]> => {
@@ -354,28 +375,6 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
     };
 };
 
-export const generateChallengeCells = (challengeId: string, target: number, count: number, model: ChallengeModel): ChallengeCell[] => {
-    const cells: ChallengeCell[] = [];
-    const uid = requireAuthUid();
-    
-    if (model === 'PROPORTIONAL') {
-        const value = target / count;
-        for (let i = 1; i <= count; i++) {
-            cells.push({ id: crypto.randomUUID(), challengeId, number: i, value, status: 'PENDING', userId: uid, deleted: false });
-        }
-    } else if (model === 'LINEAR') {
-        const factor = target / (count * (count + 1) / 2);
-        for (let i = 1; i <= count; i++) {
-            cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: i * factor, status: 'PENDING', userId: uid, deleted: false });
-        }
-    } else {
-        for (let i = 1; i <= count; i++) {
-            cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: 0, status: 'PENDING', userId: uid, deleted: false });
-        }
-    }
-    return cells;
-};
-
 /**
  * ============================================================
  * IMPORTS & UTILS
@@ -394,6 +393,7 @@ export const readExcelFile = async (file: File): Promise<any[][]> => {
                 const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                 resolve(json as any[][]);
             } catch (err) {
+                Logger.error("Erro no processamento do Excel", err);
                 reject(err);
             }
         };
@@ -404,13 +404,17 @@ export const readExcelFile = async (file: File): Promise<any[][]> => {
 
 export const processSalesImport = (data: any[][], mapping: any): SaleFormData[] => {
     const result: SaleFormData[] = [];
+    Logger.info("Iniciando conversão de linhas da planilha", { totalRows: data.length });
     
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
         if (!row || row.length === 0) continue;
 
         const client = String(row[mapping.client] || '').trim();
-        if (!client) continue;
+        if (!client) {
+            Logger.warn(`Linha ${i} ignorada: Nome do cliente vazio.`);
+            continue;
+        }
 
         const parseDate = (val: any) => {
             if (val instanceof Date) return val.toISOString().split('T')[0];
@@ -422,109 +426,45 @@ export const processSalesImport = (data: any[][], mapping: any): SaleFormData[] 
             return null;
         };
 
-        const dateStr = parseDate(row[mapping.date]);
-        const completionDate = parseDate(row[mapping.completionDate]) || new Date().toISOString().split('T')[0];
+        try {
+            const dateStr = parseDate(row[mapping.date]);
+            const completionDate = parseDate(row[mapping.completionDate]) || new Date().toISOString().split('T')[0];
 
-        const typeStr = String(row[mapping.type] || '').toUpperCase();
-        let type = ProductType.BASICA;
-        if (typeStr.includes('NATAL')) type = ProductType.NATAL;
+            const typeStr = String(row[mapping.type] || '').toUpperCase();
+            let type = ProductType.BASICA;
+            if (typeStr.includes('NATAL')) type = ProductType.NATAL;
 
-        result.push({
-            client,
-            quantity: ensureNumber(row[mapping.quantity], 1),
-            type,
-            valueProposed: ensureNumber(row[mapping.valueProposed]),
-            valueSold: ensureNumber(row[mapping.valueSold]),
-            marginPercent: ensureNumber(row[mapping.margin]),
-            date: dateStr || undefined,
-            completionDate: completionDate,
-            isBilled: !!dateStr,
-            observations: String(row[mapping.obs] || '').trim()
-        });
+            result.push({
+                client,
+                quantity: ensureNumber(row[mapping.quantity], 1),
+                type,
+                valueProposed: ensureNumber(row[mapping.valueProposed]),
+                valueSold: ensureNumber(row[mapping.valueSold]),
+                marginPercent: ensureNumber(row[mapping.margin]),
+                date: dateStr || undefined,
+                completionDate: completionDate,
+                isBilled: !!dateStr,
+                observations: String(row[mapping.obs] || '').trim()
+            });
+        } catch (err: any) {
+            Logger.error(`Erro ao processar linha ${i}`, { client, error: err.message });
+        }
     }
-    return result;
-};
-
-export const processFinanceImport = (data: any[][], mapping: any): Transaction[] => {
-    const uid = requireAuthUid();
-    const result: Transaction[] = [];
     
-    for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        if (row.length < 2) continue;
-
-        const rawDate = row[mapping.date];
-        let date = new Date().toISOString();
-        if (rawDate instanceof Date) date = rawDate.toISOString();
-        else if (rawDate) date = new Date(rawDate).toISOString();
-
-        const description = String(row[mapping.description] || 'Importado');
-        const amount = ensureNumber(row[mapping.amount]);
-        
-        if (amount === 0) continue;
-
-        result.push({
-            id: crypto.randomUUID(),
-            description,
-            amount: Math.abs(amount),
-            type: amount > 0 ? 'INCOME' : 'EXPENSE',
-            date,
-            categoryId: 'uncategorized',
-            accountId: '', 
-            isPaid: true,
-            personType: 'PF',
-            deleted: false,
-            userId: uid,
-            createdAt: new Date().toISOString()
-        });
-    }
+    Logger.info(`Conversão concluída: ${result.length} vendas válidas encontradas.`);
     return result;
 };
 
-export const exportReportToCSV = (data: any[], filename: string) => {
-    if (!data.length) return;
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Relatorio");
-    XLSX.writeFile(wb, `${filename}.xlsx`);
-};
-
-export async function getTrashItems() {
-  const uid = requireAuthUid();
-  try {
-      const qSales = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", true));
-      const qTrans = query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", true));
-      const [sSnap, tSnap] = await Promise.all([getDocs(qSales), getDocs(qTrans)]);
-      return { 
-          sales: sSnap.docs.map(d => ({ id: d.id, ...d.data() } as Sale)), 
-          transactions: tSnap.docs.map(d => ({ id: d.id, ...d.data() } as Transaction)) 
-      };
-  } catch (e) {
-      return { sales: [], transactions: [] };
-  }
-}
-
-export const getDeletedClients = async () => {
-    const uid = requireAuthUid();
-    try {
-        const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", true));
-        const snap = await getDocs(q);
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
-    } catch (e) {
-        return [];
+export const clearLocalCache = async () => {
+    const dbInstance = await initDB();
+    const stores = Array.from(dbInstance.objectStoreNames);
+    const tx = dbInstance.transaction(stores as any, 'readwrite');
+    for (const storeName of stores) {
+        await tx.objectStore(storeName as any).clear();
     }
+    await tx.done;
+    Logger.info("Cache local limpo manualmente.");
 };
-
-export const restoreClient = async (id:string) => { await updateDoc(doc(db, "clients", id), { deleted: false, updatedAt: serverTimestamp() }); };
-export const permanentlyDeleteClient = async (id:string) => { await deleteDoc(doc(db, "clients", id)); };
-export async function restoreItem(type: 'SALE' | 'TRANSACTION', item: any) {
-  const col = type === 'SALE' ? "sales" : "transactions";
-  await updateDoc(doc(db, col, item.id), { deleted: false, updatedAt: serverTimestamp() });
-}
-export async function permanentlyDeleteItem(type: 'SALE' | 'TRANSACTION', id: string) {
-  const col = type === 'SALE' ? "sales" : "transactions";
-  await deleteDoc(doc(db, col, id));
-}
 
 export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
   const base = valueProposed * quantity;
@@ -534,12 +474,19 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
   return { commissionBase: base, commissionValue: base * rate, rateUsed: rate };
 };
 
-export const getInvoiceMonth = (d: string, c: number) => {
-    const date = new Date(d);
-    if (date.getDate() > c) {
-        date.setMonth(date.getMonth() + 1);
-    }
-    return date.toISOString().substring(0, 7);
+// Fix: Improved restoreItem to sync both local and Firestore DB
+export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
+  const col = type === 'SALE' ? "sales" : "transactions";
+  const updated = { ...item, deleted: false, updatedAt: new Date().toISOString() };
+  await dbPut(col as any, updated);
+  await updateDoc(doc(db, col, item.id), { deleted: false, updatedAt: serverTimestamp() });
+};
+
+// Fix: Improved permanentlyDeleteItem to sync both local and Firestore DB
+export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
+  const col = type === 'SALE' ? "sales" : "transactions";
+  await dbDelete(col as any, id);
+  await deleteDoc(doc(db, col, id));
 };
 
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
@@ -603,19 +550,191 @@ export const saveFinanceData = async (
     await batch.commit();
 };
 
-export const clearLocalCache = async () => {
-    const dbInstance = await initDB();
-    const stores = Array.from(dbInstance.objectStoreNames);
-    const tx = dbInstance.transaction(stores as any, 'readwrite');
-    for (const storeName of stores) {
-        await tx.objectStore(storeName as any).clear();
+export const hardResetLocalData = () => { localStorage.clear(); window.location.reload(); };
+export const findPotentialDuplicates = (sales: Sale[]): any[] => [];
+export const smartMergeSales = (sales: Sale[]): Sale => sales[0];
+
+// Fix: Added missing exportReportToCSV function
+export const exportReportToCSV = (data: any[], fileName: string) => {
+  if (!data.length) return;
+  const headers = Object.keys(data[0]).join(',');
+  const rows = data.map(row => 
+    Object.values(row).map(v => {
+      const s = String(v ?? '');
+      return `"${s.replace(/"/g, '""')}"`;
+    }).join(',')
+  ).join('\n');
+  const csvContent = "\uFEFF" + headers + "\n" + rows;
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute("download", `${fileName}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+// Fix: Added missing getInvoiceMonth function
+export const getInvoiceMonth = (dateStr: string, closingDay: number): string => {
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return new Date().toISOString().substring(0, 7);
+  const day = date.getDate();
+  const month = date.getMonth();
+  const year = date.getFullYear();
+
+  const invoiceDate = new Date(year, month, 1);
+  if (day >= closingDay) {
+    invoiceDate.setMonth(invoiceDate.getMonth() + 1);
+  }
+  return invoiceDate.toISOString().substring(0, 7);
+};
+
+// Fix: Added missing exportEncryptedBackup function
+export const exportEncryptedBackup = async (passphrase: string) => {
+  const data = {
+    sales: await dbGetAll('sales'),
+    accounts: await dbGetAll('accounts'),
+    cards: await dbGetAll('cards'),
+    transactions: await dbGetAll('transactions'),
+    categories: await dbGetAll('categories'),
+    goals: await dbGetAll('goals'),
+    challenges: await dbGetAll('challenges'),
+    challenge_cells: await dbGetAll('challenge_cells'),
+    receivables: await dbGetAll('receivables'),
+    clients: await dbGetAll('clients'),
+    config: await dbGetAll('config')
+  };
+  const json = JSON.stringify(data);
+  const encrypted = encryptData(json);
+  const blob = new Blob([encrypted], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `gestor360_backup_${new Date().getTime()}.v360`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
+// Fix: Added missing importEncryptedBackup function
+export const importEncryptedBackup = async (file: File, passphrase: string) => {
+  const text = await file.text();
+  const decrypted = decryptData(text);
+  if (!decrypted) throw new Error("Chave incorreta ou arquivo corrompido.");
+  const data = JSON.parse(decrypted);
+  
+  for (const store of Object.keys(data)) {
+    if (Array.isArray(data[store])) {
+      await dbBulkPut(store as any, data[store]);
     }
+  }
+};
+
+// Fix: Added missing clearAllSales function
+export const clearAllSales = async () => {
+    const dbInstance = await initDB();
+    const tx = dbInstance.transaction('sales', 'readwrite');
+    await tx.store.clear();
     await tx.done;
 };
 
-export const hardResetLocalData = () => { localStorage.clear(); window.location.reload(); };
-export const exportEncryptedBackup = async (p: string) => { alert("Recurso disponível em modo standalone."); };
-export const importEncryptedBackup = async (file: File, p: string) => {};
-export const clearAllSales = () => {};
-export const findPotentialDuplicates = (sales: Sale[]): any[] => [];
-export const smartMergeSales = (sales: Sale[]): Sale => sales[0];
+// Fix: Added missing generateChallengeCells function
+export const generateChallengeCells = (challengeId: string, targetValue: number, count: number, model: ChallengeModel): ChallengeCell[] => {
+  const cells: ChallengeCell[] = [];
+  const uid = requireAuthUid();
+  
+  for (let i = 1; i <= count; i++) {
+    let value = 0;
+    if (model === 'LINEAR') {
+      const sum = (count * (count + 1)) / 2;
+      const factor = targetValue / sum;
+      value = i * factor;
+    } else if (model === 'PROPORTIONAL') {
+      value = targetValue / count;
+    }
+    
+    cells.push({
+      id: crypto.randomUUID(),
+      challengeId,
+      number: i,
+      value: parseFloat(value.toFixed(2)),
+      status: 'PENDING',
+      userId: uid,
+      deleted: false
+    });
+  }
+  return cells;
+};
+
+// Fix: Added missing processFinanceImport function
+export const processFinanceImport = (data: any[][], mapping: any): Transaction[] => {
+  const result: Transaction[] = [];
+  const uid = requireAuthUid();
+  
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (!row || row.length === 0) continue;
+
+    const description = String(row[mapping.description] || '').trim();
+    if (!description) continue;
+
+    const amount = ensureNumber(row[mapping.amount]);
+    const type = row[mapping.type] 
+      ? (String(row[mapping.type]).toUpperCase().includes('RECEITA') || String(row[mapping.type]).toUpperCase().includes('ENTRADA') ? 'INCOME' : 'EXPENSE')
+      : (amount >= 0 ? 'INCOME' : 'EXPENSE');
+
+    const dateVal = row[mapping.date];
+    let dateStr = new Date().toISOString().split('T')[0];
+    if (dateVal instanceof Date) {
+      dateStr = dateVal.toISOString().split('T')[0];
+    } else if (dateVal) {
+      const s = String(dateVal).trim();
+      const pts = s.split('/');
+      if (pts.length === 3) dateStr = `${pts[2]}-${pts[1].padStart(2, '0')}-${pts[0].padStart(2, '0')}`;
+      else if (s.match(/^\d{4}-\d{2}-\d{2}$/)) dateStr = s;
+    }
+
+    result.push({
+      id: crypto.randomUUID(),
+      description,
+      amount: Math.abs(amount),
+      type: type as any,
+      date: dateStr,
+      accountId: '', 
+      categoryId: 'uncategorized',
+      isPaid: true,
+      createdAt: new Date().toISOString(),
+      userId: uid,
+      deleted: false
+    });
+  }
+  return result;
+};
+
+// Fix: Added missing getTrashItems function
+export const getTrashItems = async () => {
+  const sales = await dbGetAll('sales', (s) => !!s.deleted);
+  const transactions = await dbGetAll('transactions', (t) => !!t.deleted);
+  return { sales, transactions };
+};
+
+// Fix: Added missing getDeletedClients function
+export const getDeletedClients = async (): Promise<Client[]> => {
+  return await dbGetAll('clients', (c) => !!c.deleted);
+};
+
+// Fix: Added missing restoreClient function
+export const restoreClient = async (id: string) => {
+  const client = await dbGet('clients', id);
+  if (client) {
+    const updated = { ...client, deleted: false, updatedAt: new Date().toISOString() };
+    await dbPut('clients', updated);
+    await setDoc(doc(db, "clients", id), { ...updated, updatedAt: serverTimestamp() }, { merge: true });
+  }
+};
+
+// Fix: Added missing permanentlyDeleteClient function
+export const permanentlyDeleteClient = async (id: string) => {
+  await dbDelete('clients', id);
+  await deleteDoc(doc(db, "clients", id));
+};

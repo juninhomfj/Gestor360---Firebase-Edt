@@ -46,6 +46,7 @@ import {
 import { reloadSession, logout } from './services/auth';
 import { AudioService } from './services/audioService';
 import { auth as fbAuth } from './services/firebase';
+import { Logger } from './services/logger';
 
 type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'APP' | 'ERROR';
 
@@ -246,10 +247,11 @@ const App: React.FC = () => {
             });
 
             await saveSales(convertedSales);
-            addToast('SUCCESS', `${convertedSales.length} vendas sincronizadas com sucesso!`);
+            addToast('SUCCESS', `${convertedSales.length} vendas importadas com sucesso!`);
             await loadDataForUser();
-        } catch (e) {
-            addToast('ERROR', 'Falha ao processar salvamento em massa.');
+        } catch (e: any) {
+            Logger.error("Falha fatal no processamento em massa", { error: e.message });
+            addToast('ERROR', `Erro: ${e.message || 'Falha ao salvar dados.'}`);
         } finally {
             setLoading(false);
         }

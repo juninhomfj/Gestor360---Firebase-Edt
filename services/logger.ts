@@ -1,4 +1,3 @@
-
 import { dbPut, dbGetAll } from '../storage/db';
 import { LogEntry, LogLevel } from '../types';
 
@@ -6,17 +5,15 @@ const LOG_STORE = 'audit_log';
 
 export const Logger = {
     async log(level: LogLevel, message: string, details?: any) {
-        /* Fix: Updated log creation with correct properties */
         const entry: LogEntry = {
             timestamp: Date.now(),
             level,
             message,
-            details: details ? JSON.parse(JSON.stringify(details)) : undefined, // Safe copy
+            details: details ? JSON.parse(JSON.stringify(details)) : undefined, 
             userAgent: navigator.userAgent
         };
 
         try {
-            // Keep logs locally in IndexedDB
             await dbPut(LOG_STORE, entry);
             
             if (process.env.NODE_ENV === 'development') {
@@ -43,38 +40,38 @@ export const Logger = {
         this.log('CRASH', error.message, { stack: error.stack, componentStack });
     },
 
-    async getLogs(limit = 100): Promise<LogEntry[]> {
+    async getLogs(limit = 200): Promise<LogEntry[]> {
         try {
             const allLogs = await dbGetAll(LOG_STORE);
-            // Sort desc by timestamp
             return allLogs.sort((a: LogEntry, b: LogEntry) => b.timestamp - a.timestamp).slice(0, limit);
         } catch (e) {
             return [];
         }
     },
 
-    async exportLogsToDrive(): Promise<boolean> {
+    /**
+     * Gera um arquivo JSON para o usuário enviar ao desenvolvedor.
+     */
+    async downloadLogs() {
         try {
-            const logs = await this.getLogs(500); // Last 500 logs
-            // Safe timestamp without colons for filename
-            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-            const filename = `crash_report_${timestamp}.json`;
-            const content = JSON.stringify(logs, null, 2);
-            
-            // Download file locally
-            const blob = new Blob([content], { type: 'application/json' });
+            const logs = await this.getLogs(500);
+            const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = filename;
+            a.download = `gestor360_diag_${new Date().getTime()}.json`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
-            
+            URL.revokeObjectURL(url);
             return true;
         } catch (e) {
-            console.error("Erro ao exportar logs", e);
             return false;
         }
+    },
+
+    // Fix: Added exportLogsToDrive alias to downloadLogs function
+    async exportLogsToDrive() {
+        return this.downloadLogs();
     }
 };
