@@ -3,7 +3,8 @@ import { Transaction, TransactionCategory, FinanceAccount, ImportMapping } from 
 import { Filter, Trash2, CheckCircle2, Clock, PlayCircle, TrendingUp, TrendingDown, ArrowLeftRight, Paperclip, X, FileText, Image as ImageIcon, ChevronLeft, ChevronRight, Upload, Download, Loader2 } from 'lucide-react';
 import TransactionSettleModal from './TransactionSettleModal';
 import FinanceImportModal from './FinanceImportModal';
-import { generateFinanceTemplate, processFinanceImport, readExcelFile, exportReportToCSV, saveFinanceData } from '../services/logic';
+// Fixed: Removed generateFinanceTemplate as it is not exported from services/logic and not used in this component
+import { processFinanceImport, readExcelFile, exportReportToCSV, saveFinanceData } from '../services/logic';
 
 interface FinanceTransactionsListProps {
   transactions: Transaction[];

@@ -18,11 +18,12 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { getAuth } from "firebase/auth";
+import * as XLSX from 'xlsx';
 import { 
     User, Sale, Transaction, FinanceAccount, TransactionCategory, 
     Receivable, ReportConfig, SystemConfig, ProductType, CommissionRule, 
     CreditCard, ChallengeCell, FinancialPacing, ChallengeModel, Client, 
-    DuplicateGroup, ProductivityMetrics
+    DuplicateGroup, ProductivityMetrics, SaleFormData, SaleStatus
 } from '../types';
 
 /**
@@ -41,7 +42,10 @@ function requireAuthUid(): string {
 }
 
 function ensureNumber(value: any, fallback = 0): number {
-  const num = parseFloat(value);
+  if (typeof value === 'number') return value;
+  if (!value) return fallback;
+  const clean = String(value).replace(/[R$\s.]/g, '').replace(',', '.');
+  const num = parseFloat(clean);
   return !isNaN(num) ? num : fallback;
 }
 
@@ -364,8 +368,65 @@ export const generateChallengeCells = (challengeId: string, target: number, coun
  */
 
 export const readExcelFile = async (file: File): Promise<any[][]> => {
-    const text = await file.text();
-    return text.split('\n').map(line => line.split(/[,;]/));
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = e.target?.result;
+                const workbook = XLSX.read(data, { type: 'binary', cellDates: true });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                resolve(json as any[][]);
+            } catch (err) {
+                reject(err);
+            }
+        };
+        reader.onerror = reject;
+        reader.readAsBinaryString(file);
+    });
+};
+
+export const processSalesImport = (data: any[][], mapping: any): SaleFormData[] => {
+    const result: SaleFormData[] = [];
+    
+    // Pula o cabeçalho
+    for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (!row || row.length === 0) continue;
+
+        const client = String(row[mapping.client] || '').trim();
+        if (!client) continue;
+
+        const rawDate = row[mapping.date];
+        let dateStr = '';
+        if (rawDate instanceof Date) dateStr = rawDate.toISOString().split('T')[0];
+        else if (rawDate) dateStr = String(rawDate).trim();
+
+        const rawCompletion = row[mapping.completionDate];
+        let completionDate = dateStr;
+        if (rawCompletion instanceof Date) completionDate = rawCompletion.toISOString().split('T')[0];
+        else if (rawCompletion) completionDate = String(rawCompletion).trim();
+
+        const typeStr = String(row[mapping.type] || '').toUpperCase();
+        let type = ProductType.BASICA;
+        if (typeStr.includes('NATAL')) type = ProductType.NATAL;
+        else if (typeStr.includes('CUSTOM') || typeStr.includes('PERSONALIZADO')) type = ProductType.CUSTOM;
+
+        result.push({
+            client,
+            quantity: ensureNumber(row[mapping.quantity], 1),
+            type,
+            valueProposed: ensureNumber(row[mapping.valueProposed]),
+            valueSold: ensureNumber(row[mapping.valueSold]),
+            marginPercent: ensureNumber(row[mapping.margin]),
+            date: dateStr || undefined,
+            completionDate: completionDate || new Date().toISOString().split('T')[0],
+            isBilled: !!dateStr,
+            observations: String(row[mapping.obs] || '').trim()
+        });
+    }
+    return result;
 };
 
 export const processFinanceImport = (data: any[][], mapping: any): Transaction[] => {
@@ -376,10 +437,13 @@ export const processFinanceImport = (data: any[][], mapping: any): Transaction[]
         const row = data[i];
         if (row.length < 2) continue;
 
-        const date = row[mapping.date] || new Date().toISOString();
-        const description = row[mapping.description] || 'Importado';
-        const rawAmount = row[mapping.amount] || '0';
-        const amount = ensureNumber(rawAmount.replace(/[^\d.,-]/g, '').replace(',', '.'));
+        const rawDate = row[mapping.date];
+        let date = new Date().toISOString();
+        if (rawDate instanceof Date) date = rawDate.toISOString();
+        else if (rawDate) date = new Date(rawDate).toISOString();
+
+        const description = String(row[mapping.description] || 'Importado');
+        const amount = ensureNumber(row[mapping.amount]);
         
         if (amount === 0) continue;
 
@@ -388,7 +452,7 @@ export const processFinanceImport = (data: any[][], mapping: any): Transaction[]
             description,
             amount: Math.abs(amount),
             type: amount > 0 ? 'INCOME' : 'EXPENSE',
-            date: new Date(date).toISOString(),
+            date,
             categoryId: 'uncategorized',
             accountId: '', 
             isPaid: true,
@@ -403,15 +467,10 @@ export const processFinanceImport = (data: any[][], mapping: any): Transaction[]
 
 export const exportReportToCSV = (data: any[], filename: string) => {
     if (!data.length) return;
-    const headers = Object.keys(data[0]).join(';');
-    const rows = data.map(obj => Object.values(obj).join(';')).join('\n');
-    const csv = `${headers}\n${rows}`;
-    const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", `${filename}.csv`);
-    link.click();
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Relatorio");
+    XLSX.writeFile(wb, `${filename}.xlsx`);
 };
 
 export async function getTrashItems() {
@@ -475,12 +534,10 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
     };
     const colName = colMap[type];
     try {
-        // Busca apenas as regras ativas
         const q = query(collection(db, colName), where("isActive", "==", true));
         const snap = await getDocs(q);
         return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
     } catch (e) {
-        console.error(`[Rules] Erro ao carregar tabela ${type}:`, e);
         return [];
     }
 };
@@ -495,32 +552,16 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
     const batch = writeBatch(db);
 
     try {
-        // BUG FIX GHOST ROWS: 
-        // 1. Primeiro, buscamos TODOS os documentos da coleção para garantir limpeza total
         const currentSnap = await getDocs(collection(db, colName));
-        
-        // 2. Desativamos todos os registros existentes para evitar duplicatas visuais ou "zumbis"
         currentSnap.forEach(oldDoc => {
-            batch.update(oldDoc.ref, { 
-                isActive: false, 
-                updatedAt: serverTimestamp() 
-            });
+            batch.update(oldDoc.ref, { isActive: false, updatedAt: serverTimestamp() });
         });
-
-        // 3. Inserimos as novas regras (ou reativamos se o ID for o mesmo)
         rules.forEach(rule => {
             const ref = doc(db, colName, rule.id || crypto.randomUUID());
-            batch.set(ref, { 
-                ...rule, 
-                isActive: true, 
-                updatedAt: serverTimestamp() 
-            }, { merge: true });
+            batch.set(ref, { ...rule, isActive: true, updatedAt: serverTimestamp() }, { merge: true });
         });
-        
         await batch.commit();
-        console.info(`[Rules] Tabela ${type} sincronizada com sucesso.`);
     } catch (e) {
-        console.error(`[Rules] Falha crítica ao salvar tabela ${type}:`, e);
         throw e;
     }
 };
@@ -544,7 +585,5 @@ export const hardResetLocalData = () => { localStorage.clear(); window.location.
 export const exportEncryptedBackup = async (p: string) => { alert("Recurso disponível em modo standalone."); };
 export const importEncryptedBackup = async (file: File, p: string) => {};
 export const clearAllSales = () => {};
-export const generateFinanceTemplate = () => {};
-export const processSalesImport = (data: any[][], mapping: any): any[] => [];
 export const findPotentialDuplicates = (sales: Sale[]): any[] => [];
 export const smartMergeSales = (sales: Sale[]): Sale => sales[0];
