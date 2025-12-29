@@ -25,6 +25,9 @@ import ToastContainer, { ToastMessage } from './components/Toast';
 import SnowOverlay from './components/SnowOverlay';
 import DevRoadmap from './components/DevRoadmap';
 import SystemUpdateNotify from './components/SystemUpdateNotify';
+import BackupModal from './components/BackupModal';
+import BulkDateModal from './components/BulkDateModal';
+import ConfirmationModal from './components/ConfirmationModal';
 
 import {
     User, Sale, AppMode, AppTheme, FinanceAccount, Transaction, CreditCard,
@@ -37,7 +40,7 @@ import {
     getStoredSales, getFinanceData, getSystemConfig, getReportConfig,
     getStoredTable, saveFinanceData, saveSingleSale, getClients,
     saveCommissionRules, bootstrapProductionData, saveReportConfig,
-    saveSales, canAccess, computeCommissionValues
+    saveSales, canAccess, computeCommissionValues, clearLocalCache
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -55,6 +58,12 @@ const App: React.FC = () => {
     const [authView, setAuthView] = useState<AuthView>('LOGIN');
     const [authError, setAuthError] = useState<string | null>(null);
     const [updateAvailable, setUpdateAvailable] = useState(false);
+
+    // Estados de modais de configuração (Vendas)
+    const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+    const [isBulkDateModalOpen, setIsBulkDateModalOpen] = useState(false);
+    const [isClearLocalModalOpen, setIsClearLocalModalOpen] = useState(false);
+    const [editingSale, setEditingSale] = useState<Sale | null>(null);
 
     const [showSnow, setShowSnow] = useState(() => localStorage.getItem('sys_snow_enabled') === 'true');
 
@@ -233,11 +242,53 @@ const App: React.FC = () => {
             });
 
             await saveSales(convertedSales);
+            addToast('SUCCESS', `${convertedSales.length} vendas importadas e sincronizadas.`);
             await loadDataForUser();
         } catch (e) {
             addToast('ERROR', 'Falha ao processar salvamento em massa.');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleClearLocalData = async () => {
+        setLoading(true);
+        try {
+            await clearLocalCache();
+            await loadDataForUser();
+            addToast('SUCCESS', 'Cache local limpo. Dados recarregados da nuvem.');
+        } catch (e) {
+            addToast('ERROR', 'Falha ao limpar cache local.');
+        } finally {
+            setLoading(false);
+            setIsClearLocalModalOpen(false);
+        }
+    };
+
+    const handleBulkUpdateDate = async (targetDate: string, filterType: ProductType | 'ALL', launchDateFrom: string, onlyEmpty: boolean) => {
+        setLoading(true);
+        try {
+            const toUpdate = sales.filter(s => {
+                if (filterType !== 'ALL' && s.type !== filterType) return false;
+                if (onlyEmpty && s.date) return false;
+                const launchDate = s.createdAt.split('T')[0];
+                return launchDate >= launchDateFrom;
+            });
+
+            if (toUpdate.length === 0) {
+                addToast('INFO', 'Nenhuma venda encontrada com os filtros selecionados.');
+                return;
+            }
+
+            const updatedItems = toUpdate.map(s => ({ ...s, date: targetDate, isBilled: true }));
+            await saveSales(updatedItems);
+            addToast('SUCCESS', `${updatedItems.length} vendas faturadas em massa.`);
+            await loadDataForUser();
+        } catch (e) {
+            addToast('ERROR', 'Erro ao faturar em massa.');
+        } finally {
+            setLoading(false);
+            setIsBulkDateModalOpen(false);
         }
     };
 
@@ -341,24 +392,32 @@ const App: React.FC = () => {
                 return (
                     <SalesList
                         sales={sales}
-                        onEdit={(s) => { /* logic */ }}
+                        onEdit={(s) => { setEditingSale(s); setShowSalesForm(true); }}
                         onDelete={async (s) => {
                             await saveSingleSale({ ...s, deleted: true });
                             loadDataForUser();
                         }}
-                        onNew={() => setShowSalesForm(true)}
+                        onNew={() => { setEditingSale(null); setShowSalesForm(true); }}
                         onExportTemplate={handleExportSalesTemplate}
-                        onImportFile={async () => {}}
-                        onClearAll={() => {}}
-                        onRestore={() => {}}
-                        onOpenBulkAdvanced={() => {}}
+                        onImportFile={async () => {}} // Lógica delegada ao onBulkAdd
+                        onClearAll={() => setIsClearLocalModalOpen(true)}
+                        onRestore={() => setIsBackupModalOpen(true)}
+                        onOpenBulkAdvanced={() => setIsBulkDateModalOpen(true)}
                         onUndo={() => {}}
                         onBillSale={async (s, date) => {
                             await saveSingleSale({ ...s, date, isBilled: true });
                             loadDataForUser();
                         }}
-                        onBillBulk={() => {}}
-                        onDeleteBulk={() => {}}
+                        onBillBulk={async (ids, date) => {
+                            const toUpdate = sales.filter(s => ids.includes(s.id)).map(s => ({ ...s, date, isBilled: true }));
+                            await saveSales(toUpdate);
+                            loadDataForUser();
+                        }}
+                        onDeleteBulk={async (ids) => {
+                            const toUpdate = sales.filter(s => ids.includes(s.id)).map(s => ({ ...s, deleted: true }));
+                            await saveSales(toUpdate);
+                            loadDataForUser();
+                        }}
                         onRecalculate={handleRecalculatePending}
                         onBulkAdd={handleBulkAddSales}
                         hasUndo={false}
@@ -403,7 +462,8 @@ const App: React.FC = () => {
                         accounts={accounts} 
                         categories={categories} 
                         onDelete={async (id) => {
-                            await saveFinanceData(accounts, cards, transactions.filter(t => t.id !== id), categories);
+                            const updated = transactions.filter(t => t.id !== id).map(t => t.id === id ? {...t, deleted: true} : t);
+                            await saveFinanceData(accounts, cards, updated, categories);
                             loadDataForUser();
                         }} 
                         darkMode={theme !== 'neutral' && theme !== 'rose'} 
@@ -416,6 +476,7 @@ const App: React.FC = () => {
                         accounts={accounts} 
                         sales={sales}
                         onUpdate={async (items) => {
+                            // Lógica de atualização seria feita via logic.ts saveFinanceData modificado se necessário
                             loadDataForUser();
                         }}
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
@@ -499,7 +560,8 @@ const App: React.FC = () => {
             {showSalesForm && (
                 <SalesForm
                     isOpen={showSalesForm}
-                    onClose={() => setShowSalesForm(false)}
+                    onClose={() => { setShowSalesForm(false); setEditingSale(null); }}
+                    initialData={editingSale}
                     onSave={saveSingleSale}
                     onSaved={loadDataForUser}
                 />
@@ -519,6 +581,37 @@ const App: React.FC = () => {
                 />
             )}
 
+            {isBackupModalOpen && (
+                <BackupModal 
+                    isOpen={isBackupModalOpen} 
+                    onClose={() => setIsBackupModalOpen(false)} 
+                    mode="RESTORE" 
+                    onSuccess={() => {}} 
+                    onRestoreSuccess={loadDataForUser}
+                />
+            )}
+
+            {isBulkDateModalOpen && (
+                <BulkDateModal 
+                    isOpen={isBulkDateModalOpen} 
+                    onClose={() => setIsBulkDateModalOpen(false)} 
+                    onConfirm={handleBulkUpdateDate}
+                    darkMode={theme !== 'neutral' && theme !== 'rose'}
+                />
+            )}
+
+            {isClearLocalModalOpen && (
+                <ConfirmationModal 
+                    isOpen={isClearLocalModalOpen}
+                    onClose={() => setIsClearLocalModalOpen(false)}
+                    onConfirm={handleClearLocalData}
+                    title="Limpar Cache Local?"
+                    message="Isso apagará apenas os dados temporários salvos neste navegador. Seus dados na nuvem (Firebase) NÃO serão afetados e serão baixados novamente."
+                    type="WARNING"
+                    confirmText="Limpar e Sincronizar"
+                />
+            )}
+
             <Layout
                 currentUser={currentUser}
                 activeTab={activeTab} setActiveTab={setActiveTab}
@@ -526,7 +619,7 @@ const App: React.FC = () => {
                 currentTheme={theme} setTheme={setTheme}
                 darkMode={theme !== 'neutral' && theme !== 'rose'}
                 onLogout={logout}
-                onNewSale={() => setShowSalesForm(true)}
+                onNewSale={() => { setEditingSale(null); setShowSalesForm(true); }}
                 onNewIncome={() => setShowTxForm(true)}
                 onNewExpense={() => setShowTxForm(true)}
                 onNewTransfer={() => setShowTxForm(true)}

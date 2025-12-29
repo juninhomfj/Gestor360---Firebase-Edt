@@ -19,6 +19,7 @@ import {
 import { db } from "./firebase";
 import { getAuth } from "firebase/auth";
 import * as XLSX from 'xlsx';
+import { dbPut, dbBulkPut, dbGetAll, initDB } from '../storage/db';
 import { 
     User, Sale, Transaction, FinanceAccount, TransactionCategory, 
     Receivable, ReportConfig, SystemConfig, ProductType, CommissionRule, 
@@ -143,8 +144,10 @@ export async function bootstrapProductionData() {
 
 export async function saveSingleSale(payload: any) {
   const uid = requireAuthUid();
+  const saleId = payload.id || crypto.randomUUID();
   const sale = {
     ...payload,
+    id: saleId,
     userId: uid,
     valueSold: ensureNumber(payload.valueSold),
     marginPercent: ensureNumber(payload.marginPercent),
@@ -153,33 +156,47 @@ export async function saveSingleSale(payload: any) {
     deleted: payload.deleted || false,
     updatedAt: serverTimestamp()
   };
-  await setDoc(doc(db, "sales", payload.id || crypto.randomUUID()), sale, { merge: true });
+  
+  // Dupla escrita síncrona
+  await dbPut('sales', sale);
+  await setDoc(doc(db, "sales", saleId), sale, { merge: true });
 }
 
 export async function getStoredSales(): Promise<Sale[]> {
   const uid = requireAuthUid();
   try {
+      // Prioridade: Nuvem para sincronizar estados de importação
       const q = query(
         collection(db, "sales"), 
         where("userId", "==", uid), 
         where("deleted", "==", false)
       );
       const snap = await getDocs(q);
-      return snap.docs
-        .map(d => ({ id: d.id, ...d.data() } as Sale))
-        .sort((a, b) => {
-            const dateA = new Date(a.date || a.createdAt || 0).getTime();
-            const dateB = new Date(b.date || b.createdAt || 0).getTime();
-            return dateB - dateA;
-        });
+      const sales = snap.docs.map(d => ({ id: d.id, ...d.data() } as Sale));
+      
+      // Atualiza o banco local com os dados da nuvem
+      if (sales.length > 0) {
+          await dbBulkPut('sales', sales);
+      }
+      
+      return sales.sort((a, b) => {
+          const dateA = new Date(a.date || a.createdAt || 0).getTime();
+          const dateB = new Date(b.date || b.createdAt || 0).getTime();
+          return dateB - dateA;
+      });
   } catch (e) {
-      return [];
+      // Fallback para banco local se offline
+      return await dbGetAll('sales', (s) => !s.deleted);
   }
 }
 
 export const saveSales = async (sales: Sale[]) => {
     const uid = requireAuthUid();
     const batch = writeBatch(db);
+    
+    // Atualiza cache local instantaneamente
+    await dbBulkPut('sales', sales);
+
     sales.forEach(s => {
         batch.set(doc(db, "sales", s.id), { ...s, userId: uid, updatedAt: serverTimestamp() }, { merge: true });
     });
@@ -191,9 +208,11 @@ export const getClients = async (): Promise<Client[]> => {
     try {
         const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", false));
         const snap = await getDocs(q);
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+        const clients = snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
+        if (clients.length > 0) await dbBulkPut('clients', clients);
+        return clients;
     } catch (e) {
-        return [];
+        return await dbGetAll('clients', (c) => !c.deleted);
     }
 };
 
@@ -303,9 +322,9 @@ export async function getFinanceData() {
         const q = query(collection(db, col), where("userId", "==", uid), where("deleted", "==", false));
         const snap = await getDocs(q);
         result[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (result[col].length > 0) await dbBulkPut(col as any, result[col]);
     } catch (e: any) {
-        // Silencia erro de permissão se a coleção ainda não foi criada no firestore
-        result[col] = [];
+        result[col] = await dbGetAll(col as any, (i:any) => !i.deleted);
     }
   }
   return result;
@@ -572,11 +591,33 @@ export const saveFinanceData = async (
 ) => {
     const uid = requireAuthUid();
     const batch = writeBatch(db);
+    
+    // Atualiza local primeiro
+    await dbBulkPut('accounts', accounts);
+    await dbBulkPut('cards', cards);
+    await dbBulkPut('transactions', transactions);
+    await dbBulkPut('categories', categories);
+
     accounts.forEach(a => batch.set(doc(db, "accounts", a.id), { ...a, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
     cards.forEach(c => batch.set(doc(db, "cards", c.id), { ...c, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
     transactions.forEach(t => batch.set(doc(db, "transactions", t.id), { ...t, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
     categories.forEach(c => batch.set(doc(db, "categories", c.id), { ...c, updatedAt: serverTimestamp() }, { merge: true }));
     await batch.commit();
+};
+
+export const clearLocalCache = async () => {
+    const stores = [
+        'users', 'sales', 'accounts', 'transactions', 'clients', 
+        'client_transfer_requests', 'commission_basic', 'commission_natal', 
+        'commission_custom', 'config', 'cards', 'categories', 'goals', 
+        'challenges', 'challenge_cells', 'receivables', 'wa_contacts', 
+        'wa_tags', 'wa_campaigns', 'wa_queue', 'wa_manual_logs', 
+        'wa_campaign_stats', 'audit_log'
+    ];
+    const dbInstance = await initDB();
+    const tx = dbInstance.transaction(stores as any, 'readwrite');
+    await Promise.all(stores.map(s => tx.objectStore(s as any).clear()));
+    await tx.done;
 };
 
 export const hardResetLocalData = () => { localStorage.clear(); window.location.reload(); };
