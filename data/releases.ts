@@ -15,14 +15,14 @@ export const RELEASES: Release[] = [
     {
         version: "2.5.1",
         date: "27/02/2025",
-        title: "Robustez de Infraestrutura",
+        title: "Estabilidade de Deploy & Firestore Guard",
         type: "PATCH",
-        description: "Correção crítica no motor de persistência em lote e implementação de camada de segurança de dados.",
+        description: "Versão definitiva para produção com motor de sanitização e correção de sintaxe crítica.",
         changes: [
+            { type: "FIX", text: "Vercel: Corrigido erro de sintaxe 'Unexpected finally' que impedia o build de produção." },
             { type: "FIX", text: "Firestore: Resolvido erro 'Unsupported field value: undefined' que travava importações em massa." },
             { type: "NEW", text: "Segurança: Implementado 'Firestore Guard' (Sanitização) que limpa objetos antes da escrita na nuvem." },
-            { type: "IMPROVE", text: "Core: Otimização do Motor de Chunking para processar lotes de 450 registros com retry automático." },
-            { type: "FIX", text: "Vendas: Correção de tipagem no campo completionDate durante a conversão de planilhas." }
+            { type: "IMPROVE", text: "Core: Otimização do Motor de Chunking para processar lotes de 450 registros com retry automático." }
         ]
     },
     {

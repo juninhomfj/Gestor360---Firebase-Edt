@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 import Layout from './components/Layout';
@@ -223,9 +222,6 @@ const App: React.FC = () => {
                     rules
                 );
 
-                // Firestore não suporta 'undefined'. 
-                // Garantimos que campos opcionais sejam omitidos ou sejam strings/nulos.
-                // BUG FIX: Added completionDate to initial object literal as it is a required property in type Sale.
                 const saleObj: Sale = {
                     id: crypto.randomUUID(),
                     userId: uid,
@@ -247,7 +243,6 @@ const App: React.FC = () => {
                     deleted: false
                 };
 
-                // Adiciona datas apenas se existirem para evitar o erro 'undefined'
                 if (data.date) saleObj.date = data.date;
                 if (data.quoteDate) saleObj.quoteDate = data.quoteDate;
 
@@ -261,7 +256,6 @@ const App: React.FC = () => {
             Logger.error("Falha fatal no processamento em massa", { error: e.message });
             addToast('ERROR', `Erro: ${e.message || 'Falha ao salvar dados.'}`);
         } finally {
-            } finally {
             setLoading(false);
         }
     };
