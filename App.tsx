@@ -48,7 +48,8 @@ type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'APP' | 'ERROR';
 
 const App: React.FC = () => {
     const initRun = useRef(false);
-    const currentVersion = useRef<string>("2.5.0"); // Versão atual estática do bundle
+    // Versão do código atual rodando no navegador
+    const currentVersion = useRef<string>("2.5.1"); 
 
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
@@ -118,22 +119,25 @@ const App: React.FC = () => {
 
         const checkVersion = async () => {
             try {
-                // Fetch do metadata.json com cache-busting
+                // Fetch do metadata.json com cache-busting (timestamp t)
                 const response = await fetch(`/metadata.json?t=${Date.now()}`);
                 if (response.ok) {
                     const data = await response.json();
                     if (data.version && data.version !== currentVersion.current) {
-                        console.info(`[Update] Nova versão detectada: ${data.version}`);
+                        console.info(`[Update] Nova versão disponível no servidor: ${data.version}`);
                         setUpdateAvailable(true);
                     }
                 }
             } catch (e) {
-                console.warn("[Update] Falha ao verificar versão no servidor.");
+                console.warn("[Update] Falha silenciosa ao verificar versão.");
             }
         };
 
         // Verifica a cada 5 minutos
         const interval = setInterval(checkVersion, 1000 * 60 * 5);
+        // Verifica também ao montar
+        checkVersion(); 
+
         return () => clearInterval(interval);
     }, [authView]);
 
@@ -211,6 +215,7 @@ const App: React.FC = () => {
     };
 
     const handleSystemRefresh = () => {
+        // Recarrega a página mantendo a sessão do Firebase (armazenada em cookies/localStorage pelo SDK)
         window.location.reload();
     };
 
