@@ -46,7 +46,6 @@ function requireAuthUid(): string {
 function ensureNumber(value: any, fallback = 0): number {
   if (typeof value === 'number') return value;
   if (!value) return fallback;
-  // Limpa R$, pontos de milhar e troca vírgula por ponto
   const clean = String(value).replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
   const num = parseFloat(clean);
   return !isNaN(num) ? num : fallback;
@@ -162,7 +161,7 @@ export async function saveSingleSale(payload: any) {
   
   await dbPut('sales', sale);
   await setDoc(doc(db, "sales", saleId), sale, { merge: true });
-  Logger.info(`Venda individual salva: ${saleId}`, { clientId: sale.client });
+  Logger.info(`Venda individual salva: ${saleId}`, { client: sale.client });
 }
 
 export async function getStoredSales(): Promise<Sale[]> {
@@ -190,9 +189,6 @@ export async function getStoredSales(): Promise<Sale[]> {
   }
 }
 
-/**
- * Salva múltiplas vendas respeitando o limite de 500 do Firestore.
- */
 export const saveSales = async (sales: Sale[]) => {
     const uid = requireAuthUid();
     
@@ -201,7 +197,7 @@ export const saveSales = async (sales: Sale[]) => {
     Logger.info(`Iniciando salvamento em massa: ${sales.length} itens.`);
 
     // 2. Gravação em lotes (Firestore limit: 500)
-    const CHUNK_SIZE = 450; // Margem de segurança
+    const CHUNK_SIZE = 450; 
     for (let i = 0; i < sales.length; i += CHUNK_SIZE) {
         const chunk = sales.slice(i, i + CHUNK_SIZE);
         const batch = writeBatch(db);
@@ -215,7 +211,7 @@ export const saveSales = async (sales: Sale[]) => {
             await batch.commit();
             Logger.info(`Lote Firestore enviado: registros ${i} a ${i + chunk.length}`);
         } catch (e: any) {
-            Logger.error("Falha ao commitar lote no Firestore", { error: e.message, firstId: chunk[0]?.id });
+            Logger.error("Falha ao commitar lote no Firestore", { error: e.message });
             throw e;
         }
     }
@@ -275,11 +271,7 @@ export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
         else if (daysSinceLast > config.daysForInactive) status = 'INACTIVE';
         else if (daysSinceFirst <= config.daysForNewClient) status = 'NEW';
 
-        return {
-            ...c,
-            status,
-            daysSinceLastPurchase: daysSinceLast
-        };
+        return { ...c, status, daysSinceLastPurchase: daysSinceLast };
     });
 };
 
@@ -411,10 +403,7 @@ export const processSalesImport = (data: any[][], mapping: any): SaleFormData[] 
         if (!row || row.length === 0) continue;
 
         const client = String(row[mapping.client] || '').trim();
-        if (!client) {
-            Logger.warn(`Linha ${i} ignorada: Nome do cliente vazio.`);
-            continue;
-        }
+        if (!client) continue;
 
         const parseDate = (val: any) => {
             if (val instanceof Date) return val.toISOString().split('T')[0];
@@ -450,9 +439,64 @@ export const processSalesImport = (data: any[][], mapping: any): SaleFormData[] 
             Logger.error(`Erro ao processar linha ${i}`, { client, error: err.message });
         }
     }
-    
-    Logger.info(`Conversão concluída: ${result.length} vendas válidas encontradas.`);
     return result;
+};
+
+export const processFinanceImport = (data: any[][], mapping: any): Transaction[] => {
+  const result: Transaction[] = [];
+  const uid = requireAuthUid();
+  
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    if (!row || row.length === 0) continue;
+
+    const description = String(row[mapping.description] || '').trim();
+    if (!description) continue;
+
+    const amount = ensureNumber(row[mapping.amount]);
+    const type = row[mapping.type] 
+      ? (String(row[mapping.type]).toUpperCase().includes('RECEITA') ? 'INCOME' : 'EXPENSE')
+      : (amount >= 0 ? 'INCOME' : 'EXPENSE');
+
+    let dateStr = new Date().toISOString().split('T')[0];
+    const dateVal = row[mapping.date];
+    if (dateVal instanceof Date) dateStr = dateVal.toISOString().split('T')[0];
+    else if (dateVal) {
+      const s = String(dateVal).trim();
+      const pts = s.split('/');
+      if (pts.length === 3) dateStr = `${pts[2]}-${pts[1].padStart(2, '0')}-${pts[0].padStart(2, '0')}`;
+      else if (s.match(/^\d{4}-\d{2}-\d{2}$/)) dateStr = s;
+    }
+
+    result.push({
+      id: crypto.randomUUID(),
+      description,
+      amount: Math.abs(amount),
+      type: type as any,
+      date: dateStr,
+      accountId: '', 
+      categoryId: 'uncategorized',
+      isPaid: true,
+      createdAt: new Date().toISOString(),
+      userId: uid,
+      deleted: false
+    });
+  }
+  return result;
+};
+
+export const exportReportToCSV = (data: any[], fileName: string) => {
+  if (!data.length) return;
+  const headers = Object.keys(data[0]).join(',');
+  const rows = data.map(row => Object.values(row).map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+  const csvContent = "\uFEFF" + headers + "\n" + rows;
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.setAttribute("download", `${fileName}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 };
 
 export const clearLocalCache = async () => {
@@ -474,122 +518,15 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
   return { commissionBase: base, commissionValue: base * rate, rateUsed: rate };
 };
 
-// Fix: Improved restoreItem to sync both local and Firestore DB
-export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
-  const col = type === 'SALE' ? "sales" : "transactions";
-  const updated = { ...item, deleted: false, updatedAt: new Date().toISOString() };
-  await dbPut(col as any, updated);
-  await updateDoc(doc(db, col, item.id), { deleted: false, updatedAt: serverTimestamp() });
-};
-
-// Fix: Improved permanentlyDeleteItem to sync both local and Firestore DB
-export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
-  const col = type === 'SALE' ? "sales" : "transactions";
-  await dbDelete(col as any, id);
-  await deleteDoc(doc(db, col, id));
-};
-
-export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
-    const colMap: Record<ProductType, string> = {
-        [ProductType.BASICA]: 'commission_basic',
-        [ProductType.NATAL]: 'commission_natal',
-        [ProductType.CUSTOM]: 'commission_custom'
-    };
-    const colName = colMap[type];
-    try {
-        const q = query(collection(db, colName), where("isActive", "==", true));
-        const snap = await getDocs(q);
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
-    } catch (e) {
-        return [];
-    }
-};
-
-export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
-    const colMap: Record<ProductType, string> = {
-        [ProductType.BASICA]: 'commission_basic',
-        [ProductType.NATAL]: 'commission_natal',
-        [ProductType.CUSTOM]: 'commission_custom'
-    };
-    const colName = colMap[type];
-    const batch = writeBatch(db);
-
-    try {
-        const currentSnap = await getDocs(collection(db, colName));
-        currentSnap.forEach(oldDoc => {
-            batch.update(oldDoc.ref, { isActive: false, updatedAt: serverTimestamp() });
-        });
-        rules.forEach(rule => {
-            const ref = doc(db, colName, rule.id || crypto.randomUUID());
-            batch.set(ref, { ...rule, isActive: true, updatedAt: serverTimestamp() }, { merge: true });
-        });
-        await batch.commit();
-    } catch (e) {
-        throw e;
-    }
-};
-
-export const saveFinanceData = async (
-    accounts: FinanceAccount[], 
-    cards: CreditCard[], 
-    transactions: Transaction[], 
-    categories: TransactionCategory[]
-) => {
-    const uid = requireAuthUid();
-    const batch = writeBatch(db);
-    
-    await dbBulkPut('accounts', accounts);
-    await dbBulkPut('cards', cards);
-    await dbBulkPut('transactions', transactions);
-    await dbBulkPut('categories', categories);
-
-    accounts.forEach(a => batch.set(doc(db, "accounts", a.id), { ...a, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
-    cards.forEach(c => batch.set(doc(db, "cards", c.id), { ...c, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
-    transactions.forEach(t => batch.set(doc(db, "transactions", t.id), { ...t, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
-    categories.forEach(c => batch.set(doc(db, "categories", c.id), { ...c, updatedAt: serverTimestamp() }, { merge: true }));
-    await batch.commit();
-};
-
-export const hardResetLocalData = () => { localStorage.clear(); window.location.reload(); };
-export const findPotentialDuplicates = (sales: Sale[]): any[] => [];
-export const smartMergeSales = (sales: Sale[]): Sale => sales[0];
-
-// Fix: Added missing exportReportToCSV function
-export const exportReportToCSV = (data: any[], fileName: string) => {
-  if (!data.length) return;
-  const headers = Object.keys(data[0]).join(',');
-  const rows = data.map(row => 
-    Object.values(row).map(v => {
-      const s = String(v ?? '');
-      return `"${s.replace(/"/g, '""')}"`;
-    }).join(',')
-  ).join('\n');
-  const csvContent = "\uFEFF" + headers + "\n" + rows;
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.setAttribute("download", `${fileName}.csv`);
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
-
-// Fix: Added missing getInvoiceMonth function
 export const getInvoiceMonth = (dateStr: string, closingDay: number): string => {
   const date = new Date(dateStr);
   if (isNaN(date.getTime())) return new Date().toISOString().substring(0, 7);
   const day = date.getDate();
-  const month = date.getMonth();
-  const year = date.getFullYear();
-
-  const invoiceDate = new Date(year, month, 1);
-  if (day >= closingDay) {
-    invoiceDate.setMonth(invoiceDate.getMonth() + 1);
-  }
+  const invoiceDate = new Date(date.getFullYear(), date.getMonth(), 1);
+  if (day >= closingDay) invoiceDate.setMonth(invoiceDate.getMonth() + 1);
   return invoiceDate.toISOString().substring(0, 7);
 };
 
-// Fix: Added missing exportEncryptedBackup function
 export const exportEncryptedBackup = async (passphrase: string) => {
   const data = {
     sales: await dbGetAll('sales'),
@@ -616,21 +553,16 @@ export const exportEncryptedBackup = async (passphrase: string) => {
   document.body.removeChild(a);
 };
 
-// Fix: Added missing importEncryptedBackup function
 export const importEncryptedBackup = async (file: File, passphrase: string) => {
   const text = await file.text();
   const decrypted = decryptData(text);
   if (!decrypted) throw new Error("Chave incorreta ou arquivo corrompido.");
   const data = JSON.parse(decrypted);
-  
   for (const store of Object.keys(data)) {
-    if (Array.isArray(data[store])) {
-      await dbBulkPut(store as any, data[store]);
-    }
+    if (Array.isArray(data[store])) await dbBulkPut(store as any, data[store]);
   }
 };
 
-// Fix: Added missing clearAllSales function
 export const clearAllSales = async () => {
     const dbInstance = await initDB();
     const tx = dbInstance.transaction('sales', 'readwrite');
@@ -638,92 +570,27 @@ export const clearAllSales = async () => {
     await tx.done;
 };
 
-// Fix: Added missing generateChallengeCells function
 export const generateChallengeCells = (challengeId: string, targetValue: number, count: number, model: ChallengeModel): ChallengeCell[] => {
   const cells: ChallengeCell[] = [];
   const uid = requireAuthUid();
-  
   for (let i = 1; i <= count; i++) {
-    let value = 0;
-    if (model === 'LINEAR') {
-      const sum = (count * (count + 1)) / 2;
-      const factor = targetValue / sum;
-      value = i * factor;
-    } else if (model === 'PROPORTIONAL') {
-      value = targetValue / count;
-    }
-    
+    let value = model === 'LINEAR' ? (i * (targetValue / ((count * (count + 1)) / 2))) : (targetValue / count);
     cells.push({
-      id: crypto.randomUUID(),
-      challengeId,
-      number: i,
-      value: parseFloat(value.toFixed(2)),
-      status: 'PENDING',
-      userId: uid,
-      deleted: false
+      id: crypto.randomUUID(), challengeId, number: i, value: parseFloat(value.toFixed(2)),
+      status: 'PENDING', userId: uid, deleted: false
     });
   }
   return cells;
 };
 
-// Fix: Added missing processFinanceImport function
-export const processFinanceImport = (data: any[][], mapping: any): Transaction[] => {
-  const result: Transaction[] = [];
-  const uid = requireAuthUid();
-  
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    if (!row || row.length === 0) continue;
-
-    const description = String(row[mapping.description] || '').trim();
-    if (!description) continue;
-
-    const amount = ensureNumber(row[mapping.amount]);
-    const type = row[mapping.type] 
-      ? (String(row[mapping.type]).toUpperCase().includes('RECEITA') || String(row[mapping.type]).toUpperCase().includes('ENTRADA') ? 'INCOME' : 'EXPENSE')
-      : (amount >= 0 ? 'INCOME' : 'EXPENSE');
-
-    const dateVal = row[mapping.date];
-    let dateStr = new Date().toISOString().split('T')[0];
-    if (dateVal instanceof Date) {
-      dateStr = dateVal.toISOString().split('T')[0];
-    } else if (dateVal) {
-      const s = String(dateVal).trim();
-      const pts = s.split('/');
-      if (pts.length === 3) dateStr = `${pts[2]}-${pts[1].padStart(2, '0')}-${pts[0].padStart(2, '0')}`;
-      else if (s.match(/^\d{4}-\d{2}-\d{2}$/)) dateStr = s;
-    }
-
-    result.push({
-      id: crypto.randomUUID(),
-      description,
-      amount: Math.abs(amount),
-      type: type as any,
-      date: dateStr,
-      accountId: '', 
-      categoryId: 'uncategorized',
-      isPaid: true,
-      createdAt: new Date().toISOString(),
-      userId: uid,
-      deleted: false
-    });
-  }
-  return result;
-};
-
-// Fix: Added missing getTrashItems function
 export const getTrashItems = async () => {
   const sales = await dbGetAll('sales', (s) => !!s.deleted);
   const transactions = await dbGetAll('transactions', (t) => !!t.deleted);
   return { sales, transactions };
 };
 
-// Fix: Added missing getDeletedClients function
-export const getDeletedClients = async (): Promise<Client[]> => {
-  return await dbGetAll('clients', (c) => !!c.deleted);
-};
+export const getDeletedClients = async (): Promise<Client[]> => dbGetAll('clients', (c) => !!c.deleted);
 
-// Fix: Added missing restoreClient function
 export const restoreClient = async (id: string) => {
   const client = await dbGet('clients', id);
   if (client) {
@@ -733,8 +600,65 @@ export const restoreClient = async (id: string) => {
   }
 };
 
-// Fix: Added missing permanentlyDeleteClient function
 export const permanentlyDeleteClient = async (id: string) => {
   await dbDelete('clients', id);
   await deleteDoc(doc(db, "clients", id));
 };
+
+export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
+  const col = type === 'SALE' ? "sales" : "transactions";
+  const updated = { ...item, deleted: false, updatedAt: new Date().toISOString() };
+  await dbPut(col as any, updated);
+  await updateDoc(doc(db, col, item.id), { deleted: false, updatedAt: serverTimestamp() });
+};
+
+export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
+  const col = type === 'SALE' ? "sales" : "transactions";
+  await dbDelete(col as any, id);
+  await deleteDoc(doc(db, col, id));
+};
+
+export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
+    const colMap: Record<ProductType, string> = {
+        [ProductType.BASICA]: 'commission_basic', [ProductType.NATAL]: 'commission_natal', [ProductType.CUSTOM]: 'commission_custom'
+    };
+    const colName = colMap[type];
+    try {
+        const q = query(collection(db, colName), where("isActive", "==", true));
+        const snap = await getDocs(q);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
+    } catch (e) { return []; }
+};
+
+export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
+    const colMap: Record<ProductType, string> = {
+        [ProductType.BASICA]: 'commission_basic', [ProductType.NATAL]: 'commission_natal', [ProductType.CUSTOM]: 'commission_custom'
+    };
+    const colName = colMap[type];
+    const batch = writeBatch(db);
+    const currentSnap = await getDocs(collection(db, colName));
+    currentSnap.forEach(oldDoc => batch.update(oldDoc.ref, { isActive: false, updatedAt: serverTimestamp() }));
+    rules.forEach(rule => {
+        const ref = doc(db, colName, rule.id || crypto.randomUUID());
+        batch.set(ref, { ...rule, isActive: true, updatedAt: serverTimestamp() }, { merge: true });
+    });
+    await batch.commit();
+};
+
+export const saveFinanceData = async (acc: FinanceAccount[], cards: CreditCard[], trans: Transaction[], cats: TransactionCategory[]) => {
+    const uid = requireAuthUid();
+    const batch = writeBatch(db);
+    await dbBulkPut('accounts', acc);
+    await dbBulkPut('cards', cards);
+    await dbBulkPut('transactions', trans);
+    await dbBulkPut('categories', cats);
+    acc.forEach(a => batch.set(doc(db, "accounts", a.id), { ...a, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
+    cards.forEach(c => batch.set(doc(db, "cards", c.id), { ...c, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
+    trans.forEach(t => batch.set(doc(db, "transactions", t.id), { ...t, userId: uid, updatedAt: serverTimestamp() }, { merge: true }));
+    cats.forEach(c => batch.set(doc(db, "categories", c.id), { ...c, updatedAt: serverTimestamp() }, { merge: true }));
+    await batch.commit();
+};
+
+export const hardResetLocalData = () => { localStorage.clear(); window.location.reload(); };
+export const findPotentialDuplicates = (sales: Sale[]): any[] => [];
+export const smartMergeSales = (sales: Sale[]): Sale => sales[0];

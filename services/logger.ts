@@ -70,7 +70,7 @@ export const Logger = {
         }
     },
 
-    // Fix: Added exportLogsToDrive alias to downloadLogs function
+    // Alias para compatibilidade com Help.tsx
     async exportLogsToDrive() {
         return this.downloadLogs();
     }
