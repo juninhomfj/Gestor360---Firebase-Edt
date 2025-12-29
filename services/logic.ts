@@ -1,3 +1,4 @@
+
 import {
   collection,
   query,
@@ -153,8 +154,6 @@ export async function saveSingleSale(payload: any) {
 
 export async function getStoredSales(): Promise<Sale[]> {
   const uid = requireAuthUid();
-  // REMOVIDO orderBy para evitar necessidade de índices compostos dinâmicos.
-  // A ordenação agora é feita localmente para garantir funcionamento em qualquer ambiente.
   try {
       const q = query(
         collection(db, "sales"), 
@@ -417,7 +416,6 @@ export const exportReportToCSV = (data: any[], filename: string) => {
 
 export async function getTrashItems() {
   const uid = requireAuthUid();
-  // Removido orderBy para estabilidade
   try {
       const qSales = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", true));
       const qTrans = query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", true));
@@ -454,7 +452,6 @@ export async function permanentlyDeleteItem(type: 'SALE' | 'TRANSACTION', id: st
 }
 
 export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
-  // REGRA DE CÁLCULO MANTIDA - NÃO ALTERAR
   const base = valueProposed * quantity;
   const sortedRules = [...rules].sort((a,b) => b.minPercent - a.minPercent);
   const rule = sortedRules.find(r => margin >= r.minPercent);
@@ -478,10 +475,12 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
     };
     const colName = colMap[type];
     try {
+        // Busca apenas as regras ativas
         const q = query(collection(db, colName), where("isActive", "==", true));
         const snap = await getDocs(q);
         return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
     } catch (e) {
+        console.error(`[Rules] Erro ao carregar tabela ${type}:`, e);
         return [];
     }
 };
@@ -494,11 +493,36 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
     };
     const colName = colMap[type];
     const batch = writeBatch(db);
-    rules.forEach(rule => {
-        const ref = doc(db, colName, rule.id);
-        batch.set(ref, { ...rule, updatedAt: serverTimestamp() }, { merge: true });
-    });
-    await batch.commit();
+
+    try {
+        // BUG FIX GHOST ROWS: 
+        // 1. Primeiro, buscamos TODOS os documentos da coleção para garantir limpeza total
+        const currentSnap = await getDocs(collection(db, colName));
+        
+        // 2. Desativamos todos os registros existentes para evitar duplicatas visuais ou "zumbis"
+        currentSnap.forEach(oldDoc => {
+            batch.update(oldDoc.ref, { 
+                isActive: false, 
+                updatedAt: serverTimestamp() 
+            });
+        });
+
+        // 3. Inserimos as novas regras (ou reativamos se o ID for o mesmo)
+        rules.forEach(rule => {
+            const ref = doc(db, colName, rule.id || crypto.randomUUID());
+            batch.set(ref, { 
+                ...rule, 
+                isActive: true, 
+                updatedAt: serverTimestamp() 
+            }, { merge: true });
+        });
+        
+        await batch.commit();
+        console.info(`[Rules] Tabela ${type} sincronizada com sucesso.`);
+    } catch (e) {
+        console.error(`[Rules] Falha crítica ao salvar tabela ${type}:`, e);
+        throw e;
+    }
 };
 
 export const saveFinanceData = async (
