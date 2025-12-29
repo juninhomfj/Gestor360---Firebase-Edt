@@ -30,14 +30,14 @@ import {
     User, Sale, AppMode, AppTheme, FinanceAccount, Transaction, CreditCard,
     TransactionCategory, FinanceGoal, Challenge, ChallengeCell, Receivable,
     CommissionRule, ReportConfig, SalesTargets, ProductType,
-    DashboardWidgetConfig, Client
+    DashboardWidgetConfig, Client, SaleFormData
 } from './types';
 
 import {
     getStoredSales, getFinanceData, getSystemConfig, getReportConfig,
     getStoredTable, saveFinanceData, saveSingleSale, getClients,
     saveCommissionRules, bootstrapProductionData, saveReportConfig,
-    saveSales, canAccess
+    saveSales, canAccess, computeCommissionValues
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -48,7 +48,6 @@ type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'APP' | 'ERROR';
 
 const App: React.FC = () => {
     const initRun = useRef(false);
-    // Versão do código atual rodando no navegador
     const currentVersion = useRef<string>("2.5.1"); 
 
     const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -57,7 +56,6 @@ const App: React.FC = () => {
     const [authError, setAuthError] = useState<string | null>(null);
     const [updateAvailable, setUpdateAvailable] = useState(false);
 
-    // Neve State
     const [showSnow, setShowSnow] = useState(() => localStorage.getItem('sys_snow_enabled') === 'true');
 
     const toggleSnow = () => {
@@ -113,43 +111,31 @@ const App: React.FC = () => {
         showStats: true, showCharts: true, showRecents: true, showPacing: true, showBudgets: true
     });
 
-    // HEARTBEAT: Verificação de nova versão no servidor
     useEffect(() => {
         if (authView !== 'APP') return;
-
         const checkVersion = async () => {
             try {
-                // Fetch do metadata.json com cache-busting (timestamp t)
                 const response = await fetch(`/metadata.json?t=${Date.now()}`);
                 if (response.ok) {
                     const data = await response.json();
                     if (data.version && data.version !== currentVersion.current) {
-                        console.info(`[Update] Nova versão disponível no servidor: ${data.version}`);
                         setUpdateAvailable(true);
                     }
                 }
-            } catch (e) {
-                console.warn("[Update] Falha silenciosa ao verificar versão.");
-            }
+            } catch (e) {}
         };
-
-        // Verifica a cada 5 minutos
         const interval = setInterval(checkVersion, 1000 * 60 * 5);
-        // Verifica também ao montar
         checkVersion(); 
-
         return () => clearInterval(interval);
     }, [authView]);
 
     useEffect(() => {
         if (initRun.current) return;
         initRun.current = true;
-
         const init = async () => {
             try {
                 await AudioService.preload();
                 const sessionUser = await reloadSession();
-                
                 if (sessionUser) {
                     await handleLoginSuccess(sessionUser);
                 } else {
@@ -162,7 +148,6 @@ const App: React.FC = () => {
                     setLoading(false);
                 }
             } catch (e: any) {
-                console.error("Crash na inicialização:", e);
                 setAuthError("Conexão com o servidor falhou.");
                 setAuthView('ERROR');
                 setLoading(false);
@@ -175,7 +160,6 @@ const App: React.FC = () => {
         setCurrentUser(user);
         await bootstrapProductionData();
         await loadDataForUser();
-        
         setAuthView('APP');
         setLoading(false);
     };
@@ -192,9 +176,7 @@ const App: React.FC = () => {
                 getSystemConfig(),
                 getReportConfig()
             ]);
-
             if (sysCfg.theme) setTheme(sysCfg.theme);
-
             setSales(storedSales || []);
             setClients(storedClients || []);
             setAccounts(finData.accounts || []);
@@ -209,13 +191,107 @@ const App: React.FC = () => {
             setRulesNatal(rNatal || []);
             setRulesCustom(rCustom || []);
             setReportConfig(rConfig);
+        } catch (e) {}
+    };
+
+    const handleBulkAddSales = async (newSalesData: SaleFormData[]) => {
+        const uid = fbAuth.currentUser?.uid;
+        if (!uid) return;
+
+        try {
+            setLoading(true);
+            const convertedSales: Sale[] = newSalesData.map(data => {
+                const rules = data.type === ProductType.NATAL ? rulesNatal : rulesBasic;
+                const { commissionBase, commissionValue, rateUsed } = computeCommissionValues(
+                    data.quantity, 
+                    data.valueProposed, 
+                    data.marginPercent, 
+                    rules
+                );
+
+                return {
+                    id: crypto.randomUUID(),
+                    userId: uid,
+                    client: data.client,
+                    quantity: data.quantity,
+                    type: data.type,
+                    status: data.isBilled ? 'FATURADO' : 'ORÇAMENTO',
+                    valueProposed: data.valueProposed,
+                    valueSold: data.valueSold,
+                    marginPercent: data.marginPercent,
+                    commissionBaseTotal: commissionBase,
+                    commissionValueTotal: commissionValue,
+                    commissionRateUsed: rateUsed,
+                    date: data.date,
+                    completionDate: data.completionDate,
+                    isBilled: data.isBilled,
+                    hasNF: false,
+                    observations: data.observations,
+                    createdAt: new Date().toISOString(),
+                    deleted: false
+                };
+            });
+
+            await saveSales(convertedSales);
+            await loadDataForUser();
         } catch (e) {
-            console.error("Erro ao carregar dados do usuário:", e);
+            addToast('ERROR', 'Falha ao processar salvamento em massa.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleExportSalesTemplate = () => {
+        const headers = ["Cliente", "Quantidade", "Tipo (BASICA ou NATAL)", "Valor Unitario Proposto", "Valor Total Venda", "Margem (%)", "Data Faturamento (YYYY-MM-DD)", "Data Pedido (YYYY-MM-DD)", "Observacoes"];
+        const rows = [
+            ["Exemplo Cliente A", "10", "BASICA", "150.00", "1500.00", "5.0", "2024-03-15", "2024-03-01", "Pedido mensal padrão"],
+            ["Exemplo Cliente B", "50", "NATAL", "200.00", "10000.00", "8.5", "", "2024-11-20", "Reserva de final de ano"]
+        ];
+        const content = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+        const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.setAttribute("download", "modelo_importacao_vendas.csv");
+        link.click();
+    };
+
+    const handleRecalculatePending = async () => {
+        try {
+            setLoading(true);
+            const pendingSales = sales.filter(s => !s.date && !s.deleted);
+            if (pendingSales.length === 0) {
+                addToast('INFO', 'Nenhuma venda pendente para recalcular.');
+                return;
+            }
+
+            const updatedSales = pendingSales.map(sale => {
+                const rules = sale.type === ProductType.NATAL ? rulesNatal : rulesBasic;
+                const { commissionBase, commissionValue, rateUsed } = computeCommissionValues(
+                    sale.quantity, 
+                    sale.valueProposed, 
+                    sale.marginPercent, 
+                    rules
+                );
+                return {
+                    ...sale,
+                    commissionBaseTotal: commissionBase,
+                    commissionValueTotal: commissionValue,
+                    commissionRateUsed: rateUsed,
+                    updatedAt: new Date().toISOString()
+                };
+            });
+
+            await saveSales(updatedSales);
+            await loadDataForUser();
+            addToast('SUCCESS', `${updatedSales.length} vendas recalculadas com sucesso!`);
+        } catch (e) {
+            addToast('ERROR', 'Erro ao recalcular comissões.');
+        } finally {
+            setLoading(false);
         }
     };
 
     const handleSystemRefresh = () => {
-        // Recarrega a página mantendo a sessão do Firebase (armazenada em cookies/localStorage pelo SDK)
         window.location.reload();
     };
 
@@ -271,7 +347,7 @@ const App: React.FC = () => {
                             loadDataForUser();
                         }}
                         onNew={() => setShowSalesForm(true)}
-                        onExportTemplate={() => {}}
+                        onExportTemplate={handleExportSalesTemplate}
                         onImportFile={async () => {}}
                         onClearAll={() => {}}
                         onRestore={() => {}}
@@ -283,7 +359,8 @@ const App: React.FC = () => {
                         }}
                         onBillBulk={() => {}}
                         onDeleteBulk={() => {}}
-                        onRecalculate={() => {}}
+                        onRecalculate={handleRecalculatePending}
+                        onBulkAdd={handleBulkAddSales}
                         hasUndo={false}
                         onNotify={addToast}
                     />
