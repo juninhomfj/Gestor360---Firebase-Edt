@@ -51,6 +51,19 @@ function ensureNumber(value: any, fallback = 0): number {
   return !isNaN(num) ? num : fallback;
 }
 
+/**
+ * Remove chaves com valor 'undefined' de um objeto, pois o Firestore não os suporta.
+ */
+function sanitizeForFirestore(obj: any): any {
+    const cleaned: any = {};
+    Object.keys(obj).forEach(key => {
+        if (obj[key] !== undefined) {
+            cleaned[key] = obj[key];
+        }
+    });
+    return cleaned;
+}
+
 export const DEFAULT_PRODUCT_LABELS = { basica: 'Cesta Básica', natal: 'Cesta de Natal', custom: 'Personalizado' };
 export const DEFAULT_REPORT_CONFIG: ReportConfig = { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 };
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = { 
@@ -146,7 +159,7 @@ export async function bootstrapProductionData() {
 export async function saveSingleSale(payload: any) {
   const uid = requireAuthUid();
   const saleId = payload.id || crypto.randomUUID();
-  const sale = {
+  const sale = sanitizeForFirestore({
     ...payload,
     id: saleId,
     userId: uid,
@@ -157,7 +170,7 @@ export async function saveSingleSale(payload: any) {
     date: payload.date ? new Date(payload.date).toISOString() : null,
     deleted: payload.deleted || false,
     updatedAt: serverTimestamp()
-  };
+  });
   
   await dbPut('sales', sale);
   await setDoc(doc(db, "sales", saleId), sale, { merge: true });
@@ -204,7 +217,13 @@ export const saveSales = async (sales: Sale[]) => {
         
         chunk.forEach(s => {
             const { id, ...data } = s;
-            batch.set(doc(db, "sales", id), { ...data, userId: uid, updatedAt: serverTimestamp() }, { merge: true });
+            // Sanitização CRÍTICA para evitar erros de 'undefined' no WriteBatch
+            const sanitizedData = sanitizeForFirestore({ 
+                ...data, 
+                userId: uid, 
+                updatedAt: serverTimestamp() 
+            });
+            batch.set(doc(db, "sales", id), sanitizedData, { merge: true });
         });
 
         try {
@@ -430,7 +449,8 @@ export const processSalesImport = (data: any[][], mapping: any): SaleFormData[] 
                 valueProposed: ensureNumber(row[mapping.valueProposed]),
                 valueSold: ensureNumber(row[mapping.valueSold]),
                 marginPercent: ensureNumber(row[mapping.margin]),
-                date: dateStr || undefined,
+                // MUITO IMPORTANTE: Firestore não aceita undefined. Usar null.
+                date: dateStr || undefined, 
                 completionDate: completionDate,
                 isBilled: !!dateStr,
                 observations: String(row[mapping.obs] || '').trim()

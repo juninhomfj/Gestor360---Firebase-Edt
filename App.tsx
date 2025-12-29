@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 import Layout from './components/Layout';
@@ -222,7 +223,10 @@ const App: React.FC = () => {
                     rules
                 );
 
-                return {
+                // Firestore não suporta 'undefined'. 
+                // Garantimos que campos opcionais sejam omitidos ou sejam strings/nulos.
+                // BUG FIX: Added completionDate to initial object literal as it is a required property in type Sale.
+                const saleObj: Sale = {
                     id: crypto.randomUUID(),
                     userId: uid,
                     client: data.client,
@@ -235,14 +239,19 @@ const App: React.FC = () => {
                     commissionBaseTotal: commissionBase,
                     commissionValueTotal: commissionValue,
                     commissionRateUsed: rateUsed,
-                    date: data.date,
-                    completionDate: data.completionDate,
                     isBilled: data.isBilled,
+                    completionDate: data.completionDate,
                     hasNF: false,
-                    observations: data.observations,
+                    observations: data.observations || "",
                     createdAt: new Date().toISOString(),
                     deleted: false
                 };
+
+                // Adiciona datas apenas se existirem para evitar o erro 'undefined'
+                if (data.date) saleObj.date = data.date;
+                if (data.quoteDate) saleObj.quoteDate = data.quoteDate;
+
+                return saleObj;
             });
 
             await saveSales(convertedSales);
@@ -252,6 +261,7 @@ const App: React.FC = () => {
             Logger.error("Falha fatal no processamento em massa", { error: e.message });
             addToast('ERROR', `Erro: ${e.message || 'Falha ao salvar dados.'}`);
         } finally {
+            } finally {
             setLoading(false);
         }
     };
@@ -529,7 +539,7 @@ const App: React.FC = () => {
                         onSaveRules={async (type, rules) => {
                             try {
                                 await saveCommissionRules(type, rules);
-                                addToast('SUCCESS', `Tabela ${type} atualizada!`);
+                                addToast('SUCCESS', `Tabela ${type} actualizada!`);
                                 await loadDataForUser();
                             } catch (e) { addToast('ERROR', 'Erro ao salvar.'); }
                         }}
