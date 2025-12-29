@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { RefreshCw, AlertTriangle, Save, ShieldCheck } from 'lucide-react';
+import { RefreshCw, Save, ShieldCheck } from 'lucide-react';
 
 interface SystemUpdateNotifyProps {
   onUpdate: () => void;
@@ -10,41 +10,33 @@ interface SystemUpdateNotifyProps {
 const SystemUpdateNotify: React.FC<SystemUpdateNotifyProps> = ({ onUpdate, onDismiss }) => {
   return (
     <div className="fixed bottom-6 left-6 z-[100] max-w-sm animate-in slide-in-from-bottom-10 duration-500">
-        <div className="bg-white dark:bg-slate-800 border-2 border-emerald-500 rounded-2xl shadow-2xl overflow-hidden">
-            <div className="bg-emerald-600 p-3 flex items-center justify-between">
+        <div className="bg-white dark:bg-slate-900 border-2 border-indigo-500 rounded-2xl shadow-2xl overflow-hidden ring-4 ring-black/5">
+            <div className="bg-indigo-600 p-4 flex items-center justify-between">
                 <div className="flex items-center gap-2 text-white font-bold text-sm">
                     <RefreshCw size={18} className="animate-spin-slow" />
-                    Atualização Disponível
+                    Atualização Necessária
                 </div>
-                <button onClick={onDismiss} className="text-white/80 hover:text-white transition-colors">
-                    <span className="sr-only">Fechar</span>
+                <button onClick={onDismiss} className="text-white/80 hover:text-white transition-colors text-xl font-bold">
                     &times;
                 </button>
             </div>
             
-            <div className="p-5">
-                <p className="text-sm text-gray-600 dark:text-gray-300 mb-4 leading-relaxed">
-                    Uma nova versão do sistema foi detectada. Para garantir a integridade dos seus dados:
+            <div className="p-6">
+                <h4 className="font-bold text-gray-900 dark:text-white mb-2">Nova versão detectada!</h4>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 leading-relaxed">
+                    Salve seu trabalho atual e clique no botão abaixo para atualizar o sistema e garantir que tudo funcione corretamente.
                 </p>
-                
-                <ul className="space-y-2 mb-5">
-                    <li className="flex items-center gap-2 text-xs font-bold text-amber-600 dark:text-amber-400">
-                        <AlertTriangle size={14} /> 1. Salve seu trabalho atual.
-                    </li>
-                    <li className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400">
-                        <Save size={14} /> 2. Sincronize com a Nuvem.
-                    </li>
-                    <li className="flex items-center gap-2 text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                        <ShieldCheck size={14} /> 3. Clique em Atualizar.
-                    </li>
-                </ul>
 
                 <button 
                     onClick={onUpdate}
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-lg transition-all flex items-center justify-center gap-2"
+                    className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-xs uppercase tracking-widest shadow-lg transition-all flex items-center justify-center gap-2 active:scale-95"
                 >
-                    <RefreshCw size={16} /> Atualizar Sistema Agora
+                    <RefreshCw size={16} /> Atualizar Agora
                 </button>
+                
+                <p className="text-[10px] text-center text-gray-400 mt-4 uppercase font-bold tracking-tighter">
+                    O progresso não salvo pode ser perdido.
+                </p>
             </div>
         </div>
     </div>

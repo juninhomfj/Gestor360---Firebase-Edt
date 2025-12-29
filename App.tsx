@@ -24,6 +24,7 @@ import SettingsHub from './components/SettingsHub';
 import ToastContainer, { ToastMessage } from './components/Toast';
 import SnowOverlay from './components/SnowOverlay';
 import DevRoadmap from './components/DevRoadmap';
+import SystemUpdateNotify from './components/SystemUpdateNotify';
 
 import {
     User, Sale, AppMode, AppTheme, FinanceAccount, Transaction, CreditCard,
@@ -47,11 +48,13 @@ type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'APP' | 'ERROR';
 
 const App: React.FC = () => {
     const initRun = useRef(false);
+    const currentVersion = useRef<string>("2.5.0"); // Versão atual estática do bundle
 
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
     const [authView, setAuthView] = useState<AuthView>('LOGIN');
     const [authError, setAuthError] = useState<string | null>(null);
+    const [updateAvailable, setUpdateAvailable] = useState(false);
 
     // Neve State
     const [showSnow, setShowSnow] = useState(() => localStorage.getItem('sys_snow_enabled') === 'true');
@@ -108,6 +111,31 @@ const App: React.FC = () => {
     const [dashboardConfig, setDashboardConfig] = useState<DashboardWidgetConfig>({
         showStats: true, showCharts: true, showRecents: true, showPacing: true, showBudgets: true
     });
+
+    // HEARTBEAT: Verificação de nova versão no servidor
+    useEffect(() => {
+        if (authView !== 'APP') return;
+
+        const checkVersion = async () => {
+            try {
+                // Fetch do metadata.json com cache-busting
+                const response = await fetch(`/metadata.json?t=${Date.now()}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.version && data.version !== currentVersion.current) {
+                        console.info(`[Update] Nova versão detectada: ${data.version}`);
+                        setUpdateAvailable(true);
+                    }
+                }
+            } catch (e) {
+                console.warn("[Update] Falha ao verificar versão no servidor.");
+            }
+        };
+
+        // Verifica a cada 5 minutos
+        const interval = setInterval(checkVersion, 1000 * 60 * 5);
+        return () => clearInterval(interval);
+    }, [authView]);
 
     useEffect(() => {
         if (initRun.current) return;
@@ -180,6 +208,10 @@ const App: React.FC = () => {
         } catch (e) {
             console.error("Erro ao carregar dados do usuário:", e);
         }
+    };
+
+    const handleSystemRefresh = () => {
+        window.location.reload();
     };
 
     const addToast = (type: 'SUCCESS' | 'ERROR' | 'INFO', message: string) => {
@@ -374,6 +406,13 @@ const App: React.FC = () => {
         <div className={theme}>
             {showSnow && <SnowOverlay />}
             <ToastContainer toasts={toasts} removeToast={removeToast} />
+            
+            {updateAvailable && (
+                <SystemUpdateNotify 
+                    onUpdate={handleSystemRefresh} 
+                    onDismiss={() => setUpdateAvailable(false)} 
+                />
+            )}
 
             {showSalesForm && (
                 <SalesForm
