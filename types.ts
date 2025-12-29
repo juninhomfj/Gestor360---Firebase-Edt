@@ -2,7 +2,7 @@
 export type AppMode = 'SALES' | 'FINANCE' | 'WHATSAPP';
 export type AppTheme = 'glass' | 'neutral' | 'rose' | 'cyberpunk' | 'dark';
 export type UserRole = 'DEV' | 'ADMIN' | 'USER';
-export type UserStatus = 'ACTIVE' | 'INACTIVE';
+export type UserStatus = 'ACTIVE' | 'INACTIVE' | 'PENDING';
 
 export interface UserPermissions {
     sales: boolean;

@@ -1,3 +1,4 @@
+
 import {
     signInWithEmailAndPassword,
     signOut,
@@ -23,7 +24,7 @@ import {
 import { initializeApp } from "firebase/app";
 import { auth, db, firebaseConfig } from "./firebase";
 import { dbPut } from "../storage/db";
-import { User, UserRole, UserPermissions } from "../types";
+import { User, UserRole, UserPermissions, UserStatus } from "../types";
 
 // Instância secundária para criar usuários sem deslogar o Admin atual
 const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
@@ -45,18 +46,20 @@ async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null
         let profileSnap = await getDoc(profileRef);
 
         const isRoot = fbUser.email === 'admin@admin.com' || fbUser.email === 'dev@gestor360.com';
-        const defaultRole = isRoot ? 'DEV' : 'USER';
-        const defaultPerms = isRoot ? DEV_PERMISSIONS : DEFAULT_PERMISSIONS;
-
+        
         if (!profileSnap.exists()) {
+            const defaultRole = isRoot ? 'DEV' : 'USER';
+            const defaultPerms = isRoot ? DEV_PERMISSIONS : DEFAULT_PERMISSIONS;
+            const defaultStatus: UserStatus = isRoot ? 'ACTIVE' : 'PENDING';
+
             const newProfile = {
                 uid: fbUser.uid,
                 username: fbUser.email?.split('@')[0] || 'user',
                 name: fbUser.displayName || 'Novo Usuário',
                 email: fbUser.email!,
                 role: defaultRole,
-                isActive: true,
-                userStatus: 'ACTIVE',
+                isActive: isRoot, 
+                userStatus: defaultStatus,
                 theme: 'glass',
                 permissions: defaultPerms,
                 profilePhoto: "",
@@ -69,6 +72,7 @@ async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null
 
         const data = profileSnap.data()!;
         
+        // CORREÇÃO: Respeita estritamente o status do banco, sem fallback para ACTIVE se for novo
         const user: User = {
             id: fbUser.uid,
             uid: fbUser.uid,
@@ -78,7 +82,7 @@ async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null
             role: data.role,
             isActive: data.isActive,
             theme: data.theme || "glass",
-            userStatus: data.userStatus || "ACTIVE",
+            userStatus: data.userStatus || (data.isActive ? "ACTIVE" : "PENDING"),
             createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
             updatedAt: data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
             permissions: data.permissions,
@@ -86,9 +90,7 @@ async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null
             tel: data.tel || ""
         };
 
-        // Sync local cache
         await dbPut('users', user);
-        
         return user;
     } catch (e) {
         console.error("[Auth] Erro crítico ao carregar perfil:", e);
@@ -130,10 +132,13 @@ export const login = async (email: string, password?: string): Promise<{ user: U
         const userCredential = await signInWithEmailAndPassword(auth, email, password || "");
         const user = await getProfileFromFirebase(userCredential.user);
         
-        if (!user) return { user: null, error: "Erro ao sincronizar perfil corporativo." };
-        if (!user.isActive && user.role !== 'DEV') {
+        if (!user) return { user: null, error: "Erro ao sincronizar perfil." };
+        
+        // Bloqueia login se estiver INACTIVE (PENDING pode logar se tiver senha provisória, mas isActive deve ser false para impedir acesso pleno se desejado)
+        // No fluxo solicitado: PENDING é quem ainda não criou a senha.
+        if (user.userStatus === 'INACTIVE') {
             await signOut(auth);
-            return { user: null, error: "Acesso bloqueado. Contate o administrador." };
+            return { user: null, error: "Acesso bloqueado pelo administrador." };
         }
 
         localStorage.setItem("sys_session_v1", JSON.stringify(user));
@@ -156,10 +161,16 @@ export const listUsers = async (): Promise<User[]> => {
     try {
         const q = query(collection(db, "profiles"));
         const snap = await getDocs(q);
-        const users = snap.docs.map(d => ({ id: d.id, ...d.data() } as User));
-        return users.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        return snap.docs.map(d => {
+            const data = d.data();
+            return {
+                id: d.id,
+                ...data,
+                createdAt: data.createdAt?.toDate?.()?.toISOString(),
+                updatedAt: data.updatedAt?.toDate?.()?.toISOString(),
+            } as User;
+        }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     } catch (e: any) { 
-        console.error("[Auth] Erro ao listar usuários:", e.message);
         return []; 
     }
 };
@@ -175,8 +186,8 @@ export const createUser = async (adminId: string, userData: any) => {
         name: userData.name,
         email: userData.email,
         role: role,
-        isActive: true,
-        userStatus: 'ACTIVE',
+        isActive: false, 
+        userStatus: 'PENDING',
         permissions: role === 'DEV' ? DEV_PERMISSIONS : (userData.modules_config || DEFAULT_PERMISSIONS),
         profilePhoto: "",
         createdAt: serverTimestamp(),
@@ -188,14 +199,17 @@ export const createUser = async (adminId: string, userData: any) => {
 };
 
 export const updateUser = async (userId: string, data: any) => {
-    // 1. Update Firestore
     const userRef = doc(db, "profiles", userId);
+    
+    const updatePayload = { ...data };
+    if (data.isActive === true) updatePayload.userStatus = 'ACTIVE';
+    if (data.isActive === false) updatePayload.userStatus = 'INACTIVE';
+
     await updateDoc(userRef, { 
-        ...data, 
+        ...updatePayload, 
         updatedAt: serverTimestamp() 
     });
 
-    // 2. Update Local IndexedDB for DevRoadmap visibility
     const current = await getDoc(userRef);
     if (current.exists()) {
         const fullData = current.data();
@@ -216,6 +230,37 @@ export const deactivateUser = async (userId: string) => {
 
 export const sendPasswordResetEmailAction = async (email: string) => { await sendPasswordResetEmail(auth, email); };
 export const requestPasswordReset = async (email: string) => { await sendPasswordResetEmail(auth, email); };
+
+/**
+ * GATILHO DE ATIVAÇÃO:
+ * Quando o usuário altera a senha, assumimos que ele aceitou o convite.
+ */
 export const changePassword = async (userId: string, newPassword: string) => {
-    if (auth.currentUser?.uid === userId) await updatePassword(auth.currentUser, newPassword);
+    if (auth.currentUser?.uid === userId) {
+        // 1. Altera a senha no Auth
+        await updatePassword(auth.currentUser, newPassword);
+
+        // 2. Busca perfil atual
+        const userRef = doc(db, "profiles", userId);
+        const snap = await getDoc(userRef);
+        
+        if (snap.exists()) {
+            const data = snap.data();
+            // Se estava pendente, promove para Ativo agora que criou a senha
+            if (data.userStatus === 'PENDING') {
+                await updateDoc(userRef, {
+                    userStatus: 'ACTIVE',
+                    isActive: true,
+                    updatedAt: serverTimestamp()
+                });
+                
+                // Atualiza sessão local
+                const session = getSession();
+                if (session && session.id === userId) {
+                    const updated = { ...session, userStatus: 'ACTIVE' as UserStatus, isActive: true };
+                    localStorage.setItem("sys_session_v1", JSON.stringify(updated));
+                }
+            }
+        }
+    }
 };

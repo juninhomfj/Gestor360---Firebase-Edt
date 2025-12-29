@@ -4,7 +4,7 @@ import { User, UserRole, UserModules, UserStatus } from '../types';
 import { listUsers, createUser, updateUser } from '../services/auth';
 import { 
     Trash2, Plus, Shield, User as UserIcon, Mail, AlertTriangle, 
-    RefreshCw, Edit2, CheckSquare, Square, Loader2, Users, Send, UserCheck, UserX, Save, X 
+    RefreshCw, Edit2, CheckSquare, Square, Loader2, Users, Send, UserCheck, UserX, Save, X, Clock 
 } from 'lucide-react';
 
 interface AdminUsersProps {
@@ -83,7 +83,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                   role: newRole, 
                   modules_config: newModules 
               });
-              alert('Novo usuário criado no Firestore!');
+              alert('Convite enviado! Usuário ficará como PENDENTE até criar sua própria senha.');
           }
           resetForm();
           loadUsers();
@@ -99,14 +99,31 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
   };
 
   const handleToggleStatus = async (user: User) => {
-      const newStatus = !user.isActive;
-      if (!confirm(`Deseja ${newStatus ? 'Ativar' : 'Inativar'} o usuário ${user.name}?`)) return;
+      const isActivating = !user.isActive;
+      const msg = isActivating 
+        ? `Deseja ATIVAR o usuário ${user.name}?` 
+        : `Deseja BLOQUEAR o usuário ${user.name}?`;
+
+      if (!confirm(msg)) return;
       
       try {
-          await updateUser(user.id, { isActive: newStatus });
+          await updateUser(user.id, { isActive: isActivating });
           loadUsers();
       } catch (e) {
           alert("Erro ao alterar status.");
+      }
+  };
+
+  const getStatusBadge = (status: UserStatus) => {
+      switch (status) {
+          case 'ACTIVE': 
+            return <span className="flex items-center gap-1.5 text-emerald-500 font-black text-[10px] tracking-widest"><div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div> ATIVO</span>;
+          case 'PENDING': 
+            return <span className="flex items-center gap-1.5 text-amber-500 font-black text-[10px] tracking-widest"><Clock size={12}/> AGUARDANDO SENHA</span>;
+          case 'INACTIVE': 
+            return <span className="flex items-center gap-1.5 text-red-500 font-black text-[10px] tracking-widest"><div className="w-2 h-2 rounded-full bg-red-500"></div> BLOQUEADO</span>;
+          default: 
+            return <span className="text-gray-500 font-black text-[10px] tracking-widest">DESCONHECIDO</span>;
       }
   };
 
@@ -117,7 +134,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                 <h3 className="text-xl font-black text-gray-800 dark:text-white flex items-center gap-2">
                     <Users size={24} className="text-indigo-600"/> Gestão de Perfis (Profiles)
                 </h3>
-                <p className="text-xs text-gray-500 mt-1 uppercase font-bold tracking-widest opacity-60">Total de Usuários no Banco: {users.length}</p>
+                <p className="text-xs text-gray-500 mt-1 uppercase font-bold tracking-widest opacity-60">Usuários detectados no Firestore: {users.length}</p>
             </div>
             <div className="flex gap-2 w-full md:w-auto">
                 <button onClick={loadUsers} className="p-3 bg-gray-100 dark:bg-slate-800 rounded-xl hover:bg-gray-200 transition-colors">
@@ -127,7 +144,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                     onClick={() => { resetForm(); setIsFormOpen(true); }}
                     className="flex-1 md:flex-none bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95"
                 >
-                    <Plus size={20} /> Novo Usuário
+                    <Plus size={20} /> Adicionar Novo
                 </button>
             </div>
         </div>
@@ -208,7 +225,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800">
                         {users.map(u => (
-                            <tr key={u.id} className={`hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${!u.isActive ? 'opacity-40 grayscale' : ''}`}>
+                            <tr key={u.id} className={`hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors ${u.userStatus === 'INACTIVE' ? 'opacity-40 grayscale' : ''}`}>
                                 <td className="p-6">
                                     <div className="flex items-center gap-4">
                                         <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-black text-xl shadow-inner shrink-0">
@@ -226,16 +243,13 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                     <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest ${u.role === 'ADMIN' ? 'bg-amber-100 text-amber-700' : (u.role === 'DEV' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600')}`}>{u.role}</span>
                                 </td>
                                 <td className="p-6">
-                                    <div className="flex items-center gap-2">
-                                        <div className={`w-2 h-2 rounded-full ${u.isActive ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
-                                        <span className={`font-black text-[10px] tracking-widest ${u.isActive ? 'text-emerald-500' : 'text-red-500'}`}>{u.isActive ? 'ACTIVE' : 'BLOCKED'}</span>
-                                    </div>
+                                    {getStatusBadge(u.userStatus)}
                                 </td>
                                 <td className="p-6">
                                     <div className="flex justify-center gap-3">
                                         <button onClick={() => handleOpenEdit(u)} className="p-3 bg-gray-100 dark:bg-slate-800 text-indigo-500 rounded-xl hover:shadow-lg transition-all"><Edit2 size={18}/></button>
                                         <button onClick={() => handleToggleStatus(u)} className={`p-3 rounded-xl transition-all ${u.isActive ? 'bg-red-100 dark:bg-red-900/30 text-red-500' : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-500'}`}>
-                                            {u.isActive ? <UserX size={18}/> : <UserCheck size={18}/>}
+                                            {u.isActive ? <UserX size={18} title="Bloquear"/> : <UserCheck size={18} title="Desbloquear/Ativar"/>}
                                         </button>
                                     </div>
                                 </td>
@@ -244,7 +258,6 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                     </tbody>
                 </table>
             </div>
-            {!users.length && <div className="p-20 text-center text-gray-500 italic">Nenhum usuário encontrado na tabela Profiles.</div>}
         </div>
     </div>
   );
