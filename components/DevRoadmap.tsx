@@ -5,11 +5,10 @@ import {
     CheckCircle2, Cloud, Activity, 
     Shield, Download, FileJson, Copy, AlertTriangle, Trash2
 } from 'lucide-react';
-import { getStoredSales, getFinanceData } from '../services/logic';
-import { dbGetAll } from '../storage/db';
 import { db } from '../services/firebase';
 import { Logger } from '../services/logger';
 import { collection, onSnapshot, query, limit } from 'firebase/firestore';
+import { dbGetAll } from '../storage/db';
 
 const DevRoadmap: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'CLOUD' | 'DATABASE' | 'LOGS' | 'ROADMAP'>('CLOUD');
@@ -20,8 +19,6 @@ const DevRoadmap: React.FC = () => {
   const [tableData, setTableData] = useState<any[]>([]);
   const [selectedRow, setSelectedRow] = useState<any | null>(null);
   const [dbFilter, setDbFilter] = useState('');
-
-  // Estados dos Logs
   const [systemLogs, setSystemLogs] = useState<any[]>([]);
 
   const STORES = ['profiles', 'sales', 'clients', 'config', 'accounts', 'transactions', 'sync_queue'];
@@ -93,7 +90,7 @@ const DevRoadmap: React.FC = () => {
                     <p className="text-slate-400 mt-2 text-xs font-mono uppercase tracking-widest">Painel de Diagnóstico & Auditoria</p>
                 </div>
                 <div className="flex gap-2">
-                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-black border border-emerald-500/30">NATIVE SYNC</span>
+                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-black border border-emerald-500/30">v2.5.1 STABLE</span>
                 </div>
             </div>
         </div>
@@ -110,7 +107,7 @@ const DevRoadmap: React.FC = () => {
                 <StatusCard icon={<Cloud/>} title="Status API" value="CONECTADO" sub="Firestore Direct" color="blue" />
                 <StatusCard icon={<Activity/>} title="Tráfego Sessão" value={cloudTraffic.reads} sub={`Last: ${cloudTraffic.lastActivity}`} color="emerald" />
                 <StatusCard icon={<Server/>} title="Provedor" value="Google Cloud" sub="Multi-Region" color="amber" />
-                <StatusCard icon={<Shield/>} title="Segurança" value="Firebase Auth" sub="UID filtering" color="purple" />
+                <StatusCard icon={<Shield/>} title="Segurança" value="Firestore Guard" sub="Clean Writes Active" color="purple" />
             </div>
         )}
 
@@ -196,10 +193,10 @@ const DevRoadmap: React.FC = () => {
         
         {activeTab === 'ROADMAP' && (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 space-y-6">
-                <RoadmapItem done title="Motor de Chunking" desc="Lotes Firestore limitados a 500 registros." />
-                <RoadmapItem done title="Auditoria Granular" desc="Logs automáticos de cada linha importada." />
-                <RoadmapItem done title="Exportação Diagnóstica" desc="Geração de arquivo JSON para suporte." />
-                <RoadmapItem title="Validação de Tipos" desc="Sanitização forçada de tipos de dados antes da escrita." />
+                <RoadmapItem done title="Motor de Chunking" desc="Processamento de lotes Firestore com limite de 500 operações." />
+                <RoadmapItem done title="Auditoria Granular" desc="Logs detalhados de sessões de importação e diagnóstico remoto." />
+                <RoadmapItem done title="Firestore Guard (Sanitização)" desc="Intercepção de escritas para remover chaves 'undefined' que causam crash." />
+                <RoadmapItem done title="Restauração de Módulos" desc="Backups, DRE e Lixeira totalmente operacionais em Firebase Native." />
             </div>
         )}
     </div>
