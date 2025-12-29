@@ -1,3 +1,4 @@
+
 import { 
     collection, 
     doc, 
@@ -32,7 +33,7 @@ export const sendMessage = async (
         senderName: sender.name,
         recipientId,
         content,
-        image,
+        image: image || "", // Firestore não aceita undefined
         type,
         timestamp: new Date().toISOString(),
         read: false,
@@ -45,11 +46,23 @@ export const sendMessage = async (
     // 2. Salva no Firestore se disponível
     if (auth.currentUser) {
         try {
-            await setDoc(doc(db, "internal_messages", msg.id), {
-                ...msg,
+            // Cria objeto limpo para o Firestore
+            const payload: any = {
+                senderId: msg.senderId,
+                senderName: msg.senderName,
+                recipientId: msg.recipientId,
+                content: msg.content,
+                type: msg.type,
+                timestamp: msg.timestamp,
+                read: msg.read,
                 userId: auth.currentUser.uid,
                 createdAt: Timestamp.now()
-            });
+            };
+
+            if (msg.image) payload.image = msg.image;
+            if (msg.relatedModule) payload.relatedModule = msg.relatedModule;
+
+            await setDoc(doc(db, "internal_messages", msg.id), payload);
         } catch (e) {
             console.error("[Chat] Falha ao enviar para nuvem", e);
         }
@@ -81,7 +94,6 @@ export const subscribeToMessages = (
     isAdmin: boolean, 
     onNewMessage: (msg: InternalMessage) => void
 ) => {
-    // Build query based on relevance - removed orderBy to avoid index requirements
     const msgRef = collection(db, "internal_messages");
     
     const q = query(
@@ -99,7 +111,6 @@ export const subscribeToMessages = (
                     timestamp: data.timestamp || (data.createdAt as Timestamp)?.toDate().toISOString() || new Date().toISOString()
                 } as InternalMessage;
                 
-                // Client-side relevance check
                 const isRelevant = isAdmin || 
                                  newMsg.recipientId === userId || 
                                  newMsg.recipientId === 'BROADCAST' || 
@@ -115,7 +126,10 @@ export const subscribeToMessages = (
             }
         });
     }, (error) => {
-        console.warn("[Chat] Erro no listener (snapshot):", error.message);
+        // Silenciar erro de permissão para usuários sem chat habilitado
+        if (error.code !== 'permission-denied') {
+            console.warn("[Chat] Erro no listener (snapshot):", error.message);
+        }
     });
 
     return { unsubscribe };

@@ -173,7 +173,6 @@ export async function getStoredSales(): Promise<Sale[]> {
             return dateB - dateA;
         });
   } catch (e) {
-      console.error("[Sales] Erro ao carregar vendas:", e);
       return [];
   }
 }
@@ -304,8 +303,8 @@ export async function getFinanceData() {
         const q = query(collection(db, col), where("userId", "==", uid), where("deleted", "==", false));
         const snap = await getDocs(q);
         result[col] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    } catch (e) {
-        console.warn(`[Finance] Permissão ou índice faltando na coleção: ${col}`);
+    } catch (e: any) {
+        // Silencia erro de permissão se a coleção ainda não foi criada no firestore
         result[col] = [];
     }
   }
@@ -390,7 +389,6 @@ export const readExcelFile = async (file: File): Promise<any[][]> => {
 export const processSalesImport = (data: any[][], mapping: any): SaleFormData[] => {
     const result: SaleFormData[] = [];
     
-    // Pula o cabeçalho
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
         if (!row || row.length === 0) continue;

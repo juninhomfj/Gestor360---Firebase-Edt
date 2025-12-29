@@ -21,13 +21,13 @@ import {
     updateDoc
 } from "firebase/firestore";
 
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps } from "firebase/app";
 import { auth, db, firebaseConfig } from "./firebase";
 import { dbPut } from "../storage/db";
 import { User, UserRole, UserPermissions, UserStatus } from "../types";
 
 // Instância secundária para criar usuários sem deslogar o Admin atual
-const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
+const secondaryApp = getApps().find(a => a.name === "SecondaryApp") || initializeApp(firebaseConfig, "SecondaryApp");
 const secondaryAuth = getAuth(secondaryApp);
 
 const DEFAULT_PERMISSIONS: UserPermissions = {
@@ -72,7 +72,6 @@ async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null
 
         const data = profileSnap.data()!;
         
-        // CORREÇÃO: Respeita estritamente o status do banco, sem fallback para ACTIVE se for novo
         const user: User = {
             id: fbUser.uid,
             uid: fbUser.uid,
@@ -134,8 +133,6 @@ export const login = async (email: string, password?: string): Promise<{ user: U
         
         if (!user) return { user: null, error: "Erro ao sincronizar perfil." };
         
-        // Bloqueia login se estiver INACTIVE (PENDING pode logar se tiver senha provisória, mas isActive deve ser false para impedir acesso pleno se desejado)
-        // No fluxo solicitado: PENDING é quem ainda não criou a senha.
         if (user.userStatus === 'INACTIVE') {
             await signOut(auth);
             return { user: null, error: "Acesso bloqueado pelo administrador." };
@@ -176,6 +173,7 @@ export const listUsers = async (): Promise<User[]> => {
 };
 
 export const createUser = async (adminId: string, userData: any) => {
+    // Cria com senha temporária
     const userCredential = await createUserWithEmailAndPassword(secondaryAuth, userData.email, "Gestor360!");
     const fbUser = userCredential.user;
     const role: UserRole = userData.role || 'USER';
@@ -194,19 +192,35 @@ export const createUser = async (adminId: string, userData: any) => {
         updatedAt: serverTimestamp()
     });
 
+    // Envia link de reset imediatamente para ele criar a própria senha
+    await sendPasswordResetEmail(secondaryAuth, userData.email);
+
     await signOut(secondaryAuth);
+    return { success: true };
+};
+
+/**
+ * Reenvia o link de criação de senha (Reset Email)
+ */
+export const resendInvitation = async (email: string) => {
+    await sendPasswordResetEmail(auth, email);
     return { success: true };
 };
 
 export const updateUser = async (userId: string, data: any) => {
     const userRef = doc(db, "profiles", userId);
     
-    const updatePayload = { ...data };
-    if (data.isActive === true) updatePayload.userStatus = 'ACTIVE';
-    if (data.isActive === false) updatePayload.userStatus = 'INACTIVE';
+    // Limpeza de campos undefined para evitar erro de permissão/insufficient data do Firestore
+    const cleanData = Object.entries(data).reduce((acc, [key, value]) => {
+        if (value !== undefined) acc[key] = value;
+        return acc;
+    }, {} as any);
+
+    if (cleanData.isActive === true) cleanData.userStatus = 'ACTIVE';
+    if (cleanData.isActive === false) cleanData.userStatus = 'INACTIVE';
 
     await updateDoc(userRef, { 
-        ...updatePayload, 
+        ...cleanData, 
         updatedAt: serverTimestamp() 
     });
 
@@ -231,22 +245,14 @@ export const deactivateUser = async (userId: string) => {
 export const sendPasswordResetEmailAction = async (email: string) => { await sendPasswordResetEmail(auth, email); };
 export const requestPasswordReset = async (email: string) => { await sendPasswordResetEmail(auth, email); };
 
-/**
- * GATILHO DE ATIVAÇÃO:
- * Quando o usuário altera a senha, assumimos que ele aceitou o convite.
- */
 export const changePassword = async (userId: string, newPassword: string) => {
     if (auth.currentUser?.uid === userId) {
-        // 1. Altera a senha no Auth
         await updatePassword(auth.currentUser, newPassword);
-
-        // 2. Busca perfil atual
         const userRef = doc(db, "profiles", userId);
         const snap = await getDoc(userRef);
         
         if (snap.exists()) {
             const data = snap.data();
-            // Se estava pendente, promove para Ativo agora que criou a senha
             if (data.userStatus === 'PENDING') {
                 await updateDoc(userRef, {
                     userStatus: 'ACTIVE',
@@ -254,7 +260,6 @@ export const changePassword = async (userId: string, newPassword: string) => {
                     updatedAt: serverTimestamp()
                 });
                 
-                // Atualiza sessão local
                 const session = getSession();
                 if (session && session.id === userId) {
                     const updated = { ...session, userStatus: 'ACTIVE' as UserStatus, isActive: true };

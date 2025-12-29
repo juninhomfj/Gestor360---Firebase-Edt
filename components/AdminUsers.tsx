@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, UserModules, UserStatus } from '../types';
-import { listUsers, createUser, updateUser } from '../services/auth';
+import { listUsers, createUser, updateUser, resendInvitation } from '../services/auth';
 import { 
     Trash2, Plus, Shield, User as UserIcon, Mail, AlertTriangle, 
     RefreshCw, Edit2, CheckSquare, Square, Loader2, Users, Send, UserCheck, UserX, Save, X, Clock 
@@ -21,6 +21,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
   const [users, setUsers] = useState<User[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [sendingInviteId, setSendingInviteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   
   const [newName, setNewName] = useState('');
@@ -67,6 +68,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
   const handleSaveUser = async (e: React.FormEvent) => {
       e.preventDefault();
       setIsLoading(true);
+      setError('');
       try {
           if (editingId) {
               await updateUser(editingId, {
@@ -83,14 +85,26 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                   role: newRole, 
                   modules_config: newModules 
               });
-              alert('Convite enviado! Usuário ficará como PENDENTE até criar sua própria senha.');
+              alert('Convite enviado! O usuário recebeu um e-mail para criar sua senha.');
           }
           resetForm();
           loadUsers();
       } catch(e: any) {
-          setError(e.message);
+          setError(e.message || "Erro ao salvar usuário. Verifique permissões.");
       } finally {
           setIsLoading(false);
+      }
+  };
+
+  const handleResendInvite = async (user: User) => {
+      setSendingInviteId(user.id);
+      try {
+          await resendInvitation(user.email);
+          alert(`Link de criação de senha reenviado para ${user.email}`);
+      } catch (e) {
+          alert("Falha ao reenviar convite.");
+      } finally {
+          setSendingInviteId(null);
       }
   };
 
@@ -178,7 +192,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                             <label className="block text-xs font-black text-gray-500 uppercase mb-4 tracking-widest">Nível de Autoridade</label>
                             <div className="flex flex-wrap gap-4">
                                 {['USER', 'ADMIN', 'DEV'].map(r => (
-                                    <button key={r} type="button" onClick={() => setNewRole(r as any)} className={`flex-1 py-3 rounded-xl font-black text-xs transition-all border ${newRole === r ? 'bg-indigo-600 text-white border-indigo-600 shadow-xl' : 'bg-white dark:bg-slate-900 text-gray-400 border-gray-200 border-slate-800'}`}>{r}</button>
+                                    <button key={r} type="button" onClick={() => setNewRole(r as any)} className={`flex-1 py-3 rounded-xl font-black text-xs transition-all border ${newRole === r ? 'bg-indigo-600 text-white border-indigo-600 shadow-xl' : 'bg-white dark:bg-slate-900 text-gray-400 border-gray-200 dark:border-slate-800'}`}>{r}</button>
                                 ))}
                             </div>
                         </div>
@@ -190,7 +204,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                     key={mod}
                                     type="button"
                                     onClick={() => toggleModule(mod as keyof UserModules)}
-                                    className={`flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${newModules[mod as keyof UserModules] ? 'bg-emerald-500/10 border-emerald-500 shadow-md ring-1 ring-emerald-500/50' : 'bg-white dark:bg-slate-900 border-gray-200 border-slate-800'}`}
+                                    className={`flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${newModules[mod as keyof UserModules] ? 'bg-emerald-500/10 border-emerald-500 shadow-md ring-1 ring-emerald-500/50' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800'}`}
                                 >
                                     <div className={`w-5 h-5 rounded flex items-center justify-center border ${newModules[mod as keyof UserModules] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300'}`}>
                                         {newModules[mod as keyof UserModules] && <CheckSquare size={14}/>}
@@ -251,6 +265,17 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                 </td>
                                 <td className="p-6">
                                     <div className="flex justify-center gap-3">
+                                        {u.userStatus === 'PENDING' && (
+                                            <button 
+                                                onClick={() => handleResendInvite(u)} 
+                                                disabled={sendingInviteId === u.id}
+                                                className="p-3 bg-amber-100 dark:bg-amber-900/30 text-amber-600 rounded-xl hover:shadow-lg transition-all flex items-center gap-1"
+                                                title="Reenviar link de senha"
+                                            >
+                                                {sendingInviteId === u.id ? <Loader2 size={18} className="animate-spin"/> : <Send size={18}/>}
+                                                <span className="text-[10px] font-bold uppercase hidden lg:inline">Reenviar Link</span>
+                                            </button>
+                                        )}
                                         <button onClick={() => handleOpenEdit(u)} className="p-3 bg-gray-100 dark:bg-slate-800 text-indigo-500 rounded-xl hover:shadow-lg transition-all"><Edit2 size={18}/></button>
                                         <button onClick={() => handleToggleStatus(u)} className={`p-3 rounded-xl transition-all ${u.isActive ? 'bg-red-100 dark:bg-red-900/30 text-red-500' : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-500'}`}>
                                             {u.isActive ? <UserX size={18} title="Bloquear"/> : <UserCheck size={18} title="Desbloquear/Ativar"/>}
