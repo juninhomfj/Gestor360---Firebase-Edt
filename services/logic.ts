@@ -19,7 +19,7 @@ import {
 import { db } from "./firebase";
 import { getAuth } from "firebase/auth";
 import * as XLSX from 'xlsx';
-import { dbPut, dbBulkPut, dbGetAll, initDB } from '../storage/db';
+import { dbPut, dbBulkPut, dbGetAll, initDB, dbDelete } from '../storage/db';
 import { 
     User, Sale, Transaction, FinanceAccount, TransactionCategory, 
     Receivable, ReportConfig, SystemConfig, ProductType, CommissionRule, 
@@ -97,7 +97,7 @@ export const getUserPlanLabel = (user: User) => user.role;
 
 /**
  * ============================================================
- * BOOTSTRAP — IDEMPOTENTE
+ * BOOTSTRAP
  * ============================================================
  */
 
@@ -149,6 +149,7 @@ export async function saveSingleSale(payload: any) {
     ...payload,
     id: saleId,
     userId: uid,
+    valueProposed: ensureNumber(payload.valueProposed),
     valueSold: ensureNumber(payload.valueSold),
     marginPercent: ensureNumber(payload.marginPercent),
     commissionValueTotal: ensureNumber(payload.commissionValueTotal),
@@ -157,7 +158,6 @@ export async function saveSingleSale(payload: any) {
     updatedAt: serverTimestamp()
   };
   
-  // Dupla escrita síncrona
   await dbPut('sales', sale);
   await setDoc(doc(db, "sales", saleId), sale, { merge: true });
 }
@@ -165,7 +165,6 @@ export async function saveSingleSale(payload: any) {
 export async function getStoredSales(): Promise<Sale[]> {
   const uid = requireAuthUid();
   try {
-      // Prioridade: Nuvem para sincronizar estados de importação
       const q = query(
         collection(db, "sales"), 
         where("userId", "==", uid), 
@@ -174,7 +173,6 @@ export async function getStoredSales(): Promise<Sale[]> {
       const snap = await getDocs(q);
       const sales = snap.docs.map(d => ({ id: d.id, ...d.data() } as Sale));
       
-      // Atualiza o banco local com os dados da nuvem
       if (sales.length > 0) {
           await dbBulkPut('sales', sales);
       }
@@ -185,7 +183,6 @@ export async function getStoredSales(): Promise<Sale[]> {
           return dateB - dateA;
       });
   } catch (e) {
-      // Fallback para banco local se offline
       return await dbGetAll('sales', (s) => !s.deleted);
   }
 }
@@ -194,11 +191,11 @@ export const saveSales = async (sales: Sale[]) => {
     const uid = requireAuthUid();
     const batch = writeBatch(db);
     
-    // Atualiza cache local instantaneamente
     await dbBulkPut('sales', sales);
 
     sales.forEach(s => {
-        batch.set(doc(db, "sales", s.id), { ...s, userId: uid, updatedAt: serverTimestamp() }, { merge: true });
+        const { id, ...data } = s;
+        batch.set(doc(db, "sales", id), { ...data, userId: uid, updatedAt: serverTimestamp() }, { merge: true });
     });
     await batch.commit();
 };
@@ -415,20 +412,22 @@ export const processSalesImport = (data: any[][], mapping: any): SaleFormData[] 
         const client = String(row[mapping.client] || '').trim();
         if (!client) continue;
 
-        const rawDate = row[mapping.date];
-        let dateStr = '';
-        if (rawDate instanceof Date) dateStr = rawDate.toISOString().split('T')[0];
-        else if (rawDate) dateStr = String(rawDate).trim();
+        const parseDate = (val: any) => {
+            if (val instanceof Date) return val.toISOString().split('T')[0];
+            if (!val) return null;
+            const s = String(val).trim();
+            if (s.match(/^\d{4}-\d{2}-\d{2}$/)) return s;
+            const pts = s.split('/');
+            if (pts.length === 3) return `${pts[2]}-${pts[1].padStart(2, '0')}-${pts[0].padStart(2, '0')}`;
+            return null;
+        };
 
-        const rawCompletion = row[mapping.completionDate];
-        let completionDate = dateStr;
-        if (rawCompletion instanceof Date) completionDate = rawCompletion.toISOString().split('T')[0];
-        else if (rawCompletion) completionDate = String(rawCompletion).trim();
+        const dateStr = parseDate(row[mapping.date]);
+        const completionDate = parseDate(row[mapping.completionDate]) || new Date().toISOString().split('T')[0];
 
         const typeStr = String(row[mapping.type] || '').toUpperCase();
         let type = ProductType.BASICA;
         if (typeStr.includes('NATAL')) type = ProductType.NATAL;
-        else if (typeStr.includes('CUSTOM') || typeStr.includes('PERSONALIZADO')) type = ProductType.CUSTOM;
 
         result.push({
             client,
@@ -438,7 +437,7 @@ export const processSalesImport = (data: any[][], mapping: any): SaleFormData[] 
             valueSold: ensureNumber(row[mapping.valueSold]),
             marginPercent: ensureNumber(row[mapping.margin]),
             date: dateStr || undefined,
-            completionDate: completionDate || new Date().toISOString().split('T')[0],
+            completionDate: completionDate,
             isBilled: !!dateStr,
             observations: String(row[mapping.obs] || '').trim()
         });
@@ -592,7 +591,6 @@ export const saveFinanceData = async (
     const uid = requireAuthUid();
     const batch = writeBatch(db);
     
-    // Atualiza local primeiro
     await dbBulkPut('accounts', accounts);
     await dbBulkPut('cards', cards);
     await dbBulkPut('transactions', transactions);
@@ -606,17 +604,12 @@ export const saveFinanceData = async (
 };
 
 export const clearLocalCache = async () => {
-    const stores = [
-        'users', 'sales', 'accounts', 'transactions', 'clients', 
-        'client_transfer_requests', 'commission_basic', 'commission_natal', 
-        'commission_custom', 'config', 'cards', 'categories', 'goals', 
-        'challenges', 'challenge_cells', 'receivables', 'wa_contacts', 
-        'wa_tags', 'wa_campaigns', 'wa_queue', 'wa_manual_logs', 
-        'wa_campaign_stats', 'audit_log'
-    ];
     const dbInstance = await initDB();
+    const stores = Array.from(dbInstance.objectStoreNames);
     const tx = dbInstance.transaction(stores as any, 'readwrite');
-    await Promise.all(stores.map(s => tx.objectStore(s as any).clear()));
+    for (const storeName of stores) {
+        await tx.objectStore(storeName as any).clear();
+    }
     await tx.done;
 };
 

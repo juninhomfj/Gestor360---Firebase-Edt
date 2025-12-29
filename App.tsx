@@ -51,6 +51,7 @@ type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'APP' | 'ERROR';
 
 const App: React.FC = () => {
     const initRun = useRef(false);
+    const versionCheckFailed = useRef(false);
     const currentVersion = useRef<string>("2.5.1"); 
 
     const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -59,7 +60,6 @@ const App: React.FC = () => {
     const [authError, setAuthError] = useState<string | null>(null);
     const [updateAvailable, setUpdateAvailable] = useState(false);
 
-    // Estados de modais de configuração (Vendas)
     const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
     const [isBulkDateModalOpen, setIsBulkDateModalOpen] = useState(false);
     const [isClearLocalModalOpen, setIsClearLocalModalOpen] = useState(false);
@@ -121,7 +121,7 @@ const App: React.FC = () => {
     });
 
     useEffect(() => {
-        if (authView !== 'APP') return;
+        if (authView !== 'APP' || versionCheckFailed.current) return;
         const checkVersion = async () => {
             try {
                 const response = await fetch(`/metadata.json?t=${Date.now()}`);
@@ -130,10 +130,14 @@ const App: React.FC = () => {
                     if (data.version && data.version !== currentVersion.current) {
                         setUpdateAvailable(true);
                     }
+                } else {
+                    versionCheckFailed.current = true;
                 }
-            } catch (e) {}
+            } catch (e) {
+                versionCheckFailed.current = true;
+            }
         };
-        const interval = setInterval(checkVersion, 1000 * 60 * 5);
+        const interval = setInterval(checkVersion, 1000 * 60 * 15);
         checkVersion(); 
         return () => clearInterval(interval);
     }, [authView]);
@@ -242,7 +246,7 @@ const App: React.FC = () => {
             });
 
             await saveSales(convertedSales);
-            addToast('SUCCESS', `${convertedSales.length} vendas importadas e sincronizadas.`);
+            addToast('SUCCESS', `${convertedSales.length} vendas sincronizadas com sucesso!`);
             await loadDataForUser();
         } catch (e) {
             addToast('ERROR', 'Falha ao processar salvamento em massa.');
@@ -256,7 +260,7 @@ const App: React.FC = () => {
         try {
             await clearLocalCache();
             await loadDataForUser();
-            addToast('SUCCESS', 'Cache local limpo. Dados recarregados da nuvem.');
+            addToast('SUCCESS', 'Cache local limpo. Dados recarregados do Firebase.');
         } catch (e) {
             addToast('ERROR', 'Falha ao limpar cache local.');
         } finally {
@@ -276,16 +280,21 @@ const App: React.FC = () => {
             });
 
             if (toUpdate.length === 0) {
-                addToast('INFO', 'Nenhuma venda encontrada com os filtros selecionados.');
+                addToast('INFO', 'Nenhuma venda atende aos critérios.');
                 return;
             }
 
-            const updatedItems = toUpdate.map(s => ({ ...s, date: targetDate, isBilled: true }));
+            const updatedItems = toUpdate.map(s => ({ 
+                ...s, 
+                date: targetDate, 
+                isBilled: true,
+                updatedAt: new Date().toISOString()
+            }));
             await saveSales(updatedItems);
-            addToast('SUCCESS', `${updatedItems.length} vendas faturadas em massa.`);
+            addToast('SUCCESS', `${updatedItems.length} vendas faturadas.`);
             await loadDataForUser();
         } catch (e) {
-            addToast('ERROR', 'Erro ao faturar em massa.');
+            addToast('ERROR', 'Erro no faturamento em massa.');
         } finally {
             setLoading(false);
             setIsBulkDateModalOpen(false);
@@ -311,7 +320,7 @@ const App: React.FC = () => {
             setLoading(true);
             const pendingSales = sales.filter(s => !s.date && !s.deleted);
             if (pendingSales.length === 0) {
-                addToast('INFO', 'Nenhuma venda pendente para recalcular.');
+                addToast('INFO', 'Sem vendas pendentes para recalcular.');
                 return;
             }
 
@@ -334,9 +343,9 @@ const App: React.FC = () => {
 
             await saveSales(updatedSales);
             await loadDataForUser();
-            addToast('SUCCESS', `${updatedSales.length} vendas recalculadas com sucesso!`);
+            addToast('SUCCESS', `${updatedSales.length} cálculos atualizados!`);
         } catch (e) {
-            addToast('ERROR', 'Erro ao recalcular comissões.');
+            addToast('ERROR', 'Erro no recálculo.');
         } finally {
             setLoading(false);
         }
@@ -399,7 +408,7 @@ const App: React.FC = () => {
                         }}
                         onNew={() => { setEditingSale(null); setShowSalesForm(true); }}
                         onExportTemplate={handleExportSalesTemplate}
-                        onImportFile={async () => {}} // Lógica delegada ao onBulkAdd
+                        onImportFile={async () => {}} // Via onBulkAdd
                         onClearAll={() => setIsClearLocalModalOpen(true)}
                         onRestore={() => setIsBackupModalOpen(true)}
                         onOpenBulkAdvanced={() => setIsBulkDateModalOpen(true)}
@@ -462,7 +471,7 @@ const App: React.FC = () => {
                         accounts={accounts} 
                         categories={categories} 
                         onDelete={async (id) => {
-                            const updated = transactions.filter(t => t.id !== id).map(t => t.id === id ? {...t, deleted: true} : t);
+                            const updated = transactions.map(t => t.id === id ? {...t, deleted: true} : t);
                             await saveFinanceData(accounts, cards, updated, categories);
                             loadDataForUser();
                         }} 
@@ -476,7 +485,6 @@ const App: React.FC = () => {
                         accounts={accounts} 
                         sales={sales}
                         onUpdate={async (items) => {
-                            // Lógica de atualização seria feita via logic.ts saveFinanceData modificado se necessário
                             loadDataForUser();
                         }}
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
@@ -528,7 +536,7 @@ const App: React.FC = () => {
                             try {
                                 await saveReportConfig(config);
                                 setReportConfig(config);
-                                addToast('SUCCESS', 'Parâmetros de relatório atualizados!');
+                                addToast('SUCCESS', 'Parâmetros atualizados!');
                             } catch (e) { addToast('ERROR', 'Falha ao salvar configurações.'); }
                         }}
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
@@ -606,7 +614,7 @@ const App: React.FC = () => {
                     onClose={() => setIsClearLocalModalOpen(false)}
                     onConfirm={handleClearLocalData}
                     title="Limpar Cache Local?"
-                    message="Isso apagará apenas os dados temporários salvos neste navegador. Seus dados na nuvem (Firebase) NÃO serão afetados e serão baixados novamente."
+                    message="Isso apagará o cache deste navegador. Seus dados no Firebase NÃO serão afetados e serão baixados novamente."
                     type="WARNING"
                     confirmText="Limpar e Sincronizar"
                 />
