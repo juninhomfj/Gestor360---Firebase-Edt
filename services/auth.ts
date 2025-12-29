@@ -1,4 +1,3 @@
-
 import {
     signInWithEmailAndPassword,
     signOut,
@@ -26,7 +25,6 @@ import { auth, db, firebaseConfig } from "./firebase";
 import { dbPut } from "../storage/db";
 import { User, UserRole, UserPermissions, UserStatus } from "../types";
 
-// Instância secundária para criar usuários sem deslogar o Admin atual
 const secondaryApp = getApps().find(a => a.name === "SecondaryApp") || initializeApp(firebaseConfig, "SecondaryApp");
 const secondaryAuth = getAuth(secondaryApp);
 
@@ -130,18 +128,14 @@ export const login = async (email: string, password?: string): Promise<{ user: U
     try {
         const userCredential = await signInWithEmailAndPassword(auth, email, password || "");
         const user = await getProfileFromFirebase(userCredential.user);
-        
         if (!user) return { user: null, error: "Erro ao sincronizar perfil." };
-        
         if (user.userStatus === 'INACTIVE') {
             await signOut(auth);
             return { user: null, error: "Acesso bloqueado pelo administrador." };
         }
-
         localStorage.setItem("sys_session_v1", JSON.stringify(user));
         return { user };
     } catch (e: any) {
-        console.error("[Auth] Erro login:", e);
         let msg = "Falha na autenticação.";
         if (e.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
         return { user: null, error: msg };
@@ -167,13 +161,10 @@ export const listUsers = async (): Promise<User[]> => {
                 updatedAt: data.updatedAt?.toDate?.()?.toISOString(),
             } as User;
         }).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-    } catch (e: any) { 
-        return []; 
-    }
+    } catch (e: any) { return []; }
 };
 
 export const createUser = async (adminId: string, userData: any) => {
-    // Cria com senha temporária
     const userCredential = await createUserWithEmailAndPassword(secondaryAuth, userData.email, "Gestor360!");
     const fbUser = userCredential.user;
     const role: UserRole = userData.role || 'USER';
@@ -192,27 +183,30 @@ export const createUser = async (adminId: string, userData: any) => {
         updatedAt: serverTimestamp()
     });
 
-    // Envia link de reset imediatamente para ele criar a própria senha
     await sendPasswordResetEmail(secondaryAuth, userData.email);
-
     await signOut(secondaryAuth);
     return { success: true };
 };
 
-/**
- * Reenvia o link de criação de senha (Reset Email)
- */
 export const resendInvitation = async (email: string) => {
     await sendPasswordResetEmail(auth, email);
     return { success: true };
 };
 
+/**
+ * Atualiza dados do usuário no Firestore.
+ * Filtra metadados e garante apenas gravação de campos permitidos.
+ */
 export const updateUser = async (userId: string, data: any) => {
     const userRef = doc(db, "profiles", userId);
     
-    // Limpeza de campos undefined para evitar erro de permissão/insufficient data do Firestore
+    // Lista de campos permitidos para gravação no Firestore
+    const ALLOWED_FIELDS = ['name', 'username', 'tel', 'profilePhoto', 'role', 'isActive', 'userStatus', 'permissions', 'theme', 'contactVisibility'];
+    
     const cleanData = Object.entries(data).reduce((acc, [key, value]) => {
-        if (value !== undefined) acc[key] = value;
+        if (ALLOWED_FIELDS.includes(key) && value !== undefined) {
+            acc[key] = value;
+        }
         return acc;
     }, {} as any);
 
@@ -242,10 +236,10 @@ export const deactivateUser = async (userId: string) => {
     await updateUser(userId, { isActive: false, userStatus: 'INACTIVE' });
 };
 
-export const sendPasswordResetEmailAction = async (email: string) => { await sendPasswordResetEmail(auth, email); };
 export const requestPasswordReset = async (email: string) => { await sendPasswordResetEmail(auth, email); };
 
 export const changePassword = async (userId: string, newPassword: string) => {
+    // Fix: Used the correctly imported 'auth' instance instead of undefined 'fbAuth'
     if (auth.currentUser?.uid === userId) {
         await updatePassword(auth.currentUser, newPassword);
         const userRef = doc(db, "profiles", userId);
