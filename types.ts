@@ -93,7 +93,6 @@ export enum ProductType {
 
 export type SaleStatus = 'ORÇAMENTO' | 'PROPOSTA' | 'FATURADO';
 
-// Added missing SaleFormData interface
 export interface SaleFormData {
   client: string;
   clientId?: string;
@@ -209,7 +208,6 @@ export interface TransactionCategory {
     isSeed?: boolean;
 }
 
-// Added missing ProductLabels interface
 export interface ProductLabels {
     basica: string;
     natal: string;
@@ -253,7 +251,7 @@ export interface CommissionRule {
     minPercent: number; 
     maxPercent: number | null; 
     commissionRate: number; 
-    isActive: boolean; // Histórico
+    isActive: boolean; 
     version?: number;
     updatedAt?: string;
     isSeed?: boolean; 
@@ -284,14 +282,12 @@ export interface Receivable { id: string; description: string; value: number; da
 export interface FinancialPacing { daysRemaining: number; safeDailySpend: number; pendingExpenses: number; nextIncomeDate: Date; }
 export interface DuplicateGroup<T> { id: string; items: T[]; }
 
-// Added missing AiUsageStats interface
 export interface AiUsageStats {
     tokensUsed: number;
     requestsCount: number;
     lastRequestAt: string;
 }
 
-// Added missing ClientTransferRequest interface
 export interface ClientTransferRequest {
     id: string;
     clientId: string;
@@ -313,10 +309,8 @@ export interface LogEntry { timestamp: number; level: LogLevel; message: string;
 export interface WAContact { id: string; name: string; phone: string; tags: string[]; createdAt: string; updatedAt: string; deleted: boolean; source?: string; variables?: Record<string, string>; deletedAt?: string; userId: string; isSeed?: boolean; }
 export interface WATag { id: string; name: string; deleted: boolean; updatedAt: string; userId: string; isSeed?: boolean; }
 export interface WACampaign { id: string; name: string; status: string; totalContacts: number; sentCount: number; messageTemplate: string; targetTags: string[]; config: { speed: 'FAST' | 'SAFE' | 'SLOW'; startTime: string; endTime: string; }; abTest?: any; media?: any; archived?: boolean; deleted: boolean; createdAt: string; updatedAt: string; userId: string; isSeed?: boolean; }
-/* Fix: Added missing 'userId' property to WAMessageQueue interface */
 export interface WAMessageQueue { id: string; campaignId: string; contactId: string; phone: string; message: string; status: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'; variant: 'A' | 'B'; media?: any; sentAt?: string; deleted: boolean; isSeed: boolean; userId: string; }
 
-// Updated ManualInteractionLog with missing fields
 export interface ManualInteractionLog { 
     id: string; 
     campaignId: string; 
@@ -339,7 +333,7 @@ export interface ManualInteractionLog {
 
 export interface CampaignStatistics { campaignId: string; generatedAt: string; totalContacts: number; attempted: number; completed: number; skipped: number; failed: number; averageTimePerContact: number; fastestContactTime: number; slowestContactTime: number; totalCampaignTime: number; stepAnalysis: any; errorAnalysis: any; userRatings: any; insights: any[]; performanceBySpeed: any; financialImpact?: any; abTestAnalysis?: any; }
 export interface WAInstance { id: string; name: string; status: string; batteryLevel?: number; createdAt: string; phone?: string; profilePicUrl?: string; }
-export interface InternalMessage { id: string; senderId: string; senderName: string; recipientId: string; content: string; timestamp: string; read: boolean; readBy?: string[]; image?: string; type?: 'CHAT' | 'ACCESS_REQUEST' | 'BROADCAST'; relatedModule?: 'sales' | 'finance' | 'ai'; }
+export interface InternalMessage { id: string; senderId: string; senderName: string; recipientId: string; content: string; timestamp: string; read: boolean; readBy?: string[]; image?: string; type?: 'CHAT' | 'ACCESS_REQUEST' | 'BROADCAST' | 'BUG_REPORT'; relatedModule?: 'sales' | 'finance' | 'ai'; diagLog?: string; }
 export interface AppNotification { id: string; title: string; message: string; type: string; source: string; date: string; }
 
 export type ImportMapping = Record<string, number>;
@@ -349,7 +343,6 @@ export type WASpeed = 'FAST' | 'SAFE' | 'SLOW';
 export type WhatsAppErrorCode = 'BLOCKED_BY_USER' | 'PHONE_NOT_REGISTERED' | 'INVALID_PHONE' | 'NETWORK_ERROR' | 'RATE_LIMITED' | 'UNKNOWN_ERROR';
 export type WAMediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
 
-// Added missing WhatsApp Sync interfaces
 export interface WASyncConfig {
   tablesToSync: string[];
   syncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY' | 'MANUAL';

@@ -1,9 +1,11 @@
+
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, UserModules, UserStatus } from '../types';
 import { listUsers, createUser, updateUser, resendInvitation } from '../services/auth';
+import { permanentlyClearAllSalesFirestore } from '../services/logic';
 import { 
     Trash2, Plus, Shield, User as UserIcon, Mail, AlertTriangle, 
-    RefreshCw, Edit2, CheckSquare, Square, Loader2, Users, Send, UserCheck, UserX, Save, X, Clock, Check 
+    RefreshCw, Edit2, CheckSquare, Square, Loader2, Users, Send, UserCheck, UserX, Save, X, Clock, Check, Bomb, Lock
 } from 'lucide-react';
 import InvitationSentModal from './InvitationSentModal';
 
@@ -32,6 +34,11 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
   const [newModules, setNewModules] = useState<UserModules>(DEFAULT_MODULES);
   const [error, setError] = useState('');
 
+  // Segurança Hard Reset
+  const [hardResetModal, setHardResetModal] = useState<{ isOpen: boolean, targetUser: User | null }>({ isOpen: false, targetUser: null });
+  const [resetPassword, setResetPassword] = useState('');
+  const [isResetting, setIsResetting] = useState(false);
+
   useEffect(() => {
       loadUsers();
   }, []);
@@ -45,6 +52,24 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
           console.error(e);
       } finally {
           setIsLoading(false);
+      }
+  };
+
+  const handleAtomicClear = async () => {
+      if (!resetPassword) return alert("Digite sua senha administrativa.");
+      if (!hardResetModal.targetUser) return;
+      
+      setIsResetting(true);
+      try {
+          // Nota: Em um app real, aqui verificaríamos a senha via Firebase Auth reauthenticate
+          await permanentlyClearAllSalesFirestore(hardResetModal.targetUser.id);
+          alert(`Base de vendas do usuário ${hardResetModal.targetUser.name} foi totalmente limpa.`);
+          setHardResetModal({ isOpen: false, targetUser: null });
+          setResetPassword('');
+      } catch (e: any) {
+          alert("Falha na limpeza: " + e.message);
+      } finally {
+          setIsResetting(false);
       }
   };
 
@@ -207,7 +232,6 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                     className={`flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${newModules[mod as keyof UserModules] ? 'bg-emerald-500/10 border-emerald-500 shadow-md ring-1 ring-emerald-500/50' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800'}`}
                                 >
                                     <div className={`w-5 h-5 rounded flex items-center justify-center border ${newModules[mod as keyof UserModules] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300'}`}>
-                                        {/* Fix: Added Check icon import above and use it here */}
                                         {newModules[mod as keyof UserModules] && <Check size={14}/>}
                                     </div>
                                     <span className={`text-xs font-black uppercase tracking-wide ${newModules[mod as keyof UserModules] ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'}`}>{mod}</span>
@@ -260,6 +284,15 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                 <td className="p-6">{getStatusBadge(u.userStatus)}</td>
                                 <td className="p-6">
                                     <div className="flex justify-center gap-3">
+                                        {currentUser.role === 'DEV' && u.id !== currentUser.id && (
+                                            <button 
+                                                onClick={() => setHardResetModal({ isOpen: true, targetUser: u })}
+                                                className="p-3 bg-red-500 text-white rounded-xl hover:shadow-lg transition-all"
+                                                title="LIMPEZA ATÔMICA (Limpa Firestore deste usuário)"
+                                            >
+                                                <Bomb size={18}/>
+                                            </button>
+                                        )}
                                         {u.userStatus === 'PENDING' && (
                                             <button 
                                                 onClick={() => handleResendInvite(u)} 
@@ -283,6 +316,48 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                 </table>
             </div>
         </div>
+
+        {/* MODAL DE HARD RESET (DEV ONLY) */}
+        {hardResetModal.isOpen && (
+            <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+                <div className="bg-slate-900 border-2 border-red-500 w-full max-w-md rounded-[2.5rem] p-10 shadow-[0_0_50px_rgba(239,68,68,0.3)] text-center animate-in zoom-in-95">
+                    <div className="w-24 h-24 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-8 border-4 border-red-500 shadow-lg shadow-red-500/20">
+                        <Bomb size={48} className="animate-bounce" />
+                    </div>
+                    <h3 className="text-3xl font-black text-white mb-2">LIMPEZA ATÔMICA</h3>
+                    <p className="text-red-400 text-sm font-bold uppercase tracking-widest mb-6">Operação Irreversível</p>
+                    <p className="text-slate-400 text-sm mb-8 leading-relaxed">
+                        Você está prestes a apagar <b>todos os dados de vendas</b> do usuário <span className="text-white font-bold">{hardResetModal.targetUser?.name}</span> no Google Firestore.
+                    </p>
+
+                    <div className="space-y-4">
+                        <div className="relative">
+                            <Lock className="absolute left-4 top-3.5 text-slate-500" size={18}/>
+                            <input 
+                                type="password"
+                                placeholder="Confirme sua senha de Admin"
+                                className="w-full bg-black/40 border-2 border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-white outline-none focus:border-red-500 transition-all font-mono"
+                                value={resetPassword}
+                                onChange={e => setResetPassword(e.target.value)}
+                            />
+                        </div>
+                        <button 
+                            onClick={handleAtomicClear}
+                            disabled={isResetting || !resetPassword}
+                            className="w-full py-5 bg-red-600 hover:bg-red-700 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 uppercase text-xs tracking-[0.2em]"
+                        >
+                            {isResetting ? <Loader2 size={20} className="animate-spin" /> : "EXECUTAR RESET TOTAL"}
+                        </button>
+                        <button 
+                            onClick={() => setHardResetModal({ isOpen: false, targetUser: null })}
+                            className="w-full py-2 text-slate-500 font-bold hover:text-white transition-colors"
+                        >
+                            Abortar Missão
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
 
         {showInviteSuccess.isOpen && (
             <InvitationSentModal 

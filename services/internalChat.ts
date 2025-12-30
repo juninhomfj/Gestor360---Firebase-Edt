@@ -22,7 +22,8 @@ import { InternalMessage, User } from '../types';
 export const sendMessage = async (
     sender: User, 
     content: string, 
-    type: 'CHAT' | 'ACCESS_REQUEST' | 'BROADCAST' = 'CHAT',
+    // Fix: Added 'BUG_REPORT' to the union type to match the InternalMessage interface and resolve type mismatch during bug reporting
+    type: 'CHAT' | 'ACCESS_REQUEST' | 'BROADCAST' | 'BUG_REPORT' = 'CHAT',
     recipientId: string = 'ADMIN',
     image?: string,
     relatedModule?: 'sales' | 'finance' | 'ai'
