@@ -14,11 +14,9 @@ import {
   getDoc,
   setDoc,
   writeBatch,
-  deleteDoc,
-  query as firestoreQuery
+  deleteDoc
 } from "firebase/firestore";
-import { db } from "./firebase";
-import { getAuth } from "firebase/auth";
+import { db, auth } from "./firebase";
 import * as XLSX from 'xlsx';
 import { dbPut, dbBulkPut, dbGetAll, initDB, dbDelete, dbGet } from '../storage/db';
 import { Logger } from './logger';
@@ -53,8 +51,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 export const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
 /**
- * MOTOR DE NORMALIZAÇÃO NUMÉRICA (CORREÇÃO DE MARGENS)
- * Resolve o erro de interpretar 45,87 como 4587.
+ * MOTOR DE NORMALIZAÇÃO NUMÉRICA ROBUSTO (PADRÃO BRASILEIRO)
  */
 export function ensureNumber(value: any, fallback = 0): number {
   if (value === undefined || value === null || value === '') return fallback;
@@ -62,18 +59,12 @@ export function ensureNumber(value: any, fallback = 0): number {
   
   try {
     let str = String(value).trim();
-    str = str.replace(/[R$\s%]/g, ''); 
+    str = str.replace(/[R$\s%]/g, '');
 
-    // Lógica para detectar separador decimal brasileiro
-    const hasComma = str.includes(',');
-    const hasDot = str.includes('.');
-
-    if (hasComma && hasDot) {
-      // Formato 1.234,56 -> Remove o ponto de milhar e troca vírgula por ponto
-      str = str.replace(/\./g, '').replace(',', '.');
-    } else if (hasComma) {
-      // Formato 1234,56 -> Troca vírgula por ponto
-      str = str.replace(',', '.');
+    if (str.includes(',') && str.includes('.')) {
+        str = str.replace(/\./g, '').replace(',', '.');
+    } else if (str.includes(',')) {
+        str = str.replace(',', '.');
     }
     
     const num = parseFloat(str);
@@ -83,14 +74,15 @@ export function ensureNumber(value: any, fallback = 0): number {
   }
 }
 
-function requireAuthUid(): string {
-  const auth = getAuth();
-  const uid = auth.currentUser?.uid;
-  if (!uid) throw new Error("Ação negada: Sem sessão ativa no Firebase.");
-  return uid;
-}
-
+/**
+ * FIRESTORE GUARD: Remove recursivamente chaves 'undefined' que causam crash de permissão.
+ */
 function sanitizeForFirestore(obj: any): any {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (obj instanceof Timestamp) return obj;
+    if (obj instanceof Date) return Timestamp.fromDate(obj);
+    if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
+
     const cleaned: any = {};
     const numericKeys = [
         'valueSold', 'valueProposed', 'marginPercent', 'quantity', 
@@ -100,52 +92,78 @@ function sanitizeForFirestore(obj: any): any {
 
     Object.keys(obj).forEach(key => {
         let val = obj[key];
+        
+        // Proteção contra undefined
+        if (val === undefined) return;
+
+        // Proteção Numérica
         if (numericKeys.includes(key)) {
             val = ensureNumber(val);
         }
-        if (val !== undefined) cleaned[key] = val;
+
+        cleaned[key] = sanitizeForFirestore(val);
     });
     return cleaned;
 }
 
-export const canAccess = (user: User | null, feature: string): boolean => {
-    if (!user) return false;
-    if (user.role === 'DEV' || user.role === 'ADMIN') return true; 
-    return !!(user.permissions as any)?.[feature];
-};
+function getUid(): string {
+  const uid = auth.currentUser?.uid;
+  if (!uid) throw new Error("Acesso negado: ID de usuário não encontrado.");
+  return uid;
+}
+
+/**
+ * Espera o Auth estar pronto antes de prosseguir
+ */
+async function waitForAuth() {
+    if (auth.currentUser) return auth.currentUser.uid;
+    return new Promise((resolve, reject) => {
+        const unsubscribe = auth.onAuthStateChanged(user => {
+            unsubscribe();
+            if (user) resolve(user.uid);
+            else reject(new Error("Timeout de autenticação Firestore."));
+        });
+    });
+}
 
 export const atomicClearUserTables = async (targetUserId: string, tableIds: string[]) => {
-    const currentUid = requireAuthUid();
+    await waitForAuth();
     const batch = writeBatch(db);
     
-    Logger.log('WARN', `LIMPEZA ATÔMICA: Tabelas [${tableIds.join(', ')}] para UID: ${targetUserId}`);
+    Logger.log('WARN', `LIMPEZA ATÔMICA INICIADA: UID ${targetUserId}`);
 
     for (const tableId of tableIds) {
+        // ESSENCIAL: O filtro userId deve estar presente para as Security Rules permitirem a busca
         const q = query(collection(db, tableId), where("userId", "==", targetUserId));
         const snap = await getDocs(q);
-        snap.docs.forEach(d => batch.delete(d.ref));
+        
+        SessionTraffic.trackRead(snap.size);
+        
+        snap.docs.forEach(d => {
+            batch.delete(d.ref);
+            SessionTraffic.trackWrite();
+        });
 
-        if (targetUserId === currentUid) {
-            const dbInstance = await initDB();
-            if (dbInstance && (dbInstance.objectStoreNames as any).contains(tableId)) {
-                const tx = dbInstance.transaction(tableId as any, 'readwrite');
-                await tx.store.clear();
-                await tx.done;
-            }
+        // Limpeza Local
+        const dbInstance = await initDB();
+        if (dbInstance && (dbInstance.objectStoreNames as any).contains(tableId)) {
+            const tx = dbInstance.transaction(tableId as any, 'readwrite');
+            await tx.store.clear();
+            await tx.done;
         }
     }
 
     await batch.commit();
-    Logger.info(`Limpeza concluída com sucesso.`);
+    Logger.info(`Limpeza concluída.`);
 };
 
 export const getStoredSales = async (): Promise<Sale[]> => {
-  const auth = getAuth();
-  const uid = auth.currentUser?.uid;
-  if (!uid) return []; 
+  const uid = await waitForAuth();
 
   const q = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", false));
   const snap = await getDocs(q);
+  
+  SessionTraffic.trackRead(snap.size);
   const sales = snap.docs.map(d => ({ id: d.id, ...d.data() } as Sale));
   
   if (sales.length > 0) {
@@ -155,7 +173,7 @@ export const getStoredSales = async (): Promise<Sale[]> => {
 };
 
 export const saveSales = async (sales: Sale[]) => {
-    const uid = requireAuthUid();
+    const uid = getUid();
     const sanitized = sales.map(s => sanitizeForFirestore({ ...s, userId: uid, updatedAt: serverTimestamp() }));
     
     await dbBulkPut('sales', sanitized);
@@ -167,18 +185,20 @@ export const saveSales = async (sales: Sale[]) => {
         chunk.forEach(s => {
             const { id, ...data } = s;
             batch.set(doc(db, "sales", id), data, { merge: true });
+            SessionTraffic.trackWrite();
         });
         await batch.commit();
     }
 };
 
 export const saveSingleSale = async (payload: any) => {
-  const uid = requireAuthUid();
+  const uid = getUid();
   const saleId = payload.id || crypto.randomUUID();
   const saleData = sanitizeForFirestore({ ...payload, id: saleId, userId: uid, updatedAt: serverTimestamp() });
   
   await dbPut('sales', saleData);
   await setDoc(doc(db, "sales", saleId), saleData, { merge: true });
+  SessionTraffic.trackWrite();
 };
 
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
@@ -188,22 +208,25 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
         [ProductType.CUSTOM]: 'commission_custom' 
     };
     const snap = await getDocs(collection(db, colMap[type]));
+    SessionTraffic.trackRead(snap.size);
     const rules = snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
     if (rules.length > 0) await dbBulkPut(colMap[type] as any, rules);
     return rules;
 };
 
 export const saveFinanceData = async (accounts: FinanceAccount[], cards: CreditCard[], transactions: Transaction[], categories: TransactionCategory[]) => {
-    const uid = requireAuthUid();
+    const uid = getUid();
     const batch = writeBatch(db);
     
     accounts.forEach(acc => {
         batch.set(doc(db, "accounts", acc.id), sanitizeForFirestore({ ...acc, userId: uid, updatedAt: serverTimestamp() }), { merge: true });
+        SessionTraffic.trackWrite();
     });
     
     const recentTx = transactions.slice(-100); 
     recentTx.forEach(tx => {
         batch.set(doc(db, "transactions", tx.id), sanitizeForFirestore({ ...tx, userId: uid, updatedAt: serverTimestamp() }), { merge: true });
+        SessionTraffic.trackWrite();
     });
 
     await batch.commit();
@@ -232,27 +255,30 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
 };
 
 export const getSystemConfig = async (): Promise<SystemConfig> => {
-    const uid = requireAuthUid();
+    const uid = await waitForAuth();
     const snap = await getDoc(doc(db, "config", `system_${uid}`));
+    SessionTraffic.trackRead();
     return snap.exists() ? snap.data() as SystemConfig : DEFAULT_SYSTEM_CONFIG;
 };
 
 export const saveSystemConfig = async (config: SystemConfig) => {
-    const uid = requireAuthUid();
+    const uid = getUid();
     await setDoc(doc(db, "config", `system_${uid}`), sanitizeForFirestore(config), { merge: true });
+    SessionTraffic.trackWrite();
 };
 
 export const getClients = async (): Promise<Client[]> => {
-    const uid = requireAuthUid();
+    const uid = await waitForAuth();
     const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", false));
     const snap = await getDocs(q);
+    SessionTraffic.trackRead(snap.size);
     const clients = snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
     if (clients.length > 0) await dbBulkPut('clients', clients);
     return clients;
 };
 
 export const getFinanceData = async () => {
-    const uid = requireAuthUid();
+    const uid = await waitForAuth();
     const results = await Promise.all([
         getDocs(query(collection(db, "accounts"), where("userId", "==", uid), where("deleted", "==", false))),
         getDocs(query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", false))),
@@ -263,6 +289,8 @@ export const getFinanceData = async () => {
         getDocs(query(collection(db, "challenge_cells"), where("userId", "==", uid), where("deleted", "==", false))),
         getDocs(query(collection(db, "receivables"), where("userId", "==", uid), where("deleted", "==", false))),
     ]);
+
+    results.forEach(snap => SessionTraffic.trackRead(snap.size));
 
     return {
         accounts: results[0].docs.map(d => ({ id: d.id, ...d.data() } as FinanceAccount)),
@@ -276,29 +304,10 @@ export const getFinanceData = async () => {
     };
 };
 
-export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
-    const colMap: Record<ProductType, string> = { 
-        [ProductType.BASICA]: 'commission_basic', 
-        [ProductType.NATAL]: 'commission_natal', 
-        [ProductType.CUSTOM]: 'commission_custom' 
-    };
-    const batch = writeBatch(db);
-    rules.forEach(r => {
-        batch.set(doc(db, colMap[type], r.id), { ...r, updatedAt: serverTimestamp() }, { merge: true });
-    });
-    await batch.commit();
-    await dbBulkPut(colMap[type] as any, rules);
-};
-
-export const saveReportConfig = async (config: ReportConfig) => {
-    const uid = requireAuthUid();
-    await setDoc(doc(db, "config", `report_${uid}`), config);
-};
-
-export const getReportConfig = async (): Promise<ReportConfig> => {
-    const uid = requireAuthUid();
-    const snap = await getDoc(doc(db, "config", `report_${uid}`));
-    return snap.exists() ? snap.data() as ReportConfig : { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 };
+export const canAccess = (user: User | null, feature: string): boolean => {
+    if (!user) return false;
+    if (user.role === 'DEV' || user.role === 'ADMIN') return true; 
+    return !!(user.permissions as any)?.[feature];
 };
 
 export const clearLocalCache = async () => {
@@ -334,10 +343,56 @@ export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: st
     await dbDelete(col as any, id);
 };
 
-export const getUserPlanLabel = (user: User) => {
-    if (user.role === 'DEV') return 'Enterprise Root';
-    if (user.role === 'ADMIN') return 'Administrator';
-    return 'Standard Account';
+// Fix: Added missing clearAllSales function to services/logic.ts to support BackupModal functionality
+export const clearAllSales = async () => {
+    const uid = getUid();
+    const q = query(collection(db, "sales"), where("userId", "==", uid));
+    const snap = await getDocs(q);
+    const batch = writeBatch(db);
+    snap.docs.forEach(d => {
+        batch.delete(d.ref);
+        SessionTraffic.trackWrite();
+    });
+    await batch.commit();
+
+    const dbInstance = await initDB();
+    if (dbInstance.objectStoreNames.contains('sales')) {
+        const tx = dbInstance.transaction('sales', 'readwrite');
+        await tx.store.clear();
+        await tx.done;
+    }
+};
+
+export const bootstrapProductionData = async () => {};
+export const findPotentialDuplicates = (sales: Sale[]) => [];
+export const smartMergeSales = (duplicates: Sale[]): Sale => duplicates[0];
+export const getDeletedClients = async (): Promise<Client[]> => [];
+export const restoreClient = async (id: string) => {};
+export const permanentlyDeleteClient = async (id: string) => {};
+
+export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
+    const colMap: Record<ProductType, string> = { 
+        [ProductType.BASICA]: 'commission_basic', 
+        [ProductType.NATAL]: 'commission_natal', 
+        [ProductType.CUSTOM]: 'commission_custom' 
+    };
+    const batch = writeBatch(db);
+    rules.forEach(r => {
+        batch.set(doc(db, colMap[type], r.id), { ...r, updatedAt: serverTimestamp() }, { merge: true });
+    });
+    await batch.commit();
+    await dbBulkPut(colMap[type] as any, rules);
+};
+
+export const saveReportConfig = async (config: ReportConfig) => {
+    const uid = getUid();
+    await setDoc(doc(db, "config", `report_${uid}`), config);
+};
+
+export const getReportConfig = async (): Promise<ReportConfig> => {
+    const uid = await waitForAuth();
+    const snap = await getDoc(doc(db, "config", `report_${uid}`));
+    return snap.exists() ? snap.data() as ReportConfig : { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 };
 };
 
 export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
@@ -400,8 +455,9 @@ export const importEncryptedBackup = async (file: File, passphrase: string) => {
 export const generateChallengeCells = (challengeId: string, target: number, count: number, model: ChallengeModel): ChallengeCell[] => {
     const cells: ChallengeCell[] = [];
     const val = target / count;
+    const uid = getUid();
     for (let i = 1; i <= count; i++) {
-        cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: val, status: 'PENDING', userId: requireAuthUid(), deleted: false });
+        cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: val, status: 'PENDING', userId: uid, deleted: false });
     }
     return cells;
 };
@@ -448,22 +504,6 @@ export const exportReportToCSV = (data: any[], fileName: string) => {
     XLSX.writeFile(workbook, `${fileName}.xlsx`);
 };
 
-export const clearAllSales = async () => {
-    const uid = requireAuthUid();
-    const batch = writeBatch(db);
-    const q = query(collection(db, "sales"), where("userId", "==", uid));
-    const snap = await getDocs(q);
-    snap.docs.forEach(d => batch.delete(d.ref));
-    await batch.commit();
-    
-    const dbInstance = await initDB();
-    if (dbInstance.objectStoreNames.contains('sales')) {
-        const tx = dbInstance.transaction('sales', 'readwrite');
-        await tx.store.clear();
-        await tx.done;
-    }
-};
-
 export const readExcelFile = (file: File): Promise<any[][]> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -485,7 +525,7 @@ export const readExcelFile = (file: File): Promise<any[][]> => {
 };
 
 export const processFinanceImport = (data: any[][], mapping: ImportMapping): Transaction[] => {
-    const uid = requireAuthUid();
+    const uid = getUid();
     const rows = data.slice(1); 
     const transactions: Transaction[] = [];
 
@@ -527,10 +567,3 @@ export const processFinanceImport = (data: any[][], mapping: ImportMapping): Tra
 
     return transactions;
 };
-
-export const bootstrapProductionData = async () => {};
-export const findPotentialDuplicates = (sales: Sale[]) => [];
-export const smartMergeSales = (duplicates: Sale[]): Sale => duplicates[0];
-export const getDeletedClients = async (): Promise<Client[]> => [];
-export const restoreClient = async (id: string) => {};
-export const permanentlyDeleteClient = async (id: string) => {};

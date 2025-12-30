@@ -1,7 +1,7 @@
 
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
-import { getAuth, Auth } from "firebase/auth";
-import { getFirestore, Firestore } from "firebase/firestore";
+import { getAuth, Auth, setPersistence, browserLocalPersistence } from "firebase/auth";
+import { getFirestore, Firestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getMessaging, Messaging, isSupported } from "firebase/messaging";
 
 const getEnv = (key: string): string => {
@@ -25,12 +25,23 @@ const app: FirebaseApp = getApps().length === 0
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
 
-// Messaging só é inicializado se o navegador suportar (evita erro em modo incognito/safari antigo)
+// Configura persistência robusta para evitar deslogues repentinos
+setPersistence(auth, browserLocalPersistence);
+
+// Ativa cache offline do Firestore para performance e resiliência
+if (typeof window !== 'undefined') {
+    enableIndexedDbPersistence(db).catch((err) => {
+        if (err.code === 'failed-precondition') {
+            console.warn("[Firebase] Múltiplas abas abertas, persistência desativada nesta aba.");
+        } else if (err.code === 'unimplemented') {
+            console.warn("[Firebase] Navegador não suporta persistência offline.");
+        }
+    });
+}
+
 export const initMessaging = async (): Promise<Messaging | null> => {
     if (typeof window !== "undefined" && await isSupported()) {
         return getMessaging(app);
     }
     return null;
 };
-
-console.info(`[Firebase] Inicializado com Messaging Support | ${firebaseConfig.projectId}`);

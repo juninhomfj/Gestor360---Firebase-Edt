@@ -1,6 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'export default BackupModal;';
 import { Lock, Download, Upload, Trash2, X, AlertTriangle, CheckCircle, RefreshCw, Loader2 } from 'lucide-react';
+// Fix: Added missing clearAllSales function to services/logic.ts and await its call here
 import { exportEncryptedBackup, importEncryptedBackup, clearAllSales } from '../services/logic';
 
 interface BackupModalProps {
@@ -112,7 +113,8 @@ const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose, mode, onSucc
     if (confirm('Tem certeza absoluta?')) {
         setIsProcessing(true);
         await new Promise(resolve => setTimeout(resolve, 1500)); // Fake clear time
-        clearAllSales();
+        // Fix: Await clearAllSales for proper async flow
+        await clearAllSales();
         
         if (onRestoreSuccess) onRestoreSuccess();
         else window.location.reload();

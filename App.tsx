@@ -119,13 +119,14 @@ const App: React.FC = () => {
                 await AudioService.preload();
                 const sessionUser = await reloadSession();
                 if (sessionUser) {
+                    // Importante: User logado, mas precisamos garantir que o Firestore receba o token
                     await handleLoginSuccess(sessionUser);
                 } else {
                     setAuthView('LOGIN');
                     setLoading(false);
                 }
             } catch (e: any) {
-                setAuthError("Conexão interrompida com o servidor.");
+                setAuthError("Erro na conexão com Cloud Firestore. Verifique as credenciais.");
                 setAuthView('ERROR');
                 setLoading(false);
             }
@@ -137,9 +138,12 @@ const App: React.FC = () => {
         setCurrentUser(user);
         try {
             await bootstrapProductionData();
+            // Pequeno delay para garantir injeção de token JWT no Firestore
+            await new Promise(r => setTimeout(r, 500));
             await loadDataForUser();
             setAuthView('APP');
         } catch (e) {
+            console.error("Erro no bootstrap pós-login", e);
             setAuthView('APP');
         } finally {
             setLoading(false);
@@ -178,7 +182,7 @@ const App: React.FC = () => {
             setReceivables(finData.receivables || []);
             setReportConfig(rConfig);
         } catch (e) {
-            Logger.error("Erro na sincronia Firestore.");
+            Logger.error("Falha crítica ao sincronizar com Firestore.");
         }
     };
 
@@ -188,7 +192,7 @@ const App: React.FC = () => {
             await clearLocalCache();
             window.location.reload();
         } catch (e) {
-            addToast('ERROR', 'Erro ao resetar cache.');
+            addToast('ERROR', 'Erro ao limpar cache local.');
             setLoading(false);
         }
     };
@@ -250,6 +254,7 @@ const App: React.FC = () => {
             });
             if (toUpdate.length === 0) {
                 addToast('INFO', 'Nenhuma venda encontrada.');
+                setLoading(false);
                 return;
             }
             const updatedItems = toUpdate.map(s => ({ ...s, date: targetDate, isBilled: true }));
@@ -257,6 +262,26 @@ const App: React.FC = () => {
             addToast('SUCCESS', `${updatedItems.length} faturadas.`);
             await loadDataForUser();
         } catch (e) { addToast('ERROR', 'Falha no lote.'); } finally { setLoading(false); setIsBulkDateModalOpen(false); }
+    };
+
+    const handleRecalculateAdvanced = async (includeBilled: boolean, filterType: ProductType | 'ALL', dateFrom: string) => {
+        setLoading(true);
+        try {
+            const targets = sales.filter(s => {
+                if (!includeBilled && s.date) return false;
+                if (filterType !== 'ALL' && s.type !== filterType) return false;
+                if (dateFrom && (s.date || s.completionDate || '').substring(0, 10) < dateFrom) return false;
+                return true;
+            });
+            const updated = targets.map(s => {
+                const rules = s.type === ProductType.NATAL ? rulesNatal : rulesBasic;
+                const { commissionBase, commissionValue, rateUsed } = computeCommissionValues(s.quantity, s.valueProposed, s.marginPercent, rules);
+                return { ...s, commissionBaseTotal: commissionBase, commissionValueTotal: commissionValue, commissionRateUsed: rateUsed };
+            });
+            await saveSales(updated);
+            await loadDataForUser();
+            addToast('SUCCESS', `${updated.length} cálculos auditados.`);
+        } finally { setLoading(false); }
     };
 
     const addToast = (type: 'SUCCESS' | 'ERROR' | 'INFO', message: string) => {
@@ -270,10 +295,10 @@ const App: React.FC = () => {
     if (authView === 'ERROR') {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-center text-white">
-                <div className="max-w-md p-8 bg-slate-900 border border-red-500 rounded-3xl">
-                    <h1 className="text-2xl font-bold text-red-500 mb-4">Erro de Sistema</h1>
+                <div className="max-w-md p-8 bg-slate-900 border border-red-500 rounded-3xl shadow-2xl">
+                    <h1 className="text-2xl font-bold text-red-500 mb-4">Falha Crítica Firestore</h1>
                     <p className="opacity-60 mb-8">{authError}</p>
-                    <button onClick={() => logout()} className="px-6 py-3 bg-white text-black rounded-lg font-bold">Voltar ao Login</button>
+                    <button onClick={() => window.location.reload()} className="px-6 py-3 bg-white text-black rounded-lg font-bold hover:bg-gray-200 transition-all">Reiniciar Sistema</button>
                 </div>
             </div>
         );
@@ -311,6 +336,7 @@ const App: React.FC = () => {
                             loadDataForUser();
                         }}
                         onBulkAdd={handleBulkAddSales}
+                        onRecalculate={handleRecalculateAdvanced}
                         onNotify={addToast}
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
                     />
@@ -348,7 +374,7 @@ const App: React.FC = () => {
             {showTxForm && ( <FinanceTransactionForm isOpen={showTxForm} onClose={() => setShowTxForm(false)} accounts={accounts} cards={cards} categories={categories} onSave={async (tx: Transaction) => { await saveFinanceData(accounts, cards, [...transactions, tx], categories); }} onSaved={loadDataForUser} /> )}
             {isBackupModalOpen && ( <BackupModal isOpen={isBackupModalOpen} onClose={() => setIsBackupModalOpen(false)} mode="RESTORE" onSuccess={() => {}} onRestoreSuccess={loadDataForUser} /> )}
             {isBulkDateModalOpen && ( <BulkDateModal isOpen={isBulkDateModalOpen} onClose={() => setIsBulkDateModalOpen(false)} onConfirm={handleBulkUpdateDate} darkMode={theme !== 'neutral' && theme !== 'rose'} /> )}
-            {isClearLocalModalOpen && ( <ConfirmationModal isOpen={isClearLocalModalOpen} onClose={() => setIsClearLocalModalOpen(false)} onConfirm={() => { handleClearLocalData(); }} title="Resetar Banco de Dados?" message="Isso limpará o cache local para forçar o download dos dados do Firebase." type="WARNING" /> )}
+            {isClearLocalModalOpen && ( <ConfirmationModal isOpen={isClearLocalModalOpen} onClose={() => setIsClearLocalModalOpen(false)} onConfirm={() => { handleClearLocalData(); }} title="Resetar Banco de Dados Local?" message="Isso limpará seu cache temporário para forçar o download dos dados da nuvem. Use apenas para resolver erros de sincronia." type="WARNING" /> )}
             <Layout currentUser={currentUser!} activeTab={activeTab} setActiveTab={setActiveTab} appMode={appMode} setAppMode={setAppMode} currentTheme={theme} setTheme={setTheme} darkMode={theme !== 'neutral' && theme !== 'rose'} onLogout={logout} onNewSale={() => { setEditingSale(null); setShowSalesForm(true); }} onNewIncome={() => setShowTxForm(true)} onNewExpense={() => setShowTxForm(true)} onNewTransfer={() => setShowTxForm(true)} isAdmin={isAdmin} isDev={isDev} showSnow={showSnow} onToggleSnow={toggleSnow} >
                 <div className="md:p-4"> {renderActiveTab()} </div>
             </Layout>

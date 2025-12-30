@@ -42,7 +42,6 @@ const SalesList: React.FC<SalesListProps> = ({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [billingModal, setBillingModal] = useState<{ isOpen: boolean, ids: string[] }>({ isOpen: false, ids: [] });
   const [billingDate, setBillingDate] = useState(new Date().toISOString().split('T')[0]);
-  const [recalcModal, setRecalcModal] = useState(false);
   
   // Importação
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -56,7 +55,7 @@ const SalesList: React.FC<SalesListProps> = ({
 
   const processedSales = useMemo(() => {
     let result = sales.filter(sale => {
-      if (searchTerm && !sale.client.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+      if (searchTerm && !(sale.client.toLowerCase().includes(searchTerm.toLowerCase()) || (sale.trackingCode || '').toLowerCase().includes(searchTerm.toLowerCase()))) return false;
       if (filterType !== 'ALL' && sale.type !== filterType) return false;
       if (filterStatus === 'PENDING' && !!sale.date) return false;
       if (filterStatus === 'BILLED' && !sale.date) return false;
@@ -143,38 +142,44 @@ const SalesList: React.FC<SalesListProps> = ({
           </div>
       )}
 
-      {/* HEADER */}
+      {/* HEADER RESTAURADO */}
       <div className="flex flex-col md:flex-row justify-between items-end gap-4">
           <div>
             <h1 className={`text-2xl font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>Gestão de Vendas</h1>
-            <p className="text-sm text-gray-500">Controle de faturamento e comissões.</p>
+            <p className="text-sm text-gray-500">Controle operacional e financeiro de comissões.</p>
           </div>
           <div className="flex gap-2">
-              <button onClick={onRestore} className="p-3 bg-gray-100 dark:bg-slate-800 rounded-xl text-blue-500" title="Restaurar/Backup"><Database size={20}/></button>
-              <button onClick={handleImportClick} className="p-3 bg-gray-100 dark:bg-slate-800 rounded-xl text-emerald-500" title="Importar Excel/CSV"><Upload size={20}/></button>
+              <button onClick={onRestore} className="p-3 bg-gray-100 dark:bg-slate-800 rounded-xl text-blue-500 hover:shadow-lg transition-all" title="Backup e Restauração">
+                  <Database size={20}/>
+              </button>
+              <button onClick={handleImportClick} className="p-3 bg-gray-100 dark:bg-slate-800 rounded-xl text-emerald-500 hover:shadow-lg transition-all" title="Importar de Excel/CSV">
+                  <Upload size={20}/>
+              </button>
               <input type="file" ref={fileInputRef} className="hidden" accept=".xlsx,.csv" onChange={handleFileChange}/>
-              <button onClick={onClearAll} className="p-3 bg-gray-100 dark:bg-slate-800 rounded-xl text-amber-500" title="Limpar Cache/Config"><RefreshCw size={20}/></button>
-              <button onClick={onNew} className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-2 transition-all active:scale-95">
+              <button onClick={onClearAll} className="p-3 bg-gray-100 dark:bg-slate-800 rounded-xl text-amber-500 hover:shadow-lg transition-all" title="Limpar Cache/Configurações">
+                  <RefreshCw size={20}/>
+              </button>
+              <button onClick={onNew} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-2 transition-all active:scale-95">
                   <Plus size={18}/> Nova Venda
               </button>
           </div>
       </div>
 
-      {/* FILTROS AVANÇADOS */}
+      {/* FILTROS AVANÇADOS RESTAURADOS */}
       <div className={`p-6 rounded-3xl border ${containerClass} grid grid-cols-1 md:grid-cols-12 gap-4 items-end`}>
           <div className="md:col-span-3">
-              <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">Pesquisa</label>
+              <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">Pesquisar</label>
               <div className="relative">
                   <Search className="absolute left-3 top-2.5 text-gray-400" size={16}/>
                   <input className={`w-full pl-10 pr-4 py-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200'}`} placeholder="Cliente ou Rastreio..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
               </div>
           </div>
           <div className="md:col-span-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">De</label>
+              <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">Início</label>
               <input type="date" className={`w-full p-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50'}`} value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
           </div>
           <div className="md:col-span-2">
-              <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">Até</label>
+              <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">Fim</label>
               <input type="date" className={`w-full p-2 rounded-xl border text-sm outline-none ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50'}`} value={dateTo} onChange={e => setDateTo(e.target.value)} />
           </div>
           <div className="md:col-span-3 grid grid-cols-2 gap-2">
@@ -205,7 +210,7 @@ const SalesList: React.FC<SalesListProps> = ({
           </div>
       </div>
 
-      {/* TABELA */}
+      {/* TABELA COM COLUNA RASTREIO */}
       <div className={`rounded-3xl border overflow-hidden ${containerClass}`}>
           <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
@@ -219,9 +224,9 @@ const SalesList: React.FC<SalesListProps> = ({
                                 onChange={e => handleSelectVisible(e.target.checked)} 
                               />
                           </th>
-                          <th className="p-5">Data Comp.</th>
+                          <th className="p-5">Data</th>
                           <th className="p-5">Cliente</th>
-                          <th className="p-5">Rastreio</th>
+                          <th className="p-5">Rastreio/ID</th>
                           <th className="p-5 text-right">Margem</th>
                           <th className="p-5 text-right">Comissão</th>
                           <th className="p-5 text-center">Ações</th>
@@ -238,7 +243,7 @@ const SalesList: React.FC<SalesListProps> = ({
                                   </div>
                               </td>
                               <td className="p-5 font-bold">{sale.client}</td>
-                              <td className="p-5 text-xs font-mono opacity-60">{sale.trackingCode || '-'}</td>
+                              <td className="p-5 text-xs font-mono opacity-60 truncate max-w-[150px]">{sale.trackingCode || '-'}</td>
                               <td className="p-5 text-right font-mono text-xs">{sale.marginPercent.toFixed(2)}%</td>
                               <td className="p-5 text-right font-black text-emerald-600">R$ {sale.commissionValueTotal.toFixed(2)}</td>
                               <td className="p-5 text-center">
@@ -249,21 +254,24 @@ const SalesList: React.FC<SalesListProps> = ({
                               </td>
                           </tr>
                       ))}
+                      {paginatedSales.length === 0 && (
+                          <tr><td colSpan={7} className="p-10 text-center text-gray-500 opacity-50">Nenhuma venda encontrada.</td></tr>
+                      )}
                   </tbody>
               </table>
           </div>
       </div>
 
-      {/* MODAIS */}
+      {/* MODAL DE FATURAMENTO RESTAURADO */}
       {billingModal.isOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
               <div className={`p-8 rounded-3xl shadow-2xl w-full max-w-sm ${darkMode ? 'bg-slate-900 border border-slate-700 text-white' : 'bg-white'}`}>
                   <h3 className="text-xl font-black mb-4">Confirmar Faturamento</h3>
-                  <p className="text-sm text-gray-500 mb-6">Defina a data de faturamento para {billingModal.ids.length} itens.</p>
+                  <p className="text-sm text-gray-500 mb-6">Defina a data de faturamento para {billingModal.ids.length} itens selecionados.</p>
                   <input type="date" value={billingDate} onChange={e => setBillingDate(e.target.value)} className={`w-full p-4 rounded-2xl border mb-6 ${darkMode ? 'bg-black border-slate-700' : 'bg-gray-50'}`} />
                   <div className="flex gap-3">
                       <button onClick={() => setBillingModal({ isOpen: false, ids: [] })} className="flex-1 py-3 text-gray-500 font-bold">Cancelar</button>
-                      <button onClick={() => { onBillBulk(billingModal.ids, billingDate); setBillingModal({ isOpen: false, ids: [] }); setSelectedIds([]); }} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-lg">Aplicar</button>
+                      <button onClick={() => { onBillBulk(billingModal.ids, billingDate); setBillingModal({ isOpen: false, ids: [] }); setSelectedIds([]); }} className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-lg">Aplicar em Lote</button>
                   </div>
               </div>
           </div>
@@ -300,17 +308,17 @@ const SalesList: React.FC<SalesListProps> = ({
       )}
 
       {deleteConfirmModal.isOpen && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-              <div className={`w-full max-w-md rounded-[2.5rem] p-8 border-2 border-red-500/50 ${darkMode ? 'bg-slate-900' : 'bg-white shadow-2xl'} animate-in zoom-in-95`}>
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 backdrop-blur-md p-4">
+              <div className={`w-full max-w-md rounded-[2.5rem] p-8 border-2 border-red-500/50 ${darkMode ? 'bg-slate-900 text-white' : 'bg-white shadow-2xl'} animate-in zoom-in-95`}>
                   <div className="flex flex-col items-center text-center mb-8">
-                      <div className="w-20 h-20 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-6 border-4 border-red-500 shadow-lg shadow-red-900/20">
+                      <div className="w-20 h-20 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mb-6 border-4 border-red-500">
                           <Trash2 size={40}/>
                       </div>
-                      <h3 className="text-2xl font-black text-gray-900 dark:text-white">Exclusão Definitiva</h3>
-                      <p className="text-sm text-gray-500 mt-2">Confirme a senha de Administrador para apagar permanentemente.</p>
+                      <h3 className="text-2xl font-black">Excluir Permanentemente</h3>
+                      <p className="text-sm text-gray-500 mt-2">Você apagará <b>{deleteConfirmModal.ids.length}</b> registros do banco de dados Cloud. Esta ação é irreversível.</p>
                   </div>
                   <div className="space-y-4">
-                      <input type="password" placeholder="Senha Master" className={`w-full p-4 rounded-2xl border ${darkMode ? 'bg-black border-slate-700 text-white' : 'bg-gray-50'}`} value={passwordConfirm} onChange={e => setPasswordConfirm(e.target.value)} />
+                      <input type="password" placeholder="Sua Senha de Admin" className={`w-full p-4 rounded-2xl border ${darkMode ? 'bg-black border-slate-700 text-white' : 'bg-gray-50'}`} value={passwordConfirm} onChange={e => setPasswordConfirm(e.target.value)} />
                       <button onClick={handlePermanentDelete} disabled={isDeleting} className="w-full py-5 bg-red-600 text-white font-black rounded-3xl shadow-xl transition-all">
                           {isDeleting ? <Loader2 className="animate-spin mx-auto"/> : 'CONFIRMAR EXCLUSÃO'}
                       </button>
