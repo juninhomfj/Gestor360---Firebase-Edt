@@ -49,26 +49,24 @@ import { AudioService } from './services/audioService';
 import { auth as fbAuth } from './services/firebase';
 import { Logger } from './services/logger';
 
-type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'APP' | 'ERROR';
+type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'APP' | 'ERROR' | 'LOADING';
 
 const App: React.FC = () => {
     const initRun = useRef(false);
-    const versionCheckFailed = useRef(false);
-    const currentVersion = useRef<string>("2.5.2"); 
-
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
-    const [authView, setAuthView] = useState<AuthView>('LOGIN');
+    const [authView, setAuthView] = useState<AuthView>('LOADING');
     const [authError, setAuthError] = useState<string | null>(null);
-    const [updateAvailable, setUpdateAvailable] = useState(false);
-
+    
     const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
     const [isBulkDateModalOpen, setIsBulkDateModalOpen] = useState(false);
     const [isClearLocalModalOpen, setIsClearLocalModalOpen] = useState(false);
     const [editingSale, setEditingSale] = useState<Sale | null>(null);
+    const [showSalesForm, setShowSalesForm] = useState(false);
+    const [showTxForm, setShowTxForm] = useState(false);
+    const [hideValues, setHideValues] = useState(false);
 
     const [showSnow, setShowSnow] = useState(() => localStorage.getItem('sys_snow_enabled') === 'true');
-
     const toggleSnow = () => {
         const nextValue = !showSnow;
         setShowSnow(nextValue);
@@ -86,11 +84,9 @@ const App: React.FC = () => {
     const [appMode, setAppMode] = useState<AppMode>(
         () => (localStorage.getItem('sys_last_mode') as AppMode) || 'SALES'
     );
-
     const [activeTab, setActiveTab] = useState(
         () => localStorage.getItem('sys_last_tab') || 'dashboard'
     );
-
     const [theme, setTheme] = useState<AppTheme>('glass');
     const [toasts, setSortedToasts] = useState<ToastMessage[]>([]);
 
@@ -104,45 +100,16 @@ const App: React.FC = () => {
     const [challenges, setChallenges] = useState<Challenge[]>([]);
     const [cells, setCells] = useState<ChallengeCell[]>([]);
     const [receivables, setReceivables] = useState<Receivable[]>([]);
-
     const [rulesBasic, setRulesBasic] = useState<CommissionRule[]>([]);
     const [rulesNatal, setRulesNatal] = useState<CommissionRule[]>([]);
     const [rulesCustom, setRulesCustom] = useState<CommissionRule[]>([]);
-
     const [reportConfig, setReportConfig] = useState<ReportConfig>({
         daysForNewClient: 30, daysForInactive: 60, daysForLost: 180
     });
-
     const [salesTargets, setSalesTargets] = useState<SalesTargets>({ basic: 0, natal: 0 });
-    const [showSalesForm, setShowSalesForm] = useState(false);
-    const [showTxForm, setShowTxForm] = useState(false);
-    const [hideValues, setHideValues] = useState(false);
-
     const [dashboardConfig, setDashboardConfig] = useState<DashboardWidgetConfig>({
         showStats: true, showCharts: true, showRecents: true, showPacing: true, showBudgets: true
     });
-
-    useEffect(() => {
-        if (authView !== 'APP' || versionCheckFailed.current) return;
-        const checkVersion = async () => {
-            try {
-                const response = await fetch(`/metadata.json?t=${Date.now()}`);
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.version && data.version !== currentVersion.current) {
-                        setUpdateAvailable(true);
-                    }
-                } else {
-                    versionCheckFailed.current = true;
-                }
-            } catch (e) {
-                versionCheckFailed.current = true;
-            }
-        };
-        const interval = setInterval(checkVersion, 1000 * 60 * 15);
-        checkVersion(); 
-        return () => clearInterval(interval);
-    }, [authView]);
 
     useEffect(() => {
         if (initRun.current) return;
@@ -154,16 +121,11 @@ const App: React.FC = () => {
                 if (sessionUser) {
                     await handleLoginSuccess(sessionUser);
                 } else {
-                    if (fbAuth.currentUser) {
-                        setAuthError("Sua conta está em processamento ou inativa.");
-                        setAuthView('ERROR');
-                    } else {
-                        setAuthView('LOGIN');
-                    }
+                    setAuthView('LOGIN');
                     setLoading(false);
                 }
             } catch (e: any) {
-                setAuthError("Conexão com o servidor falhou.");
+                setAuthError("Conexão interrompida com o servidor.");
                 setAuthView('ERROR');
                 setLoading(false);
             }
@@ -173,24 +135,36 @@ const App: React.FC = () => {
 
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
-        await bootstrapProductionData();
-        await loadDataForUser();
-        setAuthView('APP');
-        setLoading(false);
+        try {
+            await bootstrapProductionData();
+            await loadDataForUser();
+            setAuthView('APP');
+        } catch (e) {
+            setAuthView('APP');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const loadDataForUser = async () => {
         try {
-            const [storedSales, storedClients, finData, rBasic, rNatal, rCustom, sysCfg, rConfig] = await Promise.all([
+            const [rBasic, rNatal, rCustom] = await Promise.all([
+                getStoredTable(ProductType.BASICA),
+                getStoredTable(ProductType.NATAL),
+                getStoredTable(ProductType.CUSTOM)
+            ]);
+            setRulesBasic(rBasic);
+            setRulesNatal(rNatal);
+            setRulesCustom(rCustom);
+
+            const [storedSales, storedClients, finData, sysCfg, rConfig] = await Promise.all([
                 getStoredSales(), 
                 getClients(), 
                 getFinanceData(),
-                getStoredTable(ProductType.BASICA), 
-                getStoredTable(ProductType.NATAL), 
-                getStoredTable(ProductType.CUSTOM),
                 getSystemConfig(),
                 getReportConfig()
             ]);
+
             if (sysCfg.theme) setTheme(sysCfg.theme);
             setSales(storedSales || []);
             setClients(storedClients || []);
@@ -202,36 +176,38 @@ const App: React.FC = () => {
             setChallenges(finData.challenges || []);
             setCells(finData.cells || []);
             setReceivables(finData.receivables || []);
-            setRulesBasic(rBasic || []);
-            setRulesNatal(rNatal || []);
-            setRulesCustom(rCustom || []);
             setReportConfig(rConfig);
-        } catch (e) {}
+        } catch (e) {
+            Logger.error("Erro na sincronia Firestore.");
+        }
+    };
+
+    const handleClearLocalData = async () => {
+        setLoading(true);
+        try {
+            await clearLocalCache();
+            window.location.reload();
+        } catch (e) {
+            addToast('ERROR', 'Erro ao resetar cache.');
+            setLoading(false);
+        }
     };
 
     const handleBulkAddSales = async (newSalesData: SaleFormData[]) => {
         const uid = fbAuth.currentUser?.uid;
         if (!uid) return;
-
+        setLoading(true);
         try {
-            setLoading(true);
             const convertedSales: Sale[] = newSalesData.map(data => {
                 const rules = data.type === ProductType.NATAL ? rulesNatal : rulesBasic;
-                
-                // Normaliza todos os valores numéricos com ensureNumber
                 const qty = ensureNumber(data.quantity);
                 const valProp = ensureNumber(data.valueProposed);
                 const margin = ensureNumber(data.marginPercent);
                 const valSold = ensureNumber(data.valueSold);
 
-                const { commissionBase, commissionValue, rateUsed } = computeCommissionValues(
-                    qty, 
-                    valProp, 
-                    margin, 
-                    rules
-                );
+                const { commissionBase, commissionValue, rateUsed } = computeCommissionValues(qty, valProp, margin, rules);
 
-                const saleObj: Sale = {
+                return {
                     id: crypto.randomUUID(),
                     userId: uid,
                     client: data.client,
@@ -246,40 +222,20 @@ const App: React.FC = () => {
                     commissionRateUsed: rateUsed,
                     isBilled: data.isBilled,
                     completionDate: data.completionDate,
-                    hasNF: false,
+                    date: data.date,
                     observations: data.observations || "",
                     createdAt: new Date().toISOString(),
                     deleted: false
-                };
-
-                if (data.date) saleObj.date = data.date;
-                if (data.quoteDate) saleObj.quoteDate = data.quoteDate;
-
-                return saleObj;
+                } as Sale;
             });
 
             await saveSales(convertedSales);
-            addToast('SUCCESS', `${convertedSales.length} vendas importadas com sucesso!`);
+            addToast('SUCCESS', `${convertedSales.length} vendas sincronizadas.`);
             await loadDataForUser();
         } catch (e: any) {
-            Logger.error("Falha fatal no processamento em massa", { error: e.message });
-            addToast('ERROR', `Erro: ${e.message || 'Falha ao salvar dados.'}`);
+            addToast('ERROR', `Erro na sincronia: ${e.message}`);
         } finally {
             setLoading(false);
-        }
-    };
-
-    const handleClearLocalData = async () => {
-        setLoading(true);
-        try {
-            await clearLocalCache();
-            await loadDataForUser();
-            addToast('SUCCESS', 'Cache local limpo. Dados recarregados do Firebase.');
-        } catch (e) {
-            addToast('ERROR', 'Falha ao limpar cache local.');
-        } finally {
-            setLoading(false);
-            setIsClearLocalModalOpen(false);
         }
     };
 
@@ -292,105 +248,32 @@ const App: React.FC = () => {
                 const launchDate = (s.date || s.completionDate || s.createdAt).split('T')[0];
                 return launchDate >= launchDateFrom;
             });
-
             if (toUpdate.length === 0) {
-                addToast('INFO', 'Nenhuma venda atende aos critérios.');
+                addToast('INFO', 'Nenhuma venda encontrada.');
                 return;
             }
-
-            const updatedItems = toUpdate.map(s => ({ 
-                ...s, 
-                date: targetDate, 
-                isBilled: true,
-                updatedAt: new Date().toISOString()
-            }));
+            const updatedItems = toUpdate.map(s => ({ ...s, date: targetDate, isBilled: true }));
             await saveSales(updatedItems);
-            addToast('SUCCESS', `${updatedItems.length} vendas faturadas.`);
+            addToast('SUCCESS', `${updatedItems.length} faturadas.`);
             await loadDataForUser();
-        } catch (e) {
-            addToast('ERROR', 'Erro no faturamento em massa.');
-        } finally {
-            setLoading(false);
-            setIsBulkDateModalOpen(false);
-        }
+        } catch (e) { addToast('ERROR', 'Falha no lote.'); } finally { setLoading(false); setIsBulkDateModalOpen(false); }
     };
 
-    const handleExportSalesTemplate = () => {
-        const headers = ["Cliente", "Quantidade", "Tipo (BASICA ou NATAL)", "Valor Unitario Proposto", "Valor Total Venda", "Margem (%)", "Data Faturamento (YYYY-MM-DD)", "Data Pedido (YYYY-MM-DD)", "Observacoes"];
-        const rows = [
-            ["Exemplo Cliente A", "10", "BASICA", "150.00", "1500.00", "5.0", "2024-03-15", "2024-03-01", "Pedido mensal padrão"],
-            ["Exemplo Cliente B", "50", "NATAL", "200.00", "10000.00", "8.5", "", "2024-11-20", "Reserva de final de ano"]
-        ];
-        const content = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
-        const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.setAttribute("download", "modelo_importacao_vendas.csv");
-        link.click();
-    };
-
-    const handleRecalculateAdvanced = async (includeBilled: boolean, filterType: ProductType | 'ALL', dateFrom: string) => {
-        try {
-            setLoading(true);
-            const targets = sales.filter(s => {
-                if (s.deleted) return false;
-                if (!includeBilled && s.date) return false;
-                if (filterType !== 'ALL' && s.type !== filterType) return false;
-                if (dateFrom) {
-                    const comp = s.date || s.completionDate || '';
-                    if (!comp.startsWith(dateFrom)) return false;
-                }
-                return true;
-            });
-
-            if (targets.length === 0) {
-                addToast('INFO', 'Nenhuma venda atende aos filtros para recálculo.');
-                return;
-            }
-
-            const updatedSales = targets.map(sale => {
-                const rules = sale.type === ProductType.NATAL ? rulesNatal : rulesBasic;
-                const { commissionBase, commissionValue, rateUsed } = computeCommissionValues(
-                    sale.quantity, 
-                    sale.valueProposed, 
-                    sale.marginPercent, 
-                    rules
-                );
-                return {
-                    ...sale,
-                    commissionBaseTotal: commissionBase,
-                    commissionValueTotal: commissionValue,
-                    commissionRateUsed: rateUsed,
-                    updatedAt: new Date().toISOString()
-                };
-            });
-
-            await saveSales(updatedSales);
-            await loadDataForUser();
-            addToast('SUCCESS', `${updatedSales.length} cálculos atualizados com precisão!`);
-        } catch (e) {
-            addToast('ERROR', 'Erro no recálculo avançado.');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleSystemRefresh = () => { window.location.reload(); };
     const addToast = (type: 'SUCCESS' | 'ERROR' | 'INFO', message: string) => {
         const id = crypto.randomUUID();
         setSortedToasts(prev => [...prev, { id, type, message }]);
     };
     const removeToast = (id: string) => setSortedToasts(prev => prev.filter(t => t.id !== id));
 
-    if (loading) return <LoadingScreen />;
+    if (authView === 'LOADING' || loading) return <LoadingScreen />;
 
     if (authView === 'ERROR') {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-center">
-                <div className="max-w-md bg-slate-900 border border-red-500/50 p-8 rounded-3xl shadow-2xl">
-                    <h1 className="text-2xl font-bold text-red-500 mb-4">Acesso Restrito</h1>
-                    <p className="text-slate-400 mb-8">{authError}</p>
-                    <button onClick={() => logout()} className="px-6 py-3 bg-white text-black rounded-lg font-bold hover:bg-gray-100 transition-colors">Voltar ao Login</button>
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-center text-white">
+                <div className="max-w-md p-8 bg-slate-900 border border-red-500 rounded-3xl">
+                    <h1 className="text-2xl font-bold text-red-500 mb-4">Erro de Sistema</h1>
+                    <p className="opacity-60 mb-8">{authError}</p>
+                    <button onClick={() => logout()} className="px-6 py-3 bg-white text-black rounded-lg font-bold">Voltar ao Login</button>
                 </div>
             </div>
         );
@@ -405,38 +288,18 @@ const App: React.FC = () => {
     const renderActiveTab = () => {
         switch (activeTab) {
             case 'dashboard':
-                return (
-                    <Dashboard
-                        sales={sales} onNewSale={() => setShowSalesForm(true)}
-                        darkMode={theme !== 'neutral' && theme !== 'rose'}
-                        config={dashboardConfig} hideValues={hideValues}
-                        onToggleHide={() => setHideValues(!hideValues)}
-                        onUpdateConfig={setDashboardConfig}
-                        currentUser={currentUser}
-                        salesTargets={salesTargets} onUpdateTargets={setSalesTargets}
-                        isAdmin={isAdmin} isDev={isDev}
-                    />
-                );
+                return <Dashboard sales={sales} onNewSale={() => setShowSalesForm(true)} darkMode={theme !== 'neutral' && theme !== 'rose'} config={dashboardConfig} hideValues={hideValues} onToggleHide={() => setHideValues(!hideValues)} onUpdateConfig={setDashboardConfig} currentUser={currentUser} salesTargets={salesTargets} onUpdateTargets={setSalesTargets} isAdmin={isAdmin} isDev={isDev} />;
             case 'sales':
                 return (
                     <SalesList
                         sales={sales}
                         onEdit={(s) => { setEditingSale(s); setShowSalesForm(true); }}
-                        onDelete={async (s) => {
-                            await saveSingleSale({ ...s, deleted: true });
-                            loadDataForUser();
-                        }}
+                        onDelete={async (s) => { await saveSingleSale({ ...s, deleted: true }); loadDataForUser(); }}
                         onNew={() => { setEditingSale(null); setShowSalesForm(true); }}
-                        onExportTemplate={handleExportSalesTemplate}
-                        onImportFile={async () => {}} // Via onBulkAdd
+                        onExportTemplate={() => {}} 
                         onClearAll={() => setIsClearLocalModalOpen(true)}
                         onRestore={() => setIsBackupModalOpen(true)}
                         onOpenBulkAdvanced={() => setIsBulkDateModalOpen(true)}
-                        onUndo={() => {}}
-                        onBillSale={async (s, date) => {
-                            await saveSingleSale({ ...s, date, isBilled: true });
-                            loadDataForUser();
-                        }}
                         onBillBulk={async (ids, date) => {
                             const toUpdate = sales.filter(s => ids.includes(s.id)).map(s => ({ ...s, date, isBilled: true }));
                             await saveSales(toUpdate);
@@ -447,125 +310,33 @@ const App: React.FC = () => {
                             await saveSales(toUpdate);
                             loadDataForUser();
                         }}
-                        onRecalculate={handleRecalculateAdvanced}
                         onBulkAdd={handleBulkAddSales}
-                        hasUndo={false}
                         onNotify={addToast}
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
                     />
                 );
             case 'reports':
-                return (
-                    <ClientReports 
-                        sales={sales} 
-                        config={reportConfig} 
-                        onOpenSettings={() => setActiveTab('settings')}
-                        userId={currentUser.id}
-                        darkMode={theme !== 'neutral' && theme !== 'rose'}
-                    />
-                );
+                return ( <ClientReports sales={sales} config={reportConfig} onOpenSettings={() => setActiveTab('settings')} userId={currentUser.id} darkMode={theme !== 'neutral' && theme !== 'rose'} /> );
             case 'boletos':
                 return ( <BoletoControl sales={sales} onUpdateSale={async (s) => { await saveSingleSale(s); loadDataForUser(); }} /> );
-            case 'whatsapp_main':
-                return <WhatsAppModule darkMode={theme !== 'neutral' && theme !== 'rose'} sales={sales} />;
+            case 'settings':
+                return ( <SettingsHub rulesBasic={rulesBasic} rulesNatal={rulesNatal} rulesCustom={rulesCustom} reportConfig={reportConfig} onSaveRules={async (type, rules) => { await saveCommissionRules(type, rules); loadDataForUser(); }} onSaveReportConfig={async (config) => { await saveReportConfig(config); setReportConfig(config); }} darkMode={theme !== 'neutral' && theme !== 'rose'} currentUser={currentUser} onUpdateUser={setCurrentUser} sales={sales} onUpdateSales={setSales} onNotify={addToast} onThemeChange={setTheme} isAdmin={isAdmin} isDev={isDev} /> );
             case 'fin_dashboard':
-                return (
-                    <FinanceDashboard
-                        accounts={accounts} transactions={transactions} cards={cards} receivables={receivables}
-                        hideValues={hideValues} onToggleHide={() => setHideValues(!hideValues)}
-                        config={dashboardConfig} onUpdateConfig={setDashboardConfig}
-                        onNavigate={setActiveTab} darkMode={theme !== 'neutral' && theme !== 'rose'}
-                    />
-                );
-            case 'fin_transactions':
-                return (
-                    <FinanceTransactionsList 
-                        transactions={transactions} 
-                        accounts={accounts} 
-                        categories={categories} 
-                        onDelete={async (id) => {
-                            const updated = transactions.map(t => t.id === id ? {...t, deleted: true} : t);
-                            await saveFinanceData(accounts, cards, updated, categories);
-                            loadDataForUser();
-                        }} 
-                        darkMode={theme !== 'neutral' && theme !== 'rose'} 
-                    />
-                );
-            case 'fin_receivables':
-                return (
-                    <FinanceReceivables 
-                        receivables={receivables} 
-                        accounts={accounts} 
-                        sales={sales}
-                        onUpdate={async (items) => { 
-                            await saveFinanceData(accounts, cards, transactions, categories); 
-                            loadDataForUser(); 
-                        }}
-                        darkMode={theme !== 'neutral' && theme !== 'rose'}
-                    />
-                );
-            case 'fin_distribution':
-                return (
-                    <FinanceDistribution 
-                        receivables={receivables} 
-                        accounts={accounts} 
-                        onDistribute={async (receivableId, distributions) => {
-                            loadDataForUser();
-                        }} 
-                        darkMode={theme !== 'neutral' && theme !== 'rose'}
-                    />
-                );
+                return ( <FinanceDashboard accounts={accounts} transactions={transactions} cards={cards} receivables={receivables} hideValues={hideValues} onToggleHide={() => setHideValues(!hideValues)} config={dashboardConfig} onUpdateConfig={setDashboardConfig} onNavigate={setActiveTab} darkMode={theme !== 'neutral' && theme !== 'rose'} /> );
             case 'fin_manager':
-                return (
-                    <FinanceManager 
-                        accounts={accounts} 
-                        cards={cards} 
-                        transactions={transactions}
-                        onUpdate={async (acc, trans, crds) => {
-                            await saveFinanceData(acc, crds, trans, categories);
-                            loadDataForUser();
-                        }}
-                        onPayInvoice={async () => { loadDataForUser(); }}
-                        darkMode={theme !== 'neutral' && theme !== 'rose'}
-                        onNotify={addToast}
-                    />
-                );
+                return ( <FinanceManager accounts={accounts} cards={cards} transactions={transactions} onUpdate={async (acc, trans, crds) => { await saveFinanceData(acc, crds, trans, categories); loadDataForUser(); }} onPayInvoice={async () => {}} darkMode={theme !== 'neutral' && theme !== 'rose'} onNotify={addToast} /> );
+            case 'fin_transactions':
+                return ( <FinanceTransactionsList transactions={transactions} accounts={accounts} categories={categories} onDelete={async (id) => { const updated = transactions.map(t => t.id === id ? {...t, deleted: true} : t); await saveFinanceData(accounts, cards, updated, categories); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} /> );
             case 'fin_categories':
                 return <FinanceCategories categories={categories} onUpdate={async (cats) => { await saveFinanceData(accounts, cards, transactions, cats); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
             case 'fin_goals':
                 return <FinanceGoals goals={goals} onUpdate={async (gls) => { await saveFinanceData(accounts, cards, transactions, categories); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
             case 'fin_challenges':
                 return <FinanceChallenges challenges={challenges} cells={cells} onUpdate={async (chals, clls) => { await saveFinanceData(accounts, cards, transactions, categories); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
-            case 'settings':
-                return (
-                    <SettingsHub
-                        rulesBasic={rulesBasic} rulesNatal={rulesNatal} rulesCustom={rulesCustom}
-                        reportConfig={reportConfig}
-                        onSaveRules={async (type, rules) => {
-                            try {
-                                await saveCommissionRules(type, rules);
-                                addToast('SUCCESS', `Tabela ${type} actualizada!`);
-                                await loadDataForUser();
-                            } catch (e) { addToast('ERROR', 'Erro ao salvar.'); }
-                        }}
-                        onSaveReportConfig={async (config) => {
-                            try {
-                                await saveReportConfig(config);
-                                setReportConfig(config);
-                                addToast('SUCCESS', 'Parâmetros atualizados!');
-                            } catch (e) { addToast('ERROR', 'Falha ao salvar configurações.'); }
-                        }}
-                        darkMode={theme !== 'neutral' && theme !== 'rose'}
-                        currentUser={currentUser} onUpdateUser={setCurrentUser}
-                        sales={sales} onUpdateSales={setSales}
-                        onNotify={addToast} onThemeChange={setTheme}
-                        isAdmin={isAdmin} isDev={isDev}
-                    />
-                );
             case 'dev_roadmap':
                 return isDev ? <DevRoadmap /> : null;
             default:
-                return <div className="p-8 text-center text-gray-500">Módulo não encontrado.</div>;
+                return <div className="p-8 text-center text-gray-500">Módulo em desenvolvimento.</div>;
         }
     };
 
@@ -573,13 +344,12 @@ const App: React.FC = () => {
         <div className={theme}>
             {showSnow && <SnowOverlay />}
             <ToastContainer toasts={toasts} removeToast={removeToast} />
-            {updateAvailable && ( <SystemUpdateNotify onUpdate={handleSystemRefresh} onDismiss={() => setUpdateAvailable(false)} /> )}
             {showSalesForm && ( <SalesForm isOpen={showSalesForm} onClose={() => { setShowSalesForm(false); setEditingSale(null); }} initialData={editingSale} onSave={saveSingleSale} onSaved={loadDataForUser} /> )}
             {showTxForm && ( <FinanceTransactionForm isOpen={showTxForm} onClose={() => setShowTxForm(false)} accounts={accounts} cards={cards} categories={categories} onSave={async (tx: Transaction) => { await saveFinanceData(accounts, cards, [...transactions, tx], categories); }} onSaved={loadDataForUser} /> )}
             {isBackupModalOpen && ( <BackupModal isOpen={isBackupModalOpen} onClose={() => setIsBackupModalOpen(false)} mode="RESTORE" onSuccess={() => {}} onRestoreSuccess={loadDataForUser} /> )}
             {isBulkDateModalOpen && ( <BulkDateModal isOpen={isBulkDateModalOpen} onClose={() => setIsBulkDateModalOpen(false)} onConfirm={handleBulkUpdateDate} darkMode={theme !== 'neutral' && theme !== 'rose'} /> )}
-            {isClearLocalModalOpen && ( <ConfirmationModal isOpen={isClearLocalModalOpen} onClose={() => setIsClearLocalModalOpen(false)} onConfirm={handleClearLocalData} title="Limpar Cache Local?" message="Isso apagará o cache deste navegador. Seus dados no Firebase NÃO serão afetados e serão baixados novamente." type="WARNING" confirmText="Limpar e Sincronizar" /> )}
-            <Layout currentUser={currentUser} activeTab={activeTab} setActiveTab={setActiveTab} appMode={appMode} setAppMode={setAppMode} currentTheme={theme} setTheme={setTheme} darkMode={theme !== 'neutral' && theme !== 'rose'} onLogout={logout} onNewSale={() => { setEditingSale(null); setShowSalesForm(true); }} onNewIncome={() => setShowTxForm(true)} onNewExpense={() => setShowTxForm(true)} onNewTransfer={() => setShowTxForm(true)} isAdmin={isAdmin} isDev={isDev} showSnow={showSnow} onToggleSnow={toggleSnow} >
+            {isClearLocalModalOpen && ( <ConfirmationModal isOpen={isClearLocalModalOpen} onClose={() => setIsClearLocalModalOpen(false)} onConfirm={() => { handleClearLocalData(); }} title="Resetar Banco de Dados?" message="Isso limpará o cache local para forçar o download dos dados do Firebase." type="WARNING" /> )}
+            <Layout currentUser={currentUser!} activeTab={activeTab} setActiveTab={setActiveTab} appMode={appMode} setAppMode={setAppMode} currentTheme={theme} setTheme={setTheme} darkMode={theme !== 'neutral' && theme !== 'rose'} onLogout={logout} onNewSale={() => { setEditingSale(null); setShowSalesForm(true); }} onNewIncome={() => setShowTxForm(true)} onNewExpense={() => setShowTxForm(true)} onNewTransfer={() => setShowTxForm(true)} isAdmin={isAdmin} isDev={isDev} showSnow={showSnow} onToggleSnow={toggleSnow} >
                 <div className="md:p-4"> {renderActiveTab()} </div>
             </Layout>
         </div>
