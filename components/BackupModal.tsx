@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'export default BackupModal;';
+import React, { useState, useEffect } from 'react';
 import { Lock, Download, Upload, Trash2, X, AlertTriangle, CheckCircle, RefreshCw, Loader2 } from 'lucide-react';
 // Fix: Added missing clearAllSales function to services/logic.ts and await its call here
 import { exportEncryptedBackup, importEncryptedBackup, clearAllSales } from '../services/logic';
