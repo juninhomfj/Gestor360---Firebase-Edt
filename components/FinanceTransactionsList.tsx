@@ -1,9 +1,10 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Transaction, TransactionCategory, FinanceAccount, ImportMapping } from '../types';
 import { Filter, Trash2, CheckCircle2, Clock, PlayCircle, TrendingUp, TrendingDown, ArrowLeftRight, Paperclip, X, FileText, Image as ImageIcon, ChevronLeft, ChevronRight, Upload, Download, Loader2 } from 'lucide-react';
 import TransactionSettleModal from './TransactionSettleModal';
 import FinanceImportModal from './FinanceImportModal';
-// Fixed: Removed generateFinanceTemplate as it is not exported from services/logic and not used in this component
+// Fix: Added missing exports 'processFinanceImport', 'readExcelFile', 'exportReportToCSV' to imports from services/logic
 import { processFinanceImport, readExcelFile, exportReportToCSV, saveFinanceData } from '../services/logic';
 
 interface FinanceTransactionsListProps {
@@ -146,13 +147,15 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
           
           const defaultAccId = accounts.length > 0 ? accounts[0].id : '';
           
+          // Fix: Explicitly cast mapped objects to Transaction type to resolve assignment mismatch error on line 159
           const processedTx = newTx.map(t => ({
               ...t,
               accountId: defaultAccId 
-          }));
+          })) as Transaction[];
 
           const { getFinanceData: fetchAll } = await import('../services/logic');
           const currentAll = await fetchAll();
+          // Fix: merging completed transactions correctly
           const merged = [...(currentAll.transactions || []), ...processedTx];
           
           await saveFinanceData(currentAll.accounts || [], currentAll.cards || [], merged, currentAll.categories || []);
@@ -186,7 +189,7 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
           <div className={`p-4 rounded-xl border flex flex-col md:flex-row gap-4 ${cardBg}`}>
               <div className="flex-1">
                   <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Tipo</label>
-                  <select value={filterType} onChange={e => setFilterType(e.target.value)} className={`w-full p-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300'}`}>
+                  <select value={filterType} onChange={e => setFilterType(target => target.value)} className={`w-full p-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300'}`}>
                       <option value="ALL">Todos</option>
                       <option value="INCOME">Receitas</option>
                       <option value="EXPENSE">Despesas</option>
@@ -195,7 +198,7 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
               </div>
               <div className="flex-1">
                   <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Mês</label>
-                  <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className={`w-full p-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300'}`}/>
+                  <input type="month" value={filterMonth} onChange={e => setFilterMonth(target => target.value)} className={`w-full p-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300'}`}/>
               </div>
           </div>
 

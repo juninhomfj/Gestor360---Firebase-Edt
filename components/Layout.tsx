@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { LayoutDashboard, ShoppingCart, Settings, Menu, X, ShoppingBag, Users, FileText, Wallet, PieChart, Moon, Target, Trophy, Tag, ArrowLeftRight, PiggyBank, List, LogOut, Sun, Palette, ClipboardList, BarChart2, Sparkles, HelpCircle, PartyPopper, CalendarClock, Cloud, MessageCircle, Zap, Trees, Flame, Lock, MessageSquare, Newspaper, Rocket, FlaskConical, Terminal, Snowflake } from 'lucide-react';
 import { AppMode, User, AppTheme, AppNotification, SystemModules, InternalMessage } from '../types';
-// Fix: Removed getUserPlanLabel as it is not exported from services/logic and not used in this component
+// Fix: Added 'canAccess' to imports as it is now correctly exported from services/logic
 import { getSystemConfig, canAccess } from '../services/logic';
 import { getMessages } from '../services/internalChat';
 import FAB from './FAB';

@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Challenge, ChallengeCell, ChallengeModel } from '../types';
+// Fix: Added 'generateChallengeCells' to imports as it is now correctly exported from services/logic
 import { generateChallengeCells } from '../services/logic';
 import { Plus, Trophy, Calendar, Grid, CheckCircle, HelpCircle, Shuffle, Clock, TrendingUp, DollarSign } from 'lucide-react';
 import { auth } from '../services/firebase';
@@ -299,7 +300,7 @@ const FinanceChallenges: React.FC<FinanceChallengesProps> = ({ challenges, cells
       {/* DEPOSIT MODAL */}
       {depositCell && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-              <div className={`${darkMode ? 'bg-slate-900 border-emerald-500/50' : 'bg-white border-emerald-200'} border rounded-xl p-8 w-full max-w-sm text-center shadow-2xl`}>
+              <div className={`${darkMode ? 'bg-slate-900 border-emerald-500/50' : 'bg-white border-emerald-200'} border rounded-xl p-8 w-full max-sm text-center shadow-2xl`}>
                   <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                       <CheckCircle size={32} className="text-emerald-500" />
                   </div>

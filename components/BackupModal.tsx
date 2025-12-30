@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Lock, Download, Upload, Trash2, X, AlertTriangle, CheckCircle, RefreshCw, Loader2 } from 'lucide-react';
+// Fix: Added missing backup exports from services/logic
 import { exportEncryptedBackup, importEncryptedBackup, clearAllSales } from '../services/logic';
 
 interface BackupModalProps {

@@ -1,22 +1,37 @@
-
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
 import fetch from 'node-fetch';
 
 /**
- * sendNtfyNotification
- * HTTPS Callable para envio de notificações via ntfy.sh
- * 
- * Exemplos de Uso (Documentação Interna):
- * 1. Venda concluída: { topic: 'vendas', title: 'Venda Realizada', message: 'Cliente X comprou 50 cestas', tags: ['shopping_cart'] }
- * 2. Meta atingida: { topic: 'metas', title: 'Meta Batida!', message: 'Equipe atingiu 100% do objetivo', priority: 'high', tags: ['tada'] }
- * 3. Reset administrativo: { topic: 'logs', title: 'Security Alert', message: 'Hard reset executado no UID: xxx', priority: 'urgent', tags: ['warning'] }
- * 4. Mensagem global: { topic: 'broadcast', title: 'Aviso de Sistema', message: 'Manutenção agendada para 22h', tags: ['loudspeaker'] }
+ * interface NtfyPayload
+ * Contrato de entrada para a função de notificação.
  */
-export const sendNtfyNotification = functions.https.onCall(async (data, context) => {
-    // 1. Validação de Autenticação Básica
+interface NtfyPayload {
+  topic: string;
+  message: string;
+  title?: string;
+  priority?: "min" | "low" | "default" | "high" | "urgent";
+  tags?: string[];
+}
+
+/**
+ * sendNtfyNotification
+ * HTTPS Callable para envio de notificações via ntfy.sh.
+ * Valida se o usuário possui permissões administrativas antes de processar o envio.
+ * 
+ * Exemplos de eventos documentados:
+ * - Reset administrativo executado
+ * - Novo relatório financeiro gerado
+ * - Alerta de inconsistência crítica
+ * - Broadcast manual do sistema
+ */
+export const sendNtfyNotification = functions.https.onCall(async (data: NtfyPayload, context) => {
+    // 1. Validação de Autenticação
     if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "Autenticação obrigatória.");
+        throw new functions.https.HttpsError(
+            "unauthenticated", 
+            "A solicitação deve estar autenticada."
+        );
     }
 
     // 2. Validação de Autoridade (Role-Based Access Control)
@@ -25,44 +40,52 @@ export const sendNtfyNotification = functions.https.onCall(async (data, context)
     const userData = profileSnap.data();
 
     if (!profileSnap.exists || (userData?.role !== 'DEV' && userData?.role !== 'ADMIN')) {
-        throw new functions.https.HttpsError("permission-denied", "Acesso restrito a administradores.");
+        console.warn(`[SECURITY] Tentativa de disparo NTfy negada para UID: ${context.auth.uid}`);
+        throw new functions.https.HttpsError(
+            "permission-denied", 
+            "Privilégios insuficientes para disparar notificações globais."
+        );
     }
 
     // 3. Validação do Payload
-    const { topic, title, message, priority = "default", tags = [] } = data;
+    const { topic, message, title, priority, tags } = data;
 
     if (!topic || typeof topic !== 'string' || topic.trim() === '') {
         throw new functions.https.HttpsError("invalid-argument", "O campo 'topic' é obrigatório.");
     }
-    if (!title || typeof title !== 'string') {
-        throw new functions.https.HttpsError("invalid-argument", "O campo 'title' é obrigatório.");
-    }
-    if (!message || typeof message !== 'string') {
+    if (!message || typeof message !== 'string' || message.trim() === '') {
         throw new functions.https.HttpsError("invalid-argument", "O campo 'message' é obrigatório.");
     }
 
-    // 4. Envio para ntfy.sh
+    // 4. Preparação do Envio HTTP (ntfy.sh)
     const url = `https://ntfy.sh/${topic}`;
+    const headers: Record<string, string> = {
+        'Content-Type': 'text/plain'
+    };
+
+    if (title) headers['Title'] = title;
+    if (priority) headers['Priority'] = priority;
+    if (tags && Array.isArray(tags)) headers['Tags'] = tags.join(',');
 
     try {
         const response = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Title': title,
-                'Priority': priority,
-                'Tags': Array.isArray(tags) ? tags.join(',') : ''
-            },
-            body: message // Envio em texto puro conforme requisito
+            headers: headers,
+            body: message
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP Error: ${response.status}`);
+            throw new Error(`NTfy Service Error: ${response.status} ${response.statusText}`);
         }
 
-        return { success: true, timestamp: Date.now() };
+        return { success: true };
 
     } catch (error: any) {
-        console.error("[NTFY ERROR]", error);
-        throw new functions.https.HttpsError("internal", "Falha ao processar envio para o serviço ntfy.sh");
+        console.error("[NTFY_FUNCTION_ERROR]", error);
+        throw new functions.https.HttpsError(
+            "internal", 
+            "Falha ao processar o envio para o serviço NTfy externo.",
+            error.message
+        );
     }
 });

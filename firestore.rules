@@ -1,0 +1,111 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==========================================
+    // FUNÇÕES AUXILIARES (SISTEMA)
+    // ==========================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function dataUserId() {
+      return resource.data.userId;
+    }
+
+    function incomingDataUserId() {
+      return request.resource.data.userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && 
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role in ['ADMIN', 'DEV'];
+    }
+
+    function isBroadcastMessage() {
+      return resource.data.recipientId == "BROADCAST";
+    }
+
+    // ==========================================
+    // COLEÇÃO: PROFILES
+    // ==========================================
+    match /profiles/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (isOwner(userId) || isAdmin());
+    }
+
+    // ==========================================
+    // COLEÇÕES FINANCEIRAS (RLS ESTRITO)
+    // ==========================================
+    // cards, goals, challenges, challenge_cells, transactions, categories, receivables
+    match /cards/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
+    match /goals/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
+    match /challenges/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
+    match /challenge_cells/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
+    match /transactions/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
+    match /categories/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
+    match /receivables/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
+    match /sales/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
+    match /clients/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
+
+    // ==========================================
+    // COLEÇÃO: INTERNAL MESSAGES (CHAT/TICKETS)
+    // ==========================================
+    match /internal_messages/{msgId} {
+      allow read: if isSignedIn() && (
+        resource.data.recipientId == request.auth.uid || 
+        resource.data.recipientId == "BROADCAST" || 
+        resource.data.senderId == request.auth.uid ||
+        (isAdmin() && resource.data.recipientId == "ADMIN")
+      );
+      
+      allow create: if isSignedIn() && 
+        incomingDataUserId() == request.auth.uid;
+      
+      allow update: if isSignedIn() && 
+        dataUserId() == request.auth.uid && 
+        !isBroadcastMessage();
+        
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // COLEÇÃO: CONFIG (SISTEMA E USUÁRIO)
+    // ==========================================
+    match /config/system {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /config/{configId} {
+      // system_{uid} e report_{uid}
+      allow read, write: if isSignedIn() && (
+        configId == "system_" + request.auth.uid || 
+        configId == "report_" + request.auth.uid
+      );
+    }
+
+    // ==========================================
+    // COLEÇÃO: AUDIT LOG (AUDITORIA)
+    // ==========================================
+    match /audit_log/{logId} {
+      allow create: if isSignedIn();
+      allow read: if isAdmin();
+    }
+
+    // ==========================================
+    // BLOQUEIOS EXPLÍCITOS
+    // ==========================================
+    match /{allPaths=**} {
+      // Bloqueia qualquer documento que tente usar o ID reservado "system" como dono
+      allow write: if request.resource.data.userId != "system";
+      // Bloqueia leituras que não passem pelos filtros específicos acima
+      allow read: if false;
+    }
+  }
+}

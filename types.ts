@@ -1,4 +1,3 @@
-
 export type AppMode = 'SALES' | 'FINANCE' | 'WHATSAPP';
 export type AppTheme = 'glass' | 'neutral' | 'rose' | 'cyberpunk' | 'dark';
 export type UserRole = 'DEV' | 'ADMIN' | 'USER';
@@ -68,14 +67,12 @@ export interface ProductLabels {
     custom: string;
 }
 
-// Configuração de Sistema (Global) - Isolada de Usuário
 export interface SystemConfig {
     notificationSounds?: {
         enabled: boolean;
         volume: number;
         sound: string;
     };
-    /* Fix: Added legacy sound properties for AudioService and SettingsHub compatibility */
     notificationSound?: string;
     alertSound?: string;
     successSound?: string;
@@ -87,11 +84,9 @@ export interface SystemConfig {
     supportEmail?: string;
     supportTelegram?: string;
     fcmServerKey?: string;
-    /* Fix: Added modules property for Dashboard compatibility */
     modules?: UserPermissions;
 }
 
-// Preferências do Usuário (Local)
 export interface UserPreferences {
     theme?: AppTheme;
     hideValues?: boolean;
@@ -99,7 +94,14 @@ export interface UserPreferences {
     lastTab?: string;
 }
 
-// Contrato para NTFY (Preparação)
+export interface NtfyPayload {
+    topic: string;
+    message: string;
+    title?: string;
+    priority?: "min" | "low" | "default" | "high" | "urgent";
+    tags?: string[];
+}
+
 export interface NtfyEvent {
     id: string;
     topic: string;
@@ -115,7 +117,7 @@ export interface InternalMessage {
     id: string; 
     senderId: string; 
     senderName: string; 
-    recipientId: string; // "BROADCAST" ou UID específico
+    recipientId: string; 
     content: string; 
     title?: string; 
     timestamp: string; 
@@ -126,7 +128,6 @@ export interface InternalMessage {
     relatedModule?: 'sales' | 'finance' | 'ai'; 
 }
 
-// Outros tipos mantidos para integridade (Sales, Finance, etc)
 export enum ProductType { BASICA = 'BASICA', NATAL = 'NATAL', CUSTOM = 'CUSTOM' }
 export type SaleStatus = 'ORÇAMENTO' | 'PROPOSTA' | 'FATURADO';
 
@@ -154,9 +155,7 @@ export interface Sale {
     createdAt: string; 
     updatedAt?: string; 
     trackingCode?: string; 
-    /* Fix: Added boletoStatus for BoletoControl */
     boletoStatus?: 'PENDING' | 'SENT' | 'PAID';
-    /* Fix: Added quoteDate for SalesForm */
     quoteDate?: string;
 }
 
@@ -171,7 +170,6 @@ export interface FinanceAccount {
     personType?: PersonType; 
     deleted: boolean; 
     userId: string; 
-    /* Fix: Added color and createdAt for FinanceManager and Onboarding */
     color?: string;
     createdAt?: string;
 }
@@ -187,7 +185,6 @@ export interface CreditCard {
     isActive: boolean; 
     deleted: boolean; 
     userId: string; 
-    /* Fix: Added color for FinanceManager and Onboarding */
     color?: string;
 }
 
@@ -204,7 +201,6 @@ export interface Transaction {
     deleted: boolean; 
     createdAt: string; 
     userId: string; 
-    /* Fix: Added missing properties for FinanceTransactionForm and others */
     targetAccountId?: string;
     updatedAt?: string;
     deletedAt?: string;
@@ -214,7 +210,6 @@ export interface Transaction {
     installments?: number;
     costCenter?: string;
     tags?: string[];
-    /* Fix: Added missing cardId property to Transaction interface */
     cardId?: string | null;
 }
 
@@ -227,7 +222,6 @@ export interface TransactionCategory {
     isActive: boolean; 
     deleted: boolean; 
     userId: string; 
-    /* Fix: Added personType for FinanceCategories and Onboarding */
     personType?: PersonType;
 }
 
@@ -239,7 +233,6 @@ export interface FinanceGoal {
     status: 'ACTIVE' | 'COMPLETED'; 
     userId: string; 
     deleted: boolean; 
-    /* Fix: Added description for FinanceGoals */
     description?: string;
 }
 
@@ -252,7 +245,6 @@ export interface Challenge {
     status: 'ACTIVE' | 'COMPLETED'; 
     userId: string; 
     deleted: boolean; 
-    /* Fix: Added createdAt for FinanceChallenges */
     createdAt?: string;
 }
 
@@ -264,7 +256,6 @@ export interface ChallengeCell {
     status: 'PENDING' | 'PAID'; 
     userId: string; 
     deleted: boolean; 
-    /* Fix: Added paidDate for FinanceChallenges */
     paidDate?: string;
 }
 
@@ -277,7 +268,6 @@ export interface Receivable {
     distributed: boolean; 
     userId: string; 
     deleted: boolean; 
-    /* Fix: Changed deductions type to CommissionDeduction[] */
     deductions?: CommissionDeduction[]; 
 }
 
@@ -294,7 +284,6 @@ export interface Client {
     userId: string; 
     createdAt: string; 
     deleted: boolean; 
-    /* Fix: Added updatedAt, deletedAt, and notes for ClientMerge and TrashBin */
     updatedAt?: string;
     deletedAt?: string;
     notes?: string;
@@ -305,8 +294,6 @@ export interface SalesTargets { basic: number; natal: number; }
 export interface ImportMapping { [key: string]: number; }
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'CRASH';
 export interface LogEntry { timestamp: number; level: LogLevel; message: string; details?: any; userAgent?: string; }
-
-/* Fix: Added missing exported members required by multiple components */
 
 export type AudioType = 'NOTIFICATION' | 'ALERT' | 'SUCCESS' | 'WARNING';
 

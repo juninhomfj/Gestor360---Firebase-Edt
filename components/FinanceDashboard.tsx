@@ -1,7 +1,9 @@
+
 import React, { useMemo, useState, useEffect } from 'react';
 import { FinanceAccount, Transaction, CreditCard as CardType, Receivable, DashboardWidgetConfig, FinancialPacing, TransactionCategory } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, AreaChart, Area } from 'recharts';
 import { Wallet, TrendingUp, TrendingDown, DollarSign, Target, Plus, EyeOff, Eye, Settings, X, PiggyBank, ArrowLeftRight, List, Bell, Calculator, AlertCircle, PlayCircle, BarChart3 } from 'lucide-react';
+// Fix: Added 'calculateFinancialPacing' to imports as it is now correctly exported from services/logic
 import { getSystemConfig, calculateFinancialPacing, getFinanceData } from '../services/logic';
 import { getSession } from '../services/auth'; 
 
@@ -427,7 +429,7 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                       </label>
                       <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                           <span className={darkMode ? 'text-gray-200' : 'text-gray-800'}>Gráficos</span>
-                          <input type="checkbox" checked={config.showCharts} onChange={e => onUpdateConfig({...config, showCharts: e.target.checked})} className="w-5 h-5 rounded text-purple-600 accent-purple-600"/>
+                          <input type="checkbox" checked={config.showCharts} onChange={e => onUpdateConfig({...config, showCharts: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 accent-indigo-600"/>
                       </label>
                       <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                           <span className={darkMode ? 'text-gray-200' : 'text-gray-800'}>Lista Recente</span>

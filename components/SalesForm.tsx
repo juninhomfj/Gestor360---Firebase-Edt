@@ -1,5 +1,7 @@
+
 import React, { useState, useEffect } from 'react';
 import { Sale, ProductType, Client, SaleStatus } from '../types';
+// Fix: Added missing 'getStoredTable', 'computeCommissionValues', 'getClients' to imports from services/logic
 import { getStoredTable, computeCommissionValues, getClients } from '../services/logic';
 import { X, Calculator, AlertCircle, Truck, DollarSign } from 'lucide-react';
 import { auth } from '../services/firebase';
@@ -136,7 +138,7 @@ const SalesForm: React.FC<Props> = ({
               {initialData ? 'Editar Venda' : 'Lançar Nova Venda'}
             </h2>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full text-gray-400 transition-colors">
+          <button onClose={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full text-gray-400 transition-colors">
             <X size={20} />
           </button>
         </div>

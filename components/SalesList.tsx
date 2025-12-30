@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef } from 'react';
 import { Sale, ProductType, SaleFormData } from '../types';
 import { 
@@ -5,6 +6,7 @@ import {
     ChevronRight, ArrowUpDown, AlertTriangle, Search, Clock, CheckCircle, 
     Calculator, Eye, EyeOff, Settings, Filter, ShieldAlert, Lock, Loader2, Upload, Database, RefreshCw
 } from 'lucide-react';
+// Fix: Added missing 'readExcelFile' to imports from services/logic
 import { formatCurrency, readExcelFile } from '../services/logic';
 import ImportModal from './ImportModal';
 

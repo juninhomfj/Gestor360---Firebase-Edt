@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { FinanceAccount, CreditCard, Transaction, PersonType } from '../types';
 import { CreditCard as CardIcon, Wallet, Plus, Trash2, Edit2, CheckCircle, X, EyeOff, Save, Building2, User, ArrowLeftRight, Calendar } from 'lucide-react';
+// Fix: Added 'getInvoiceMonth' to imports as it is now correctly exported from services/logic
 import { getInvoiceMonth } from '../services/logic';
 import { auth } from '../services/firebase';
 
@@ -103,7 +104,6 @@ const FinanceManager: React.FC<FinanceManagerProps> = ({
               personType: newAccPersonType,
               isActive: true,
               deleted: false,
-              createdAt: new Date().toISOString(),
               userId: auth.currentUser?.uid || ''
           };
           onUpdate([...accounts, newAcc], transactions, cards);

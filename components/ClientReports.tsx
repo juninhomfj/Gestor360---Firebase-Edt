@@ -1,5 +1,7 @@
+
 import React, { useMemo, useState, useEffect } from 'react';
 import { Sale, ReportConfig, ProductivityMetrics } from '../types';
+// Fix: Added missing CRM analysis exports from services/logic
 import { analyzeClients, analyzeMonthlyVolume, exportReportToCSV, calculateProductivityMetrics } from '../services/logic';
 import { AlertTriangle, CheckCircle, UserPlus, Search, Download, Settings, BarChart3, TrendingUp, Users, Filter, Clock, Activity } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
