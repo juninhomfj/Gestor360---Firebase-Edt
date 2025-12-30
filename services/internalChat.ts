@@ -1,3 +1,4 @@
+
 import { 
     collection, 
     doc, 
@@ -8,8 +9,9 @@ import {
     orderBy, 
     onSnapshot,
     Timestamp,
-    addDoc,
-    limit
+    limit,
+    /* Fix: Added serverTimestamp to firestore imports */
+    serverTimestamp
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
 import { dbPut, dbGetAll, dbGet } from '../storage/db';
@@ -21,7 +23,7 @@ import { InternalMessage, User } from '../types';
 export const sendMessage = async (
     sender: User, 
     content: string, 
-    type: 'CHAT' | 'ACCESS_REQUEST' | 'BROADCAST' | 'BUG_REPORT' = 'CHAT',
+    type: 'CHAT' | 'ACCESS_REQUEST' | 'BROADCAST' | 'BUG_REPORT' | 'SYSTEM' = 'CHAT',
     recipientId: string = 'ADMIN',
     image?: string,
     relatedModule?: 'sales' | 'finance' | 'ai'
@@ -52,7 +54,7 @@ export const sendMessage = async (
                 timestamp: msg.timestamp,
                 read: msg.read,
                 userId: auth.currentUser.uid,
-                createdAt: Timestamp.now()
+                createdAt: serverTimestamp()
             };
 
             if (msg.image) payload.image = msg.image;
@@ -68,57 +70,53 @@ export const sendMessage = async (
 };
 
 /**
- * Carrega histórico local de mensagens, incluindo mensagens da nova coleção system_messages.
+ * Carrega histórico local de mensagens com filtro RLS obrigatório.
  */
 export const getMessages = async (userId: string, isAdmin: boolean) => {
+    // 1. Busca mensagens locais no IndexedDB
     const all = await dbGetAll('internal_messages');
-    
-    // Filtra mensagens de usuário protegidas por RLS
-    let filtered = [];
-    if (isAdmin) {
-        filtered = all.filter(m => m.recipientId === 'ADMIN' || m.senderId === userId || m.recipientId === userId);
-    } else {
-        filtered = all.filter(m => m.senderId === userId || m.recipientId === userId || m.recipientId === 'BROADCAST');
-    }
+    let filtered = all.filter(m => m.recipientId === userId || m.senderId === userId || m.recipientId === 'BROADCAST');
 
-    // Busca mensagens da coleção system_messages (Globais, sem userId)
+    // 2. Busca mensagens do Firestore com filtro obrigatório
     try {
-        const sysMsgSnap = await getDocs(query(collection(db, "system_messages"), orderBy("createdAt", "desc"), limit(20)));
-        const sysMsgs = sysMsgSnap.docs.map(d => {
-            const data = d.data();
-            return {
-                id: d.id,
-                senderId: 'SYSTEM',
-                senderName: 'Sistema Gestor360',
-                recipientId: 'BROADCAST',
-                content: data.body,
-                title: data.title,
-                type: data.type === 'broadcast' ? 'BROADCAST' : 'CHAT',
-                timestamp: (data.createdAt as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
-                read: false
-            } as any;
+        const q = query(
+            collection(db, "internal_messages"),
+            where("recipientId", "in", [userId, "BROADCAST"]),
+            orderBy("createdAt", "desc"),
+            limit(50)
+        );
+        const snap = await getDocs(q);
+        const cloudMsgs = snap.docs.map(d => ({ ...d.data(), id: d.id } as InternalMessage));
+        
+        // Merge seguro
+        const merged = [...filtered];
+        cloudMsgs.forEach(cm => {
+            if (!merged.find(m => m.id === cm.id)) merged.push(cm);
         });
-        filtered = [...filtered, ...sysMsgs];
+        
+        return merged.sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     } catch (e) {
-        console.warn("[Chat] Falha ao carregar system_messages:", e);
+        console.warn("[Chat] Falha ao ler nuvem:", e);
+        return filtered.sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     }
-
-    return filtered.sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 
 /**
- * Subscreve ao Firestore para mensagens novas, escutando também a coleção system_messages.
+ * Subscreve ao Firestore para mensagens novas com filtro mandatório.
  */
 export const subscribeToMessages = (
     userId: string, 
     isAdmin: boolean, 
     onNewMessage: (msg: InternalMessage) => void
 ) => {
-    // 1. Listener para mensagens internas (User-to-User / User-to-Admin)
-    const msgRef = collection(db, "internal_messages");
-    const qInternal = query(msgRef, limit(50));
+    const q = query(
+        collection(db, "internal_messages"),
+        where("recipientId", "in", [userId, "BROADCAST"]),
+        orderBy("createdAt", "desc"),
+        limit(20)
+    );
 
-    const unsubInternal = onSnapshot(qInternal, (snapshot) => {
+    const unsubscribe = onSnapshot(q, (snapshot) => {
         snapshot.docChanges().forEach(async (change) => {
             if (change.type === "added") {
                 const data = change.doc.data();
@@ -128,65 +126,26 @@ export const subscribeToMessages = (
                     timestamp: data.timestamp || (data.createdAt as Timestamp)?.toDate().toISOString() || new Date().toISOString()
                 } as InternalMessage;
                 
-                const isRelevant = isAdmin || 
-                                 newMsg.recipientId === userId || 
-                                 newMsg.recipientId === 'BROADCAST' || 
-                                 newMsg.senderId === userId;
-
-                if (isRelevant) {
-                    const existing = await dbGet('internal_messages', newMsg.id);
-                    if (!existing) {
-                        await dbPut('internal_messages', newMsg);
-                        onNewMessage(newMsg);
-                    }
+                const existing = await dbGet('internal_messages', newMsg.id);
+                if (!existing) {
+                    await dbPut('internal_messages', newMsg);
+                    onNewMessage(newMsg);
                 }
             }
         });
     });
 
-    // 2. Listener para system_messages (Globais)
-    const sysRef = collection(db, "system_messages");
-    const unsubSystem = onSnapshot(query(sysRef, orderBy("createdAt", "desc"), limit(5)), (snapshot) => {
-        snapshot.docChanges().forEach(async (change) => {
-            if (change.type === "added") {
-                const data = change.doc.data();
-                const sysMsg: any = {
-                    id: change.doc.id,
-                    senderId: 'SYSTEM',
-                    senderName: 'Sistema Gestor360',
-                    recipientId: 'BROADCAST',
-                    content: data.body,
-                    type: 'BROADCAST',
-                    timestamp: (data.createdAt as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
-                    read: false
-                };
-                onNewMessage(sysMsg);
-            }
-        });
-    });
-
-    return { 
-        unsubscribe: () => {
-            unsubInternal();
-            unsubSystem();
-        } 
-    };
+    return { unsubscribe };
 };
 
 export const markMessageRead = async (msgId: string, userId: string) => {
     const msg = await dbGet('internal_messages', msgId);
     if (msg) {
-        const updated = { ...msg };
+        const updated = { ...msg, read: true };
         if (msg.recipientId === 'BROADCAST') {
             const readers = msg.readBy || [];
-            if (!readers.includes(userId)) {
-                updated.readBy = [...readers, userId];
-            } else {
-                return;
-            }
-        } else if (msg.recipientId === userId) {
-            if (msg.read) return;
-            updated.read = true;
+            if (!readers.includes(userId)) updated.readBy = [...readers, userId];
+            else return;
         }
 
         await dbPut('internal_messages', updated);

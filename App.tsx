@@ -33,6 +33,7 @@ import {
     User, Sale, AppMode, AppTheme, FinanceAccount, Transaction, CreditCard,
     TransactionCategory, FinanceGoal, Challenge, ChallengeCell, Receivable,
     CommissionRule, ReportConfig, SalesTargets, ProductType,
+    /* Fix: Added missing SaleFormData import to satisfy handleBulkAddSales signature */
     DashboardWidgetConfig, Client, SaleFormData
 } from './types';
 
@@ -305,7 +306,7 @@ const App: React.FC = () => {
     if (authView === 'ERROR') {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-center text-white">
-                <div className="max-w-md p-8 bg-slate-900 border border-red-500 rounded-3xl shadow-2xl">
+                <div className="max-w-md p-8 bg-slate-900 border border-red-50 rounded-3xl shadow-2xl">
                     <h1 className="text-2xl font-bold text-red-500 mb-4">Falha Crítica Firestore</h1>
                     <p className="opacity-60 mb-8">{authError}</p>
                     <button onClick={() => window.location.reload()} className="px-6 py-3 bg-white text-black rounded-lg font-bold hover:bg-gray-200 transition-all">Reiniciar Sistema</button>

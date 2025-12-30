@@ -12,6 +12,10 @@ export class AudioService {
   static async play(soundType: AudioType): Promise<void> {
     try {
       const config = await getSystemConfig();
+      
+      // If sounds are disabled globally, exit
+      if (config.notificationSounds && config.notificationSounds.enabled === false) return;
+
       const soundData = this.getSoundData(config, soundType);
       
       // Fallback silencioso: se não houver configuração, não faz nada.
@@ -22,12 +26,17 @@ export class AudioService {
       // Reinicia o áudio se já estiver tocando ou terminou
       audio.currentTime = 0;
       
+      // Apply volume from config if available
+      if (config.notificationSounds?.volume !== undefined) {
+          audio.volume = config.notificationSounds.volume;
+      } else {
+          audio.volume = 1.0;
+      }
+      
       const playPromise = audio.play();
       
       if (playPromise !== undefined) {
         playPromise.catch((error) => {
-          // Erros de reprodução (comuns em navegadores modernos sem interação do usuário)
-          // são logados apenas em desenvolvimento para não poluir o console do usuário.
           if (process.env.NODE_ENV === 'development') {
             console.warn(`[AudioService] Falha ao reproduzir som (${soundType}):`, error);
           }
@@ -42,8 +51,15 @@ export class AudioService {
 
   /**
    * Mapeia o tipo de áudio para a propriedade correta na configuração.
+   * Suporta o novo formato nested e o formato legado para transição suave.
    */
   private static getSoundData(config: SystemConfig, soundType: AudioType): string | undefined {
+    // New nested structure (Part 2)
+    if (config.notificationSounds?.sound) {
+        return config.notificationSounds.sound;
+    }
+
+    // Legacy fallback (Part 2 transition)
     const soundMap: Record<AudioType, string | undefined> = {
       NOTIFICATION: config.notificationSound,
       ALERT: config.alertSound,
@@ -60,8 +76,6 @@ export class AudioService {
   private static getAudioInstance(soundData: string): HTMLAudioElement {
     if (!this.audioCache.has(soundData)) {
       const audio = new Audio(soundData);
-      // Configurações padrão opcionais
-      audio.volume = 1.0; 
       this.audioCache.set(soundData, audio);
     }
     return this.audioCache.get(soundData)!;
@@ -74,6 +88,7 @@ export class AudioService {
     try {
         const config = await getSystemConfig();
         const sounds = [
+            config.notificationSounds?.sound,
             config.notificationSound,
             config.alertSound,
             config.successSound,

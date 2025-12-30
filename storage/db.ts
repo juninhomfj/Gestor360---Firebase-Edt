@@ -1,5 +1,6 @@
 
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
+/* Fix: Added newly created types to the imports to ensure IndexedDB schema consistency */
 import { InternalMessage, User, LogEntry, Sale, CommissionRule, FinanceAccount, CreditCard, Transaction, TransactionCategory, FinanceGoal, Challenge, ChallengeCell, Receivable, WAContact, WATag, WACampaign, WAMessageQueue, ManualInteractionLog, CampaignStatistics, SyncEntry, Client, ClientTransferRequest, SyncTable } from '../types';
 
 interface Gestor360DB extends DBSchema {

@@ -1,3 +1,4 @@
+
 import * as admin from 'firebase-admin';
 
 if (admin.apps.length === 0) {
@@ -6,3 +7,4 @@ if (admin.apps.length === 0) {
 
 export { adminHardResetUserData } from './adminHardReset';
 export { sendAdminNotification } from './admin/sendAdminNotification';
+export { sendNtfyNotification } from './ntfy';

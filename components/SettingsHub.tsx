@@ -42,53 +42,55 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
   const [commissionTab, setCommissionTab] = useState<ProductType>(ProductType.BASICA); 
   const [showMobileContent, setShowMobileContent] = useState(false);
   
-  const [systemConfig, setSystemConfig] = useState<SystemConfig & { fcmServerKey?: string }>(DEFAULT_SYSTEM_CONFIG);
+  const [systemConfig, setSystemConfig] = useState<SystemConfig>(DEFAULT_SYSTEM_CONFIG);
   const [showBackupModal, setShowBackupModal] = useState(false);
 
   const [notificationSound, setNotificationSound] = useState('');
-  const [alertSound, setAlertSound] = useState('');
-  const [successSound, setSuccessSound] = useState('');
-  const [warningSound, setWarningSound] = useState('');
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundVolume, setSoundVolume] = useState(1);
   
   const audioInputRef = useRef<HTMLInputElement>(null);
-  const [targetAudioField, setTargetAudioField] = useState<string | null>(null);
 
   useEffect(() => {
       const loadConfig = async () => {
           const cfg = await getSystemConfig();
           setSystemConfig(cfg);
-          setNotificationSound(cfg.notificationSound || '');
-          setAlertSound(cfg.alertSound || '');
-          setSuccessSound(cfg.successSound || '');
-          setWarningSound(cfg.warningSound || '');
+          
+          if (cfg.notificationSounds) {
+              setNotificationSound(cfg.notificationSounds.sound || '');
+              setSoundEnabled(cfg.notificationSounds.enabled);
+              setSoundVolume(cfg.notificationSounds.volume);
+          } else {
+              setNotificationSound(cfg.notificationSound || '');
+          }
       };
       loadConfig();
   }, []);
 
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (!file || !targetAudioField) return;
+      if (!file) return;
       try {
           const base64 = await fileToBase64(file);
-          if (targetAudioField === 'notificationSound') setNotificationSound(base64);
-          if (targetAudioField === 'successSound') setSuccessSound(base64);
-          if (targetAudioField === 'alertSound') setAlertSound(base64);
-          if (targetAudioField === 'warningSound') setWarningSound(base64);
+          setNotificationSound(base64);
           onNotify('SUCCESS', 'Som carregado com sucesso!');
       } catch (err) {
           onNotify('ERROR', 'Erro ao processar áudio.');
       }
       if (audioInputRef.current) audioInputRef.current.value = '';
-      setTargetAudioField(null);
   };
 
-  const handleSaveSystemSettings = () => {
-      const newConfig = { 
+  const handleSaveSystemSettings = async () => {
+      const newConfig: SystemConfig = { 
           ...systemConfig, 
-          notificationSound, alertSound, successSound, warningSound 
+          notificationSounds: {
+              enabled: soundEnabled,
+              volume: soundVolume,
+              sound: notificationSound
+          }
       };
       setSystemConfig(newConfig);
-      saveSystemConfig(newConfig);
+      await saveSystemConfig(newConfig);
       onNotify('SUCCESS', 'Configurações de sistema atualizadas!');
   };
 
@@ -215,14 +217,46 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
                     <div className={`p-8 rounded-2xl border shadow-sm animate-in fade-in slide-in-from-right-2 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-100'}`}>
                         <div className="flex items-center gap-3 mb-8">
                             <Volume2 className="text-indigo-500" size={28}/>
-                            <h3 className="text-xl font-black">Sons de Alerta</h3>
+                            <h3 className="text-xl font-black">Configurações de Alerta</h3>
                         </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                            <div className="p-4 rounded-xl border dark:border-slate-800 bg-gray-50 dark:bg-slate-950">
+                                <label className="flex items-center justify-between cursor-pointer">
+                                    <span className="text-sm font-bold">Ativar Sons</span>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={soundEnabled} 
+                                        onChange={e => setSoundEnabled(e.target.checked)}
+                                        className="w-5 h-5 accent-indigo-600"
+                                    />
+                                </label>
+                            </div>
+                            <div className="p-4 rounded-xl border dark:border-slate-800 bg-gray-50 dark:bg-slate-950">
+                                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Volume Geral</label>
+                                <input 
+                                    type="range" min="0" max="1" step="0.1"
+                                    value={soundVolume}
+                                    onChange={e => setSoundVolume(parseFloat(e.target.value))}
+                                    className="w-full accent-indigo-600"
+                                />
+                            </div>
+                        </div>
+
                         <div className="space-y-4">
-                            <SoundRow label="Notificação Padrão" value={notificationSound} onUpload={() => { setTargetAudioField('notificationSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(notificationSound).play()} onDelete={() => setNotificationSound('')} />
-                            <SoundRow label="Sucesso em Lançamento" value={successSound} onUpload={() => { setTargetAudioField('successSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(successSound).play()} onDelete={() => setSuccessSound('')} />
-                            <SoundRow label="Alerta Crítico / Erro" value={alertSound} onUpload={() => { setTargetAudioField('alertSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(alertSound).play()} onDelete={() => setAlertSound('')} />
-                            <SoundRow label="Aviso de Pendência" value={warningSound} onUpload={() => { setTargetAudioField('warningSound'); audioInputRef.current?.click(); }} onTest={() => new Audio(warningSound).play()} onDelete={() => setWarningSound('')} />
+                            <SoundRow 
+                                label="Som das Notificações" 
+                                value={notificationSound} 
+                                onUpload={() => audioInputRef.current?.click()} 
+                                onTest={() => {
+                                    const a = new Audio(notificationSound);
+                                    a.volume = soundVolume;
+                                    a.play();
+                                }} 
+                                onDelete={() => setNotificationSound('')} 
+                            />
                         </div>
+
                         <div className="mt-10 pt-6 border-t dark:border-slate-800 flex justify-end">
                             <button onClick={handleSaveSystemSettings} className="w-full md:w-auto px-10 py-4 bg-emerald-600 text-white font-black rounded-xl active:scale-95 transition-all shadow-xl hover:bg-emerald-700 uppercase text-xs tracking-widest">
                                <Save size={18} className="inline mr-2"/> Salvar Configurações

@@ -1,8 +1,8 @@
 
 import { getToken, Messaging } from "firebase/messaging";
 import { initMessaging } from "./firebase";
-// FIX: Imported updateUser from ./auth instead of ./logic
 import { getSystemConfig } from "./logic";
+/* Fix: Corrected updateUser import source from auth service */
 import { updateUser } from "./auth";
 import { User } from "../types";
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
