@@ -40,7 +40,8 @@ import {
     getStoredSales, getFinanceData, getSystemConfig, getReportConfig,
     getStoredTable, saveFinanceData, saveSingleSale, getClients,
     saveCommissionRules, bootstrapProductionData, saveReportConfig,
-    saveSales, canAccess, computeCommissionValues, clearLocalCache
+    saveSales, canAccess, computeCommissionValues, clearLocalCache,
+    ensureNumber
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -216,10 +217,17 @@ const App: React.FC = () => {
             setLoading(true);
             const convertedSales: Sale[] = newSalesData.map(data => {
                 const rules = data.type === ProductType.NATAL ? rulesNatal : rulesBasic;
+                
+                // Normaliza todos os valores numéricos com ensureNumber
+                const qty = ensureNumber(data.quantity);
+                const valProp = ensureNumber(data.valueProposed);
+                const margin = ensureNumber(data.marginPercent);
+                const valSold = ensureNumber(data.valueSold);
+
                 const { commissionBase, commissionValue, rateUsed } = computeCommissionValues(
-                    data.quantity, 
-                    data.valueProposed, 
-                    data.marginPercent, 
+                    qty, 
+                    valProp, 
+                    margin, 
                     rules
                 );
 
@@ -227,12 +235,12 @@ const App: React.FC = () => {
                     id: crypto.randomUUID(),
                     userId: uid,
                     client: data.client,
-                    quantity: data.quantity,
+                    quantity: qty,
                     type: data.type,
                     status: data.isBilled ? 'FATURADO' : 'ORÇAMENTO',
-                    valueProposed: data.valueProposed,
-                    valueSold: data.valueSold,
-                    marginPercent: data.marginPercent,
+                    valueProposed: valProp,
+                    valueSold: valSold,
+                    marginPercent: margin,
                     commissionBaseTotal: commissionBase,
                     commissionValueTotal: commissionValue,
                     commissionRateUsed: rateUsed,
@@ -490,7 +498,7 @@ const App: React.FC = () => {
                         accounts={accounts} 
                         sales={sales}
                         onUpdate={async (items) => { 
-                            await saveFinanceData(accounts, cards, transactions, categories); // Note: receivables saving should be added to saveFinanceData or specific service
+                            await saveFinanceData(accounts, cards, transactions, categories); 
                             loadDataForUser(); 
                         }}
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
@@ -502,8 +510,6 @@ const App: React.FC = () => {
                         receivables={receivables} 
                         accounts={accounts} 
                         onDistribute={async (receivableId, distributions) => {
-                            // Logic for distribution: update receivable to distributed, create transactions
-                            // This would be complex in this file, ideally move to financeService
                             loadDataForUser();
                         }} 
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
@@ -527,9 +533,9 @@ const App: React.FC = () => {
             case 'fin_categories':
                 return <FinanceCategories categories={categories} onUpdate={async (cats) => { await saveFinanceData(accounts, cards, transactions, cats); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
             case 'fin_goals':
-                return <FinanceGoals goals={goals} onUpdate={async (gls) => { await saveFinanceData(accounts, cards, transactions, categories); /* Meta specific saving here */ loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+                return <FinanceGoals goals={goals} onUpdate={async (gls) => { await saveFinanceData(accounts, cards, transactions, categories); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
             case 'fin_challenges':
-                return <FinanceChallenges challenges={challenges} cells={cells} onUpdate={async (chals, clls) => { await saveFinanceData(accounts, cards, transactions, categories); /* Challenge specific saving here */ loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+                return <FinanceChallenges challenges={challenges} cells={cells} onUpdate={async (chals, clls) => { await saveFinanceData(accounts, cards, transactions, categories); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
             case 'settings':
                 return (
                     <SettingsHub

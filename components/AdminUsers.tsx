@@ -2,10 +2,10 @@
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, UserModules, UserStatus } from '../types';
 import { listUsers, createUser, updateUser, resendInvitation } from '../services/auth';
-import { permanentlyClearAllSalesFirestore } from '../services/logic';
+import { atomicClearUserTables } from '../services/logic';
 import { 
     Trash2, Plus, Shield, User as UserIcon, Mail, AlertTriangle, 
-    RefreshCw, Edit2, CheckSquare, Square, Loader2, Users, Send, UserCheck, UserX, Save, X, Clock, Check, Bomb, Lock
+    RefreshCw, Edit2, CheckSquare, Square, Loader2, Users, Send, UserCheck, UserX, Save, X, Clock, Check, Bomb, Lock, CheckCircle
 } from 'lucide-react';
 import InvitationSentModal from './InvitationSentModal';
 
@@ -18,6 +18,15 @@ const DEFAULT_MODULES: UserModules = {
     ai: true, dev: false, reports: true, news: true,
     receivables: true, distribution: true, imports: true, settings: true,
 };
+
+const RESETTABLE_TABLES = [
+    { id: 'sales', label: 'Vendas' },
+    { id: 'transactions', label: 'Transações Financeiras' },
+    { id: 'accounts', label: 'Contas Bancárias' },
+    { id: 'wa_contacts', label: 'Contatos WhatsApp' },
+    { id: 'clients', label: 'Carteira de Clientes' },
+    { id: 'receivables', label: 'Comissões a Receber' }
+];
 
 const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
   const [users, setUsers] = useState<User[]>([]);
@@ -36,6 +45,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
 
   // Segurança Hard Reset
   const [hardResetModal, setHardResetModal] = useState<{ isOpen: boolean, targetUser: User | null }>({ isOpen: false, targetUser: null });
+  const [selectedTables, setSelectedTables] = useState<string[]>(['sales']);
   const [resetPassword, setResetPassword] = useState('');
   const [isResetting, setIsResetting] = useState(false);
 
@@ -58,19 +68,29 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
   const handleAtomicClear = async () => {
       if (!resetPassword) return alert("Digite sua senha administrativa.");
       if (!hardResetModal.targetUser) return;
+      if (selectedTables.length === 0) return alert("Selecione pelo menos uma tabela para limpar.");
       
       setIsResetting(true);
       try {
-          // Nota: Em um app real, aqui verificaríamos a senha via Firebase Auth reauthenticate
-          await permanentlyClearAllSalesFirestore(hardResetModal.targetUser.id);
-          alert(`Base de vendas do usuário ${hardResetModal.targetUser.name} foi totalmente limpa.`);
+          await atomicClearUserTables(hardResetModal.targetUser.id, selectedTables);
+          alert(`As tabelas selecionadas (${selectedTables.length}) foram limpas.`);
           setHardResetModal({ isOpen: false, targetUser: null });
           setResetPassword('');
+          setSelectedTables(['sales']);
+          if (hardResetModal.targetUser.id === currentUser.id) {
+              window.location.reload();
+          }
       } catch (e: any) {
           alert("Falha na limpeza: " + e.message);
       } finally {
           setIsResetting(false);
       }
+  };
+
+  const toggleTableSelection = (tableId: string) => {
+      setSelectedTables(prev => 
+          prev.includes(tableId) ? prev.filter(t => t !== tableId) : [...prev, tableId]
+      );
   };
 
   const resetForm = () => {
@@ -117,10 +137,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
           resetForm();
           loadUsers();
       } catch(e: any) {
-          console.error(e);
-          setError(e.message?.includes('permission-denied') 
-            ? "Permissão negada. Apenas administradores root podem alterar níveis de acesso."
-            : "Falha ao gravar no Firestore. Verifique os dados.");
+          setError("Falha ao gravar no Firestore.");
       } finally {
           setIsLoading(false);
       }
@@ -132,7 +149,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
           await resendInvitation(user.email);
           setShowInviteSuccess({ isOpen: true, email: user.email });
       } catch (e) {
-          alert("Erro ao reenviar: serviço de e-mail ocupado.");
+          alert("Erro ao reenviar convite.");
       } finally {
           setSendingInviteId(null);
       }
@@ -149,7 +166,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
           await updateUser(user.id, { isActive: isActivating });
           loadUsers();
       } catch (e) {
-          alert("Não foi possível alterar o status na nuvem.");
+          alert("Erro ao atualizar status.");
       }
   };
 
@@ -231,7 +248,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                     onClick={() => toggleModule(mod as keyof UserModules)}
                                     className={`flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${newModules[mod as keyof UserModules] ? 'bg-emerald-500/10 border-emerald-500 shadow-md ring-1 ring-emerald-500/50' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800'}`}
                                 >
-                                    <div className={`w-5 h-5 rounded flex items-center justify-center border ${newModules[mod as keyof UserModules] ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-gray-300'}`}>
+                                    <div className={`w-5 h-5 rounded flex items-center justify-center border ${newModules[mod as keyof UserModules] ? 'bg-emerald-50 border-emerald-500 text-white' : 'border-gray-300'}`}>
                                         {newModules[mod as keyof UserModules] && <Check size={14}/>}
                                     </div>
                                     <span className={`text-xs font-black uppercase tracking-wide ${newModules[mod as keyof UserModules] ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400'}`}>{mod}</span>
@@ -284,11 +301,11 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                 <td className="p-6">{getStatusBadge(u.userStatus)}</td>
                                 <td className="p-6">
                                     <div className="flex justify-center gap-3">
-                                        {currentUser.role === 'DEV' && u.id !== currentUser.id && (
+                                        {(currentUser.role === 'DEV' || currentUser.role === 'ADMIN') && (
                                             <button 
                                                 onClick={() => setHardResetModal({ isOpen: true, targetUser: u })}
                                                 className="p-3 bg-red-500 text-white rounded-xl hover:shadow-lg transition-all"
-                                                title="LIMPEZA ATÔMICA (Limpa Firestore deste usuário)"
+                                                title="RESET SELETIVO (Limpa tabelas deste usuário)"
                                             >
                                                 <Bomb size={18}/>
                                             </button>
@@ -317,18 +334,34 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
             </div>
         </div>
 
-        {/* MODAL DE HARD RESET (DEV ONLY) */}
+        {/* MODAL DE RESET SELETIVO (EVOLUÍDO) */}
         {hardResetModal.isOpen && (
             <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
-                <div className="bg-slate-900 border-2 border-red-500 w-full max-w-md rounded-[2.5rem] p-10 shadow-[0_0_50px_rgba(239,68,68,0.3)] text-center animate-in zoom-in-95">
-                    <div className="w-24 h-24 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-8 border-4 border-red-500 shadow-lg shadow-red-500/20">
-                        <Bomb size={48} className="animate-bounce" />
+                <div className="bg-slate-900 border-2 border-red-500 w-full max-w-lg rounded-[2.5rem] p-10 shadow-[0_0_50px_rgba(239,68,68,0.3)] animate-in zoom-in-95">
+                    <div className="text-center mb-8">
+                        <div className="w-20 h-20 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-red-500 shadow-lg shadow-red-500/20">
+                            <Bomb size={40} className="animate-pulse" />
+                        </div>
+                        <h3 className="text-3xl font-black text-white mb-2">RESET SELETIVO</h3>
+                        <p className="text-slate-400 text-sm leading-relaxed">
+                            Selecione quais dados de <span className="text-white font-bold">{hardResetModal.targetUser?.name}</span> deseja apagar permanentemente.
+                        </p>
                     </div>
-                    <h3 className="text-3xl font-black text-white mb-2">LIMPEZA ATÔMICA</h3>
-                    <p className="text-red-400 text-sm font-bold uppercase tracking-widest mb-6">Operação Irreversível</p>
-                    <p className="text-slate-400 text-sm mb-8 leading-relaxed">
-                        Você está prestes a apagar <b>todos os dados de vendas</b> do usuário <span className="text-white font-bold">{hardResetModal.targetUser?.name}</span> no Google Firestore.
-                    </p>
+
+                    <div className="grid grid-cols-2 gap-3 mb-8">
+                        {RESETTABLE_TABLES.map(table => (
+                            <button 
+                                key={table.id}
+                                onClick={() => toggleTableSelection(table.id)}
+                                className={`flex items-center gap-3 p-4 rounded-2xl border-2 transition-all text-left ${selectedTables.includes(table.id) ? 'bg-red-500/10 border-red-500 text-red-500 shadow-lg shadow-red-500/20' : 'bg-black/20 border-slate-800 text-slate-500 hover:border-slate-700'}`}
+                            >
+                                <div className={`w-5 h-5 rounded flex items-center justify-center border-2 ${selectedTables.includes(table.id) ? 'bg-red-500 border-red-500 text-white' : 'border-slate-700'}`}>
+                                    {selectedTables.includes(table.id) && <Check size={14}/>}
+                                </div>
+                                <span className="text-[10px] font-black uppercase tracking-wider">{table.label}</span>
+                            </button>
+                        ))}
+                    </div>
 
                     <div className="space-y-4">
                         <div className="relative">
@@ -343,10 +376,10 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                         </div>
                         <button 
                             onClick={handleAtomicClear}
-                            disabled={isResetting || !resetPassword}
-                            className="w-full py-5 bg-red-600 hover:bg-red-700 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-3 uppercase text-xs tracking-[0.2em]"
+                            disabled={isResetting || !resetPassword || selectedTables.length === 0}
+                            className="w-full py-5 bg-red-600 hover:bg-red-700 text-white font-black rounded-3xl shadow-xl transition-all active:scale-95 disabled:opacity-30 disabled:grayscale flex items-center justify-center gap-3 uppercase text-xs tracking-[0.2em]"
                         >
-                            {isResetting ? <Loader2 size={20} className="animate-spin" /> : "EXECUTAR RESET TOTAL"}
+                            {isResetting ? <Loader2 size={20} className="animate-spin" /> : "EXECUTAR LIMPEZA"}
                         </button>
                         <button 
                             onClick={() => setHardResetModal({ isOpen: false, targetUser: null })}
