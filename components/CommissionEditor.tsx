@@ -1,7 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { CommissionRule, ProductType, User } from '../types';
 import { Save, Plus, Trash2, Lock, Download, Upload, AlertCircle } from 'lucide-react';
+import { Logger } from '../services/logger';
 
 interface CommissionEditorProps {
   initialRules: CommissionRule[];
@@ -55,6 +55,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
   };
 
   const handleSave = () => {
+    Logger.info(`📝 Usuário clicou em salvar comissões do tipo: ${type}`);
     // Converte de volta para decimais antes de salvar no Firestore
     const finalRules: CommissionRule[] = rules.map(r => ({
       id: r.id,
@@ -70,6 +71,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    Logger.info(`📤 Importando arquivo JSON de comissões: ${file.name}`);
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
@@ -94,8 +96,10 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
             };
           }));
           setIsDirty(true);
+          Logger.info(`✅ Importação de JSON concluída para ${type}.`);
         }
       } catch (err) {
+        Logger.error("Falha ao processar arquivo JSON de comissão.", err);
         alert("Erro no formato do arquivo. Certifique-se que é um JSON válido.");
       }
     };
@@ -118,6 +122,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
               </label>
               <button
                 onClick={() => {
+                  Logger.info(`📥 Exportando tabela de comissão: ${type}`);
                   const finalRules = rules.map(r => ({
                     id: r.id,
                     minPercent: parseFloat(r.minPercent) || 0,

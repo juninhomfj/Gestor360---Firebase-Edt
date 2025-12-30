@@ -24,6 +24,7 @@ import { initializeApp, getApps } from "firebase/app";
 import { auth, db, firebaseConfig } from "./firebase";
 import { dbPut } from "../storage/db";
 import { User, UserRole, UserPermissions, UserStatus } from "../types";
+import { Logger } from "./logger";
 
 const secondaryApp = getApps().find(a => a.name === "SecondaryApp") || initializeApp(firebaseConfig, "SecondaryApp");
 const secondaryAuth = getAuth(secondaryApp);
@@ -66,6 +67,7 @@ async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null
             };
             await setDoc(profileRef, newProfile);
             profileSnap = await getDoc(profileRef);
+            Logger.info("Novo perfil criado no Firestore", { uid: fbUser.uid });
         }
 
         const data = profileSnap.data()!;
@@ -90,7 +92,7 @@ async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null
         await dbPut('users', user);
         return user;
     } catch (e) {
-        console.error("[Auth] Erro crítico ao carregar perfil:", e);
+        Logger.error("[Auth] Erro crítico ao carregar perfil", e);
         return null;
     }
 }
@@ -131,18 +133,22 @@ export const login = async (email: string, password?: string): Promise<{ user: U
         if (!user) return { user: null, error: "Erro ao sincronizar perfil." };
         if (user.userStatus === 'INACTIVE') {
             await signOut(auth);
+            Logger.warn("Tentativa de login em conta inativa", { email });
             return { user: null, error: "Acesso bloqueado pelo administrador." };
         }
         localStorage.setItem("sys_session_v1", JSON.stringify(user));
+        Logger.info("Login efetuado com sucesso", { email });
         return { user };
     } catch (e: any) {
         let msg = "Falha na autenticação.";
         if (e.code === 'auth/invalid-credential') msg = "E-mail ou senha incorretos.";
+        Logger.error("Falha na tentativa de login", { email, code: e.code });
         return { user: null, error: msg };
     }
 };
 
 export const logout = async () => {
+    Logger.info("Logout efetuado");
     localStorage.removeItem("sys_session_v1");
     await signOut(auth);
     window.location.reload();
@@ -185,22 +191,22 @@ export const createUser = async (adminId: string, userData: any) => {
 
     await sendPasswordResetEmail(secondaryAuth, userData.email);
     await signOut(secondaryAuth);
+    Logger.info("Novo usuário criado via painel administrativo", { email: userData.email });
     return { success: true };
 };
 
 export const resendInvitation = async (email: string) => {
     await sendPasswordResetEmail(auth, email);
+    Logger.info("Convite reenviado", { email });
     return { success: true };
 };
 
 /**
  * Atualiza dados do usuário no Firestore.
- * Filtra metadados e garante apenas gravação de campos permitidos.
  */
 export const updateUser = async (userId: string, data: any) => {
     const userRef = doc(db, "profiles", userId);
     
-    // Lista de campos permitidos para gravação no Firestore
     const ALLOWED_FIELDS = ['name', 'username', 'tel', 'profilePhoto', 'role', 'isActive', 'userStatus', 'permissions', 'theme', 'contactVisibility'];
     
     const cleanData = Object.entries(data).reduce((acc, [key, value]) => {
@@ -230,16 +236,20 @@ export const updateUser = async (userId: string, data: any) => {
         } as User;
         await dbPut('users', userObj);
     }
+    Logger.info("Perfil de usuário atualizado", { uid: userId });
 };
 
 export const deactivateUser = async (userId: string) => {
     await updateUser(userId, { isActive: false, userStatus: 'INACTIVE' });
+    Logger.warn("Usuário desativado", { uid: userId });
 };
 
-export const requestPasswordReset = async (email: string) => { await sendPasswordResetEmail(auth, email); };
+export const requestPasswordReset = async (email: string) => { 
+    await sendPasswordResetEmail(auth, email);
+    Logger.info("Solicitação de redefinição de senha enviada", { email });
+};
 
 export const changePassword = async (userId: string, newPassword: string) => {
-    // FIX: Using correctly imported 'auth' instance instead of undefined 'fbAuth'
     if (auth.currentUser?.uid === userId) {
         await updatePassword(auth.currentUser, newPassword);
         const userRef = doc(db, "profiles", userId);
@@ -261,5 +271,6 @@ export const changePassword = async (userId: string, newPassword: string) => {
                 }
             }
         }
+        Logger.info("Senha alterada com sucesso", { uid: userId });
     }
 };

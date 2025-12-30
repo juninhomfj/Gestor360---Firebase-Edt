@@ -52,7 +52,7 @@ service cloud.firestore {
     }
 
     // 3. Commissions (Global Controlled)
-    match /commissions/default {
+    match /commissions/{docId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }

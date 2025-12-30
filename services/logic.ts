@@ -25,6 +25,7 @@ import {
     ProductivityMetrics, Challenge, FinanceGoal, ImportMapping, UserPreferences,
     User, DuplicateGroup, NtfyPayload
 } from '../types';
+import { Logger } from './logger';
 
 export const SessionTraffic = {
     reads: 0,
@@ -93,6 +94,7 @@ export const saveSystemConfig = async (config: any) => {
         if (config.ntfyTopic) globalConfig.ntfyTopic = config.ntfyTopic;
         await setDoc(doc(db, "config", "system"), globalConfig, { merge: true });
     }
+    Logger.info("Configurações de sistema salvas");
 };
 
 export const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -135,75 +137,129 @@ async function getAuthenticatedUid(): Promise<string> {
     });
 }
 
-// --- COMISSÕES (GLOBAL MODEL) ---
+// --- COMISSÕES (SYNC FIX) ---
+
+const getCommissionDocId = (type: ProductType): string => {
+    // Mapeamento explícito para evitar erros de case ou plural
+    if (type === ProductType.BASICA) return 'basic';
+    if (type === ProductType.NATAL) return 'natal';
+    return type.toLowerCase();
+};
 
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
-    const docRef = doc(db, "commissions", "default");
-    const snap = await getDoc(docRef);
-    
-    if (!snap.exists()) {
-        throw new Error("Tabela de comissões globais não encontrada.");
-    }
+    const storeName = type === ProductType.NATAL ? 'commission_natal' : 'commission_basic';
+    const docId = getCommissionDocId(type);
 
-    const data = snap.data();
-    const rulesObj = data.rules || {};
+    Logger.info(`Solicitando tabela de comissões: ${docId}`);
+
+    try {
+        const docRef = doc(db, "commissions", docId);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+            const data = snap.data();
+            const rules = (data.rules || []) as CommissionRule[];
+            
+            // Sincroniza localmente para garantir que o cache esteja atualizado
+            await dbBulkPut(storeName as any, rules);
+            
+            SessionTraffic.trackRead();
+            Logger.info(`Tabela ${docId} carregada do Firebase com sucesso.`, { count: rules.length });
+            return rules;
+        } else {
+            Logger.warn(`Documento de comissão ${docId} não encontrado no Firebase.`);
+        }
+    } catch (e) {
+        Logger.error(`Erro ao carregar comissões ${type} do Firebase. Tentando cache local...`, e);
+    }
     
-    return [
-        { id: 'sales', minPercent: 0, maxPercent: null, commissionRate: rulesObj.sales || 0, isActive: true },
-        { id: 'upsell', minPercent: 0, maxPercent: null, commissionRate: rulesObj.upsell || 0, isActive: true },
-        { id: 'recurring', minPercent: 0, maxPercent: null, commissionRate: rulesObj.recurring || 0, isActive: true }
-    ];
+    const cached = await dbGetAll(storeName as any);
+    Logger.info(`Tabela ${docId} carregada do cache local (Offline/Fallback).`, { count: cached?.length || 0 });
+    return cached || [];
 };
 
 export const computeCommissionValues = (quantity: number, unitValue: number, margin: number, rules: CommissionRule[]) => {
     const commissionBase = quantity * unitValue;
     let rate = 0;
-    const salesRule = rules.find(r => r.id === 'sales');
-    const upsellRule = rules.find(r => r.id === 'upsell');
-    rate = margin > 15 ? (upsellRule?.commissionRate || 0) : (salesRule?.commissionRate || 0);
+    
+    // Procura a faixa correspondente à margem
+    const rule = rules.find(r => margin >= r.minPercent && (r.maxPercent === null || margin < r.maxPercent));
+    rate = rule ? rule.commissionRate : 0;
+    
     return { commissionBase, commissionValue: commissionBase * rate, rateUsed: rate };
 };
 
 export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
-    const docRef = doc(db, "commissions", "default");
-    const payload = {
-        id: "default",
-        scope: "GLOBAL",
-        active: true,
-        rules: {
-            sales: rules.find(r => r.id === 'sales')?.commissionRate || 0,
-            upsell: rules.find(r => r.id === 'upsell')?.commissionRate || 0,
-            recurring: rules.find(r => r.id === 'recurring')?.commissionRate || 0
-        },
-        updatedAt: serverTimestamp()
-    };
-    await setDoc(docRef, payload, { merge: true });
-    SessionTraffic.trackWrite();
+    const storeName = type === ProductType.NATAL ? 'commission_natal' : 'commission_basic';
+    const docId = getCommissionDocId(type);
+    
+    Logger.info(`Iniciando salvamento de regras de comissão: ${docId}`, { count: rules.length });
+    
+    try {
+        // 1. Persistência Local Imediata (Resiliência)
+        const dbInst = await initDB();
+        await dbInst.clear(storeName as any);
+        await dbBulkPut(storeName as any, rules);
+        Logger.info(`Cache local da tabela ${docId} atualizado.`);
+
+        // 2. Persistência Cloud
+        const docRef = doc(db, "commissions", docId);
+        const sanitized = sanitizeForFirestore(rules);
+        await setDoc(docRef, { 
+            id: docId,
+            rules: sanitized, 
+            updatedAt: serverTimestamp() 
+        }, { merge: true });
+        
+        SessionTraffic.trackWrite();
+        Logger.info(`Tabela de comissões ${docId} sincronizada com Firebase.`);
+    } catch (e) {
+        Logger.error(`Falha crítica ao salvar comissões ${docId} no Firebase.`, e);
+        throw e;
+    }
 };
 
 // --- SALES ---
 
 export const getStoredSales = async (): Promise<Sale[]> => {
     const uid = await getAuthenticatedUid();
-    const q = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", false));
-    const snap = await getDocs(q);
-    SessionTraffic.trackRead(snap.size);
-    const sales = snap.docs.map(d => ({ ...d.data(), id: d.id } as Sale));
-    await dbBulkPut('sales', sales);
-    return sales;
+    Logger.info("Carregando vendas do usuário...");
+    
+    try {
+        const q = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", false));
+        const snap = await getDocs(q);
+        SessionTraffic.trackRead(snap.size);
+        const sales = snap.docs.map(d => ({ ...d.data(), id: d.id } as Sale));
+        
+        await dbBulkPut('sales', sales);
+        Logger.info(`Carregadas ${sales.length} vendas da nuvem e sincronizadas localmente.`);
+        return sales;
+    } catch (e) {
+        Logger.error("Erro ao carregar vendas da nuvem. Usando local.", e);
+        return await dbGetAll('sales');
+    }
 };
 
 export const saveSales = async (sales: Sale[]) => {
     const uid = await getAuthenticatedUid();
+    Logger.info(`Sincronizando lote de ${sales.length} vendas...`);
+    
     const sanitized = sales.map(s => sanitizeForFirestore({ ...s, userId: uid, updatedAt: serverTimestamp() }));
     await dbBulkPut('sales', sanitized);
+    
     const batch = writeBatch(db);
     sanitized.forEach(s => {
         const { id, ...data } = s;
         batch.set(doc(db, "sales", id), data, { merge: true });
         SessionTraffic.trackWrite();
     });
-    await batch.commit();
+    
+    try {
+        await batch.commit();
+        Logger.info(`Lote de ${sales.length} vendas gravado no Firebase.`);
+    } catch (e) {
+        Logger.error("Erro ao gravar vendas em lote.", e);
+        throw e;
+    }
 };
 
 export const saveSingleSale = async (payload: any) => {
@@ -211,51 +267,72 @@ export const saveSingleSale = async (payload: any) => {
   const saleId = payload.id || crypto.randomUUID();
   const saleData = sanitizeForFirestore({ ...payload, id: saleId, userId: uid, updatedAt: serverTimestamp() });
   
-  await dbPut('sales', saleData);
-  await setDoc(doc(db, "sales", saleId), saleData, { merge: true });
-  SessionTraffic.trackWrite();
+  Logger.info(`Salvando venda individual: ${saleId}`);
+  
+  try {
+      await dbPut('sales', saleData);
+      await setDoc(doc(db, "sales", saleId), saleData, { merge: true });
+      SessionTraffic.trackWrite();
+      Logger.info(`Venda ${saleId} salva no Firebase.`);
 
-  // SIDE EFFECT: Push NTfy para vendas acima de 5000
-  if (saleData.valueSold > 5000) {
-      await triggerNtfyPush({
-          title: "💰 Venda de Alto Valor!",
-          message: `Nova venda registrada: ${saleData.client} - R$ ${saleData.valueSold.toFixed(2)}`,
-          priority: 'high',
-          tags: ['moneybag', 'rocket']
-      });
+      if (saleData.valueSold > 5000) {
+          await triggerNtfyPush({
+              title: "💰 Venda de Alto Valor!",
+              message: `Nova venda registrada: ${saleData.client} - R$ ${saleData.valueSold.toFixed(2)}`,
+              priority: 'high',
+              tags: ['moneybag', 'rocket']
+          });
+      }
+  } catch (e) {
+      Logger.error(`Erro ao salvar venda ${saleId}`, e);
+      throw e;
   }
 };
 
-// --- FINANCE (AUDITADO E RESTAURADO) ---
+// --- FINANCE ---
 
 export const getFinanceData = async () => {
     const uid = await getAuthenticatedUid();
+    Logger.info("Sincronizando dados financeiros completos...");
+    
     const fetchSafe = async (col: string) => {
         const q = query(collection(db, col), where("userId", "==", uid), where("deleted", "==", false));
         const snap = await getDocs(q);
         SessionTraffic.trackRead(snap.size);
-        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Sincroniza localmente
+        await dbBulkPut(col as any, items);
+        return items;
     };
-    const [acc, tx, crd, cat, gl, chal, cell, rec] = await Promise.all([
-        fetchSafe("accounts"), fetchSafe("transactions"), fetchSafe("cards"), fetchSafe("categories"),
-        fetchSafe("goals"), fetchSafe("challenges"), fetchSafe("challenge_cells"), fetchSafe("receivables")
-    ]);
-    return {
-        accounts: acc as FinanceAccount[], 
-        transactions: tx as Transaction[], 
-        cards: crd as CreditCard[],
-        categories: cat as TransactionCategory[], 
-        goals: gl as FinanceGoal[], 
-        challenges: chal as Challenge[], 
-        cells: cell as ChallengeCell[], 
-        receivables: rec as Receivable[]
-    };
+    
+    try {
+        const [acc, tx, crd, cat, gl, chal, cell, rec] = await Promise.all([
+            fetchSafe("accounts"), fetchSafe("transactions"), fetchSafe("cards"), fetchSafe("categories"),
+            fetchSafe("goals"), fetchSafe("challenges"), fetchSafe("challenge_cells"), fetchSafe("receivables")
+        ]);
+        Logger.info("Sincronização financeira concluída.");
+        return {
+            accounts: acc as FinanceAccount[], 
+            transactions: tx as Transaction[], 
+            cards: crd as CreditCard[],
+            categories: cat as TransactionCategory[], 
+            goals: gl as FinanceGoal[], 
+            challenges: chal as Challenge[], 
+            cells: cell as ChallengeCell[], 
+            receivables: rec as Receivable[]
+        };
+    } catch (e) {
+        Logger.error("Erro na sincronização financeira total.", e);
+        throw e;
+    }
 };
 
 export const saveFinanceData = async (acc: FinanceAccount[], crd: CreditCard[], tx: Transaction[], cat: TransactionCategory[], gl: FinanceGoal[] = [], chal: Challenge[] = [], rec: Receivable[] = []) => {
     const uid = await getAuthenticatedUid();
     const batch = writeBatch(db);
     const prep = (item: any) => sanitizeForFirestore({ ...item, userId: uid, updatedAt: serverTimestamp() });
+    
+    Logger.info("Iniciando gravação de lote financeiro...");
     
     acc.forEach(i => batch.set(doc(db, "accounts", i.id), prep(i), { merge: true }));
     crd.forEach(i => batch.set(doc(db, "cards", i.id), prep(i), { merge: true }));
@@ -268,9 +345,10 @@ export const saveFinanceData = async (acc: FinanceAccount[], crd: CreditCard[], 
     
     try {
         await batch.commit();
-        SessionTraffic.trackWrite(acc.length + crd.length + cat.length + gl.length + chal.length + rec.length + Math.min(tx.length, 500));
+        SessionTraffic.trackWrite();
+        Logger.info("Lote financeiro gravado no Firebase.");
     } catch (e) {
-        // SIDE EFFECT: Erro financeiro crítico
+        Logger.error("Erro ao salvar lote financeiro.", e);
         await triggerNtfyPush({
             title: "🛑 Erro de Sincronia Financeira",
             message: `Falha ao persistir lote financeiro para UID: ${uid}`,
@@ -353,6 +431,7 @@ export const exportReportToCSV = (data: any[], fileName: string) => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    Logger.info(`Relatório exportado: ${fileName}`);
 };
 
 export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
@@ -427,6 +506,7 @@ export const exportEncryptedBackup = async (passphrase: string) => {
     a.href = url;
     a.download = `backup_gestor360_${new Date().getTime()}.v360`;
     a.click();
+    Logger.info("Backup criptografado gerado e baixado");
 };
 
 export const importEncryptedBackup = async (file: File, passphrase: string) => {
@@ -443,6 +523,7 @@ export const importEncryptedBackup = async (file: File, passphrase: string) => {
     for (const key of Object.keys(stores)) {
         if (data[key]) await dbBulkPut(stores[key], data[key]);
     }
+    Logger.info("Backup restaurado localmente");
 };
 
 export const clearAllSales = async () => {
@@ -455,6 +536,7 @@ export const clearAllSales = async () => {
     await batch.commit();
     const dbInst = await initDB();
     await dbInst.clear('sales');
+    Logger.warn("Todas as vendas foram excluídas via Admin");
 };
 
 export const generateChallengeCells = (challengeId: string, target: number, count: number, model: 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM'): ChallengeCell[] => {
@@ -476,12 +558,14 @@ export const generateChallengeCells = (challengeId: string, target: number, coun
             cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: 0, status: 'PENDING', userId: uid, deleted: false });
         }
     }
+    Logger.info("Células de desafio geradas");
     return cells;
 };
 
 export const processFinanceImport = (data: any[][], mapping: ImportMapping): Partial<Transaction>[] => {
     const rows = data.slice(1);
     const uid = auth.currentUser?.uid || '';
+    Logger.info(`Iniciando processamento de importação financeira: ${rows.length} linhas`);
     return rows.map(row => {
         const amount = ensureNumber(row[mapping.amount]);
         const type = mapping.type !== -1 ? (String(row[mapping.type]).toUpperCase().includes('REC') ? 'INCOME' : 'EXPENSE') : (amount >= 0 ? 'INCOME' : 'EXPENSE');
@@ -516,6 +600,7 @@ export const readExcelFile = async (file: File): Promise<any[][]> => {
 };
 
 export const atomicClearUserTables = async (userId: string, tables: string[]) => {
+    Logger.warn(`Executando Reset Atômico para usuário ${userId}`, { tables });
     for (const t of tables) {
         const q = query(collection(db, t), where("userId", "==", userId));
         const snap = await getDocs(q);
@@ -531,6 +616,7 @@ export const getClients = async (): Promise<Client[]> => {
     const uid = await getAuthenticatedUid();
     const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", false));
     const snap = await getDocs(q);
+    SessionTraffic.trackRead(snap.size);
     const data = snap.docs.map(d => ({ ...d.data(), id: d.id } as Client));
     await dbBulkPut('clients', data);
     return data;
@@ -547,18 +633,30 @@ export const bootstrapProductionData = async () => {
     const config = await getSystemConfig();
     if (config.bootstrapVersion && config.bootstrapVersion >= 1) return;
     
-    const commRef = doc(db, "commissions", "default");
-    const commSnap = await getDoc(commRef);
-    if (!commSnap.exists()) {
-        await setDoc(commRef, {
-            id: "default",
-            scope: "GLOBAL",
-            active: true,
-            rules: {
-                sales: 0.05,
-                upsell: 0.08,
-                recurring: 0.10
-            },
+    Logger.info("Iniciando bootstrap de dados de produção");
+    
+    // Tabela básica
+    const commBasicRef = doc(db, "commissions", "basic");
+    const basicSnap = await getDoc(commBasicRef);
+    if (!basicSnap.exists()) {
+        await setDoc(commBasicRef, {
+            id: "basic",
+            rules: [
+                { id: crypto.randomUUID(), minPercent: 0, maxPercent: 10, commissionRate: 0.04, isActive: true },
+                { id: crypto.randomUUID(), minPercent: 10, maxPercent: 20, commissionRate: 0.05, isActive: true },
+                { id: crypto.randomUUID(), minPercent: 20, maxPercent: null, commissionRate: 0.06, isActive: true }
+            ],
+            updatedAt: serverTimestamp()
+        });
+    }
+
+    // Tabela Natal
+    const commNatalRef = doc(db, "commissions", "natal");
+    const natalSnap = await getDoc(commNatalRef);
+    if (!natalSnap.exists()) {
+        await setDoc(commNatalRef, {
+            id: "natal",
+            rules: [],
             updatedAt: serverTimestamp()
         });
     }
@@ -569,6 +667,7 @@ export const bootstrapProductionData = async () => {
 export const saveReportConfig = async (config: ReportConfig) => {
     const uid = await getAuthenticatedUid();
     await setDoc(doc(db, "config", `report_${uid}`), config, { merge: true });
+    Logger.info("Configurações de relatório salvas");
 };
 
 export const clearLocalCache = async () => {
@@ -577,6 +676,7 @@ export const clearLocalCache = async () => {
     for (const s of stores) {
         await dbInst.clear(s as any);
     }
+    Logger.info("Cache local limpo");
 };
 
 export const findPotentialDuplicates = (sales: Sale[]) => {
@@ -625,12 +725,14 @@ export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
     const updated = { ...item, deleted: false, updatedAt: serverTimestamp() };
     await setDoc(doc(db, col, item.id), updated, { merge: true });
     await dbPut(col as any, updated);
+    Logger.info(`Item restaurado: ${item.id}`, { type });
 };
 
 export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
     const col = type === 'SALE' ? 'sales' : 'transactions';
     await deleteDoc(doc(db, col, id));
     await dbDelete(col as any, id);
+    Logger.warn(`Item excluído permanentemente: ${id}`, { type });
 };
 
 export const getDeletedClients = async (): Promise<Client[]> => {
@@ -646,10 +748,12 @@ export const restoreClient = async (id: string) => {
         const updated = { ...client, deleted: false, updatedAt: new Date().toISOString() };
         await setDoc(doc(db, "clients", id), sanitizeForFirestore(updated), { merge: true });
         await dbPut('clients', updated);
+        Logger.info(`Cliente restaurado: ${client.name}`, { id });
     }
 };
 
 export const permanentlyDeleteClient = async (id: string) => {
     await deleteDoc(doc(db, "clients", id));
     await dbDelete('clients', id);
+    Logger.warn(`Cliente excluído permanentemente: ${id}`);
 };
