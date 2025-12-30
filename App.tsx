@@ -150,28 +150,47 @@ const App: React.FC = () => {
         }
     };
 
+    /**
+     * FIX: Promise.all blindado com .catch() individual.
+     * Isso impede que a falha em uma query (ex: Tabelas de Comissão rejeitadas)
+     * interrompa o carregamento de todas as outras (Vendas, Finanças, etc).
+     */
     const loadDataForUser = async () => {
         try {
+            // Carrega regras de comissão com tratamento individual de erros
             const [rBasic, rNatal, rCustom] = await Promise.all([
-                getStoredTable(ProductType.BASICA),
-                getStoredTable(ProductType.NATAL),
-                getStoredTable(ProductType.CUSTOM)
+                getStoredTable(ProductType.BASICA).catch(e => { console.error("Rules Basic Load Failed", e); return [] as CommissionRule[]; }),
+                getStoredTable(ProductType.NATAL).catch(e => { console.error("Rules Natal Load Failed", e); return [] as CommissionRule[]; }),
+                getStoredTable(ProductType.CUSTOM).catch(e => { console.error("Rules Custom Load Failed", e); return [] as CommissionRule[]; })
             ]);
             setRulesBasic(rBasic);
             setRulesNatal(rNatal);
             setRulesCustom(rCustom);
 
-            const [storedSales, storedClients, finData, sysCfg, rConfig] = await Promise.all([
-                getStoredSales(), 
-                getClients(), 
-                getFinanceData(),
-                getSystemConfig(),
-                getReportConfig()
+            // Carrega dados operacionais com tratamento individual de erros
+            // Fix: Improved fallback typing and explicit casting to resolve property access errors on empty object results
+            const results = await Promise.all([
+                getStoredSales().catch(e => { console.error("Sales Load Failed", e); return [] as Sale[]; }), 
+                getClients().catch(e => { console.error("Clients Load Failed", e); return [] as Client[]; }), 
+                getFinanceData().catch(e => { 
+                    console.error("Finance Load Failed", e); 
+                    return { 
+                        accounts: [], transactions: [], cards: [], categories: [], 
+                        goals: [], challenges: [], cells: [], receivables: [] 
+                    }; 
+                }) as Promise<any>,
+                getSystemConfig().catch(e => { console.error("Config Load Failed", e); return {} as any; }),
+                getReportConfig().catch(e => { console.error("Report Config Load Failed", e); return {} as any; })
             ]);
 
-            if (sysCfg.theme) setTheme(sysCfg.theme);
+            const [storedSales, storedClients, finData, sysCfg, rConfig] = results;
+
+            // Fix: Using any cast to safely access properties on potentially empty objects from failed promises
+            if (sysCfg && sysCfg.theme) setTheme(sysCfg.theme);
             setSales(storedSales || []);
             setClients(storedClients || []);
+            
+            // Access properties on finData (cast as any from Promise.all result)
             setAccounts(finData.accounts || []);
             setCards(finData.cards || []);
             setTransactions(finData.transactions || []);
@@ -180,9 +199,13 @@ const App: React.FC = () => {
             setChallenges(finData.challenges || []);
             setCells(finData.cells || []);
             setReceivables(finData.receivables || []);
-            setReportConfig(rConfig);
+            
+            // Fix: Property check for ReportConfig
+            if (rConfig && rConfig.daysForLost) setReportConfig(rConfig as ReportConfig);
+            
         } catch (e) {
             Logger.error("Falha crítica ao sincronizar com Firestore.");
+            console.error("loadDataForUser critical error", e);
         }
     };
 

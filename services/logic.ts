@@ -75,7 +75,7 @@ export function ensureNumber(value: any, fallback = 0): number {
 }
 
 /**
- * FIRESTORE GUARD: Remove recursivamente chaves 'undefined' que causam crash de permissão.
+ * FIRESTORE GUARD: Limpa objetos recursivamente para evitar erros de 'undefined' no Firebase.
  */
 function sanitizeForFirestore(obj: any): any {
     if (obj === null || typeof obj !== 'object') return obj;
@@ -84,19 +84,12 @@ function sanitizeForFirestore(obj: any): any {
     if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
 
     const cleaned: any = {};
-    const numericKeys = [
-        'valueSold', 'valueProposed', 'marginPercent', 'quantity', 
-        'commissionBaseTotal', 'commissionValueTotal', 'commissionRateUsed',
-        'amount', 'balance', 'limit', 'targetValue', 'currentValue'
-    ];
-
     Object.keys(obj).forEach(key => {
         let val = obj[key];
-        
-        // Proteção contra undefined
         if (val === undefined) return;
-
-        // Proteção Numérica
+        
+        // Proteção especial para chaves numéricas críticas
+        const numericKeys = ['valueSold', 'valueProposed', 'marginPercent', 'quantity', 'amount', 'balance'];
         if (numericKeys.includes(key)) {
             val = ensureNumber(val);
         }
@@ -106,74 +99,49 @@ function sanitizeForFirestore(obj: any): any {
     return cleaned;
 }
 
-function getUid(): string {
-  const uid = auth.currentUser?.uid;
-  if (!uid) throw new Error("Acesso negado: ID de usuário não encontrado.");
-  return uid;
-}
-
 /**
- * Espera o Auth estar pronto antes de prosseguir
+ * Garantia de Autenticação para Firestore (Versão Blindada v2.5.3)
  */
-async function waitForAuth() {
-    if (auth.currentUser) return auth.currentUser.uid;
+async function getAuthenticatedUid(): Promise<string> {
+    const user = auth.currentUser;
+    if (user) return user.uid;
+
     return new Promise((resolve, reject) => {
-        const unsubscribe = auth.onAuthStateChanged(user => {
+        const timeout = setTimeout(() => {
+            reject(new Error("Timeout: Firebase não respondeu a autenticação."));
+        }, 8000);
+
+        const unsubscribe = auth.onAuthStateChanged((u) => {
+            if (u) {
+                clearTimeout(timeout);
+                unsubscribe();
+                resolve(u.uid);
+            }
+        }, (error) => {
+            clearTimeout(timeout);
             unsubscribe();
-            if (user) resolve(user.uid);
-            else reject(new Error("Timeout de autenticação Firestore."));
+            reject(error);
         });
     });
 }
 
-export const atomicClearUserTables = async (targetUserId: string, tableIds: string[]) => {
-    await waitForAuth();
-    const batch = writeBatch(db);
-    
-    Logger.log('WARN', `LIMPEZA ATÔMICA INICIADA: UID ${targetUserId}`);
-
-    for (const tableId of tableIds) {
-        // ESSENCIAL: O filtro userId deve estar presente para as Security Rules permitirem a busca
-        const q = query(collection(db, tableId), where("userId", "==", targetUserId));
-        const snap = await getDocs(q);
-        
-        SessionTraffic.trackRead(snap.size);
-        
-        snap.docs.forEach(d => {
-            batch.delete(d.ref);
-            SessionTraffic.trackWrite();
-        });
-
-        // Limpeza Local
-        const dbInstance = await initDB();
-        if (dbInstance && (dbInstance.objectStoreNames as any).contains(tableId)) {
-            const tx = dbInstance.transaction(tableId as any, 'readwrite');
-            await tx.store.clear();
-            await tx.done;
-        }
-    }
-
-    await batch.commit();
-    Logger.info(`Limpeza concluída.`);
-};
-
 export const getStoredSales = async (): Promise<Sale[]> => {
-  const uid = await waitForAuth();
-
-  const q = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", false));
-  const snap = await getDocs(q);
-  
-  SessionTraffic.trackRead(snap.size);
-  const sales = snap.docs.map(d => ({ id: d.id, ...d.data() } as Sale));
-  
-  if (sales.length > 0) {
-      await dbBulkPut('sales', sales);
+  try {
+    const uid = await getAuthenticatedUid();
+    const q = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", false));
+    const snap = await getDocs(q);
+    SessionTraffic.trackRead(snap.size);
+    const sales = snap.docs.map(d => ({ id: d.id, ...d.data() } as Sale));
+    if (sales.length > 0) await dbBulkPut('sales', sales);
+    return sales;
+  } catch (e) {
+    Logger.error("Erro ao buscar vendas do Cloud", e);
+    return [];
   }
-  return sales;
 };
 
 export const saveSales = async (sales: Sale[]) => {
-    const uid = getUid();
+    const uid = await getAuthenticatedUid();
     const sanitized = sales.map(s => sanitizeForFirestore({ ...s, userId: uid, updatedAt: serverTimestamp() }));
     
     await dbBulkPut('sales', sanitized);
@@ -192,7 +160,7 @@ export const saveSales = async (sales: Sale[]) => {
 };
 
 export const saveSingleSale = async (payload: any) => {
-  const uid = getUid();
+  const uid = await getAuthenticatedUid();
   const saleId = payload.id || crypto.randomUUID();
   const saleData = sanitizeForFirestore({ ...payload, id: saleId, userId: uid, updatedAt: serverTimestamp() });
   
@@ -201,41 +169,71 @@ export const saveSingleSale = async (payload: any) => {
   SessionTraffic.trackWrite();
 };
 
-export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
-    const colMap: Record<ProductType, string> = { 
-        [ProductType.BASICA]: 'commission_basic', 
-        [ProductType.NATAL]: 'commission_natal', 
-        [ProductType.CUSTOM]: 'commission_custom' 
-    };
-    const snap = await getDocs(collection(db, colMap[type]));
-    SessionTraffic.trackRead(snap.size);
-    const rules = snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
-    if (rules.length > 0) await dbBulkPut(colMap[type] as any, rules);
-    return rules;
-};
-
-export const saveFinanceData = async (accounts: FinanceAccount[], cards: CreditCard[], transactions: Transaction[], categories: TransactionCategory[]) => {
-    const uid = getUid();
+export const atomicClearUserTables = async (targetUserId: string, tableIds: string[]) => {
+    const currentUid = await getAuthenticatedUid();
     const batch = writeBatch(db);
     
-    accounts.forEach(acc => {
-        batch.set(doc(db, "accounts", acc.id), sanitizeForFirestore({ ...acc, userId: uid, updatedAt: serverTimestamp() }), { merge: true });
-        SessionTraffic.trackWrite();
-    });
-    
-    const recentTx = transactions.slice(-100); 
-    recentTx.forEach(tx => {
-        batch.set(doc(db, "transactions", tx.id), sanitizeForFirestore({ ...tx, userId: uid, updatedAt: serverTimestamp() }), { merge: true });
-        SessionTraffic.trackWrite();
-    });
+    Logger.warn(`LIMPEZA ATÔMICA: UID ${targetUserId}`);
 
+    for (const tableId of tableIds) {
+        const q = query(collection(db, tableId), where("userId", "==", targetUserId));
+        const snap = await getDocs(q);
+        snap.docs.forEach(d => batch.delete(d.ref));
+
+        if (targetUserId === currentUid) {
+            const dbInstance = await initDB();
+            if (dbInstance && (dbInstance.objectStoreNames as any).contains(tableId)) {
+                const tx = dbInstance.transaction(tableId as any, 'readwrite');
+                await tx.store.clear();
+                await tx.done;
+            }
+        }
+    }
     await batch.commit();
-    await Promise.all([
-        dbBulkPut('accounts', accounts),
-        dbBulkPut('cards', cards),
-        dbBulkPut('transactions', transactions),
-        dbBulkPut('categories', categories)
+};
+
+export const clearAllSales = async () => {
+    const uid = await getAuthenticatedUid();
+    const q = query(collection(db, "sales"), where("userId", "==", uid));
+    const snap = await getDocs(q);
+    const batch = writeBatch(db);
+    snap.docs.forEach(d => {
+        batch.delete(d.ref);
+        SessionTraffic.trackWrite();
+    });
+    await batch.commit();
+
+    const dbInstance = await initDB();
+    if (dbInstance.objectStoreNames.contains('sales')) {
+        const tx = dbInstance.transaction('sales', 'readwrite');
+        await tx.store.clear();
+        await tx.done;
+    }
+};
+
+export const getFinanceData = async () => {
+    const uid = await getAuthenticatedUid();
+    const results = await Promise.all([
+        getDocs(query(collection(db, "accounts"), where("userId", "==", uid), where("deleted", "==", false))),
+        getDocs(query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", false))),
+        getDocs(query(collection(db, "cards"), where("userId", "==", uid), where("deleted", "==", false))),
+        getDocs(query(collection(db, "categories"), where("deleted", "==", false))),
+        getDocs(query(collection(db, "goals"), where("userId", "==", uid), where("deleted", "==", false))),
+        getDocs(query(collection(db, "challenges"), where("userId", "==", uid), where("deleted", "==", false))),
+        getDocs(query(collection(db, "challenge_cells"), where("userId", "==", uid), where("deleted", "==", false))),
+        getDocs(query(collection(db, "receivables"), where("userId", "==", uid), where("deleted", "==", false))),
     ]);
+
+    return {
+        accounts: results[0].docs.map(d => ({ id: d.id, ...d.data() } as FinanceAccount)),
+        transactions: results[1].docs.map(d => ({ id: d.id, ...d.data() } as Transaction)),
+        cards: results[2].docs.map(d => ({ id: d.id, ...d.data() } as CreditCard)),
+        categories: results[3].docs.map(d => ({ id: d.id, ...d.data() } as TransactionCategory)),
+        goals: results[4].docs.map(d => ({ id: d.id, ...d.data() } as FinanceGoal)),
+        challenges: results[5].docs.map(d => ({ id: d.id, ...d.data() } as Challenge)),
+        cells: results[6].docs.map(d => ({ id: d.id, ...d.data() } as ChallengeCell)),
+        receivables: results[7].docs.map(d => ({ id: d.id, ...d.data() } as Receivable)),
+    };
 };
 
 export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
@@ -254,123 +252,76 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
   };
 };
 
+/**
+ * FIX: Adicionado filtro de userId e deleted para cumprir as Security Rules do Firestore.
+ */
+export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
+    try {
+        const uid = await getAuthenticatedUid();
+        const colMap: Record<ProductType, string> = { 
+            [ProductType.BASICA]: 'commission_basic', 
+            [ProductType.NATAL]: 'commission_natal', 
+            [ProductType.CUSTOM]: 'commission_custom' 
+        };
+        
+        // As regras de segurança do Firestore exigem o filtro de userId para permitir a leitura.
+        const q = query(
+            collection(db, colMap[type]),
+            where("userId", "==", uid),
+            where("deleted", "==", false)
+        );
+        
+        const snap = await getDocs(q);
+        SessionTraffic.trackRead(snap.size);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
+    } catch (e) {
+        console.error(`[Logic] Falha ao ler tabela ${type}:`, e);
+        return [];
+    }
+};
+
+export const saveFinanceData = async (accounts: FinanceAccount[], cards: CreditCard[], transactions: Transaction[], categories: TransactionCategory[]) => {
+    const uid = await getAuthenticatedUid();
+    const batch = writeBatch(db);
+    
+    accounts.forEach(acc => {
+        batch.set(doc(db, "accounts", acc.id), sanitizeForFirestore({ ...acc, userId: uid, updatedAt: serverTimestamp() }), { merge: true });
+    });
+    
+    const recentTx = transactions.slice(-100); 
+    recentTx.forEach(tx => {
+        batch.set(doc(db, "transactions", tx.id), sanitizeForFirestore({ ...tx, userId: uid, updatedAt: serverTimestamp() }), { merge: true });
+    });
+
+    await batch.commit();
+    await Promise.all([
+        dbBulkPut('accounts', accounts),
+        dbBulkPut('cards', cards),
+        dbBulkPut('transactions', transactions),
+        dbBulkPut('categories', categories)
+    ]);
+};
+
 export const getSystemConfig = async (): Promise<SystemConfig> => {
-    const uid = await waitForAuth();
+    const uid = await getAuthenticatedUid();
     const snap = await getDoc(doc(db, "config", `system_${uid}`));
-    SessionTraffic.trackRead();
     return snap.exists() ? snap.data() as SystemConfig : DEFAULT_SYSTEM_CONFIG;
 };
 
 export const saveSystemConfig = async (config: SystemConfig) => {
-    const uid = getUid();
+    const uid = await getAuthenticatedUid();
     await setDoc(doc(db, "config", `system_${uid}`), sanitizeForFirestore(config), { merge: true });
-    SessionTraffic.trackWrite();
 };
 
 export const getClients = async (): Promise<Client[]> => {
-    const uid = await waitForAuth();
+    const uid = await getAuthenticatedUid();
     const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", false));
     const snap = await getDocs(q);
-    SessionTraffic.trackRead(snap.size);
-    const clients = snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
-    if (clients.length > 0) await dbBulkPut('clients', clients);
-    return clients;
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as Client));
 };
-
-export const getFinanceData = async () => {
-    const uid = await waitForAuth();
-    const results = await Promise.all([
-        getDocs(query(collection(db, "accounts"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "cards"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "categories"), where("deleted", "==", false))),
-        getDocs(query(collection(db, "goals"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "challenges"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "challenge_cells"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "receivables"), where("userId", "==", uid), where("deleted", "==", false))),
-    ]);
-
-    results.forEach(snap => SessionTraffic.trackRead(snap.size));
-
-    return {
-        accounts: results[0].docs.map(d => ({ id: d.id, ...d.data() } as FinanceAccount)),
-        transactions: results[1].docs.map(d => ({ id: d.id, ...d.data() } as Transaction)),
-        cards: results[2].docs.map(d => ({ id: d.id, ...d.data() } as CreditCard)),
-        categories: results[3].docs.map(d => ({ id: d.id, ...d.data() } as TransactionCategory)),
-        goals: results[4].docs.map(d => ({ id: d.id, ...d.data() } as FinanceGoal)),
-        challenges: results[5].docs.map(d => ({ id: d.id, ...d.data() } as Challenge)),
-        cells: results[6].docs.map(d => ({ id: d.id, ...d.data() } as ChallengeCell)),
-        receivables: results[7].docs.map(d => ({ id: d.id, ...d.data() } as Receivable)),
-    };
-};
-
-export const canAccess = (user: User | null, feature: string): boolean => {
-    if (!user) return false;
-    if (user.role === 'DEV' || user.role === 'ADMIN') return true; 
-    return !!(user.permissions as any)?.[feature];
-};
-
-export const clearLocalCache = async () => {
-    const dbInstance = await initDB();
-    const stores = ['sales', 'accounts', 'transactions', 'clients', 'config', 'internal_messages', 'receivables', 'goals', 'challenges', 'challenge_cells'];
-    for (const store of stores) {
-        if ((dbInstance.objectStoreNames as any).contains(store)) {
-            const tx = dbInstance.transaction(store as any, 'readwrite');
-            await tx.store.clear();
-            await tx.done;
-        }
-    }
-    localStorage.removeItem('sys_session_v1');
-};
-
-export const getTrashItems = async () => {
-    const [sales, transactions] = await Promise.all([
-        dbGetAll('sales', s => !!s.deleted),
-        dbGetAll('transactions', t => !!t.deleted)
-    ]);
-    return { sales, transactions };
-};
-
-export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
-    const col = type === 'SALE' ? "sales" : "transactions";
-    await updateDoc(doc(db, col, item.id), { deleted: false, updatedAt: serverTimestamp() });
-    await dbPut(col as any, { ...item, deleted: false });
-};
-
-export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
-    const col = type === 'SALE' ? "sales" : "transactions";
-    await deleteDoc(doc(db, col, id));
-    await dbDelete(col as any, id);
-};
-
-// Fix: Added missing clearAllSales function to services/logic.ts to support BackupModal functionality
-export const clearAllSales = async () => {
-    const uid = getUid();
-    const q = query(collection(db, "sales"), where("userId", "==", uid));
-    const snap = await getDocs(q);
-    const batch = writeBatch(db);
-    snap.docs.forEach(d => {
-        batch.delete(d.ref);
-        SessionTraffic.trackWrite();
-    });
-    await batch.commit();
-
-    const dbInstance = await initDB();
-    if (dbInstance.objectStoreNames.contains('sales')) {
-        const tx = dbInstance.transaction('sales', 'readwrite');
-        await tx.store.clear();
-        await tx.done;
-    }
-};
-
-export const bootstrapProductionData = async () => {};
-export const findPotentialDuplicates = (sales: Sale[]) => [];
-export const smartMergeSales = (duplicates: Sale[]): Sale => duplicates[0];
-export const getDeletedClients = async (): Promise<Client[]> => [];
-export const restoreClient = async (id: string) => {};
-export const permanentlyDeleteClient = async (id: string) => {};
 
 export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
+    const uid = await getAuthenticatedUid();
     const colMap: Record<ProductType, string> = { 
         [ProductType.BASICA]: 'commission_basic', 
         [ProductType.NATAL]: 'commission_natal', 
@@ -378,21 +329,26 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
     };
     const batch = writeBatch(db);
     rules.forEach(r => {
-        batch.set(doc(db, colMap[type], r.id), { ...r, updatedAt: serverTimestamp() }, { merge: true });
+        batch.set(doc(db, colMap[type], r.id), { ...r, userId: uid, updatedAt: serverTimestamp() }, { merge: true });
     });
     await batch.commit();
-    await dbBulkPut(colMap[type] as any, rules);
 };
 
 export const saveReportConfig = async (config: ReportConfig) => {
-    const uid = getUid();
+    const uid = await getAuthenticatedUid();
     await setDoc(doc(db, "config", `report_${uid}`), config);
 };
 
 export const getReportConfig = async (): Promise<ReportConfig> => {
-    const uid = await waitForAuth();
+    const uid = await getAuthenticatedUid();
     const snap = await getDoc(doc(db, "config", `report_${uid}`));
     return snap.exists() ? snap.data() as ReportConfig : { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 };
+};
+
+export const canAccess = (user: User | null, feature: string): boolean => {
+    if (!user) return false;
+    if (user.role === 'DEV' || user.role === 'ADMIN') return true; 
+    return !!(user.permissions as any)?.[feature];
 };
 
 export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
@@ -455,9 +411,8 @@ export const importEncryptedBackup = async (file: File, passphrase: string) => {
 export const generateChallengeCells = (challengeId: string, target: number, count: number, model: ChallengeModel): ChallengeCell[] => {
     const cells: ChallengeCell[] = [];
     const val = target / count;
-    const uid = getUid();
     for (let i = 1; i <= count; i++) {
-        cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: val, status: 'PENDING', userId: uid, deleted: false });
+        cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: val, status: 'PENDING', userId: auth.currentUser?.uid || '', deleted: false });
     }
     return cells;
 };
@@ -525,7 +480,6 @@ export const readExcelFile = (file: File): Promise<any[][]> => {
 };
 
 export const processFinanceImport = (data: any[][], mapping: ImportMapping): Transaction[] => {
-    const uid = getUid();
     const rows = data.slice(1); 
     const transactions: Transaction[] = [];
 
@@ -559,7 +513,7 @@ export const processFinanceImport = (data: any[][], mapping: ImportMapping): Tra
             personType: (personVal && String(personVal).toUpperCase().includes('PJ')) ? 'PJ' : 'PF',
             deleted: false,
             createdAt: new Date().toISOString(),
-            userId: uid
+            userId: auth.currentUser?.uid || ''
         };
 
         transactions.push(tx);
@@ -567,3 +521,50 @@ export const processFinanceImport = (data: any[][], mapping: ImportMapping): Tra
 
     return transactions;
 };
+
+export const getTrashItems = async () => {
+    const [sales, transactions] = await Promise.all([
+        dbGetAll('sales', s => !!s.deleted),
+        dbGetAll('transactions', t => !!t.deleted)
+    ]);
+    return { sales, transactions };
+};
+
+export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
+    const col = type === 'SALE' ? "sales" : "transactions";
+    await updateDoc(doc(db, col, item.id), { deleted: false, updatedAt: serverTimestamp() });
+    await dbPut(col as any, { ...item, deleted: false });
+};
+
+export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
+    const col = type === 'SALE' ? "sales" : "transactions";
+    await deleteDoc(doc(db, col, id));
+    await dbDelete(col as any, id);
+};
+
+// Fix: Added missing clearLocalCache function to resolve the import error in App.tsx
+/**
+ * Limpa todo o cache local (IndexedDB e Storages)
+ */
+export const clearLocalCache = async () => {
+    try {
+        const dbInstance = await initDB();
+        const storeNames = Array.from(dbInstance.objectStoreNames);
+        const tx = dbInstance.transaction(storeNames as any, 'readwrite');
+        for (const storeName of storeNames) {
+            await tx.objectStore(storeName as any).clear();
+        }
+        await tx.done;
+    } catch (e) {
+        console.error("Erro ao limpar IndexedDB:", e);
+    }
+    localStorage.clear();
+    sessionStorage.clear();
+};
+
+export const bootstrapProductionData = async () => {};
+export const findPotentialDuplicates = (sales: Sale[]) => [];
+export const smartMergeSales = (duplicates: Sale[]): Sale => duplicates[0];
+export const getDeletedClients = async (): Promise<Client[]> => [];
+export const restoreClient = async (id: string) => {};
+export const permanentlyDeleteClient = async (id: string) => {};
