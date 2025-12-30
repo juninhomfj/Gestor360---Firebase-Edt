@@ -1,7 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { Lock, Download, Upload, Trash2, X, AlertTriangle, CheckCircle, RefreshCw, Loader2 } from 'lucide-react';
-// Fix: Added missing clearAllSales function to services/logic.ts and await its call here
 import { exportEncryptedBackup, importEncryptedBackup, clearAllSales } from '../services/logic';
 
 interface BackupModalProps {
@@ -19,7 +18,6 @@ const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose, mode, onSucc
   const [step, setStep] = useState(1);
   const [restoreComplete, setRestoreComplete] = useState(false);
   
-  // Progress State
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
 
@@ -57,10 +55,9 @@ const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose, mode, onSucc
     }
     
     setIsProcessing(true);
-    await simulateProgress(); // Fake visualization
+    await simulateProgress(); 
     setProgress(100);
 
-    // Give a small delay to see 100%
     setTimeout(async () => {
         try {
             await exportEncryptedBackup(passphrase);
@@ -112,8 +109,7 @@ const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose, mode, onSucc
   const handleClearFlow = async () => {
     if (confirm('Tem certeza absoluta?')) {
         setIsProcessing(true);
-        await new Promise(resolve => setTimeout(resolve, 1500)); // Fake clear time
-        // Fix: Await clearAllSales for proper async flow
+        await new Promise(resolve => setTimeout(resolve, 1500)); 
         await clearAllSales();
         
         if (onRestoreSuccess) onRestoreSuccess();
@@ -123,7 +119,6 @@ const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose, mode, onSucc
     }
   };
 
-  // Shared Progress Bar
   const ProgressBar = ({ label }: { label: string }) => (
       <div className="w-full space-y-2 text-center animate-in fade-in">
           <div className="flex justify-between text-xs text-gray-500 font-bold uppercase px-1">
@@ -151,7 +146,6 @@ const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose, mode, onSucc
             </button>
         )}
 
-        {/* RESTORE SUCCESS */}
         {restoreComplete && (
             <div className="p-8 text-center flex flex-col items-center animate-in zoom-in-95">
                 <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mb-6">
@@ -171,7 +165,6 @@ const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose, mode, onSucc
             </div>
         )}
 
-        {/* PROCESSING STATE */}
         {isProcessing && !restoreComplete && (
             <div className="p-10 flex flex-col items-center justify-center min-h-[300px]">
                 <div className="mb-6 relative">
@@ -185,7 +178,6 @@ const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose, mode, onSucc
             </div>
         )}
 
-        {/* CLEAR FLOW */}
         {!restoreComplete && !isProcessing && mode === 'CLEAR' && (
             <div className="p-6">
                 <div className="flex flex-col items-center text-center mb-6">
@@ -223,7 +215,6 @@ const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose, mode, onSucc
             </div>
         )}
 
-        {/* RESTORE FORM */}
         {!restoreComplete && !isProcessing && mode === 'RESTORE' && (
             <div className="p-6">
                 <div className="flex items-center gap-3 mb-6">
@@ -257,7 +248,6 @@ const BackupModal: React.FC<BackupModalProps> = ({ isOpen, onClose, mode, onSucc
             </div>
         )}
 
-        {/* BACKUP FORM */}
         {!restoreComplete && !isProcessing && mode === 'BACKUP' && (
              <div className="p-6">
                 <div className="flex items-center gap-3 mb-6">

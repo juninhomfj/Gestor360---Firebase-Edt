@@ -50,28 +50,20 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 
 export const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
-/**
- * REFATORAÇÃO: MOTOR DE NORMALIZAÇÃO NUMÉRICA (READ-ONLY LAYER)
- * Processa strings "1.234,56", "1234,56" ou números puros.
- * Aplicado apenas na leitura para preservar dados legados sem migração.
- */
 export function ensureNumber(value: any, fallback = 0): number {
   if (value === undefined || value === null || value === '') return fallback;
   if (typeof value === 'number') return isNaN(value) ? fallback : value;
   
   try {
     let str = String(value).trim();
-    str = str.replace(/\s/g, ''); // Remove espaços
+    str = str.replace(/\s/g, ''); 
 
     if (str.includes(',') && str.includes('.')) {
-        // Padrão BR: 1.234,56 -> 1234.56
         str = str.replace(/\./g, '').replace(',', '.');
     } else if (str.includes(',')) {
-        // Padrão BR simples: 1234,56 -> 1234.56
         str = str.replace(',', '.');
     }
     
-    // Remove caracteres não numéricos exceto ponto e sinal negativo
     str = str.replace(/[^\d.-]/g, '');
     
     const num = parseFloat(str);
@@ -131,7 +123,6 @@ export const getStoredSales = async (): Promise<Sale[]> => {
         return { 
             ...data,
             id: d.id,
-            // Aplicação do Parsing na Leitura
             quantity: ensureNumber(data.quantity, 1),
             valueProposed: ensureNumber(data.valueProposed),
             valueSold: ensureNumber(data.valueSold),
@@ -145,7 +136,7 @@ export const getStoredSales = async (): Promise<Sale[]> => {
     if (sales.length > 0) await dbBulkPut('sales', sales);
     return sales;
   } catch (e) {
-    Logger.error("Erro ao buscar vendas do Cloud", e);
+    console.error("Erro ao buscar vendas do Cloud", e);
     return [];
   }
 };
@@ -153,7 +144,6 @@ export const getStoredSales = async (): Promise<Sale[]> => {
 export const saveSales = async (sales: Sale[]) => {
     const uid = await getAuthenticatedUid();
     const sanitized = sales.map(s => sanitizeForFirestore({ ...s, userId: uid, updatedAt: serverTimestamp() }));
-    
     await dbBulkPut('sales', sanitized);
     
     const CHUNK_SIZE = 400; 
@@ -173,108 +163,109 @@ export const saveSingleSale = async (payload: any) => {
   const uid = await getAuthenticatedUid();
   const saleId = payload.id || crypto.randomUUID();
   const saleData = sanitizeForFirestore({ ...payload, id: saleId, userId: uid, updatedAt: serverTimestamp() });
-  
   await dbPut('sales', saleData);
   await setDoc(doc(db, "sales", saleId), saleData, { merge: true });
   SessionTraffic.trackWrite();
 };
 
-/**
- * AUDITORIA TÉCNICA - FUNÇÃO LEGADA / BLOQUEADA
- * 
- * NOTA: Esta função utiliza o Firebase Client SDK. Devido às Security Rules de Row Level Security (RLS),
- * o Client SDK é tecnicamente incapaz de ignorar as regras do servidor. Mesmo usuários com flag 'DEV' 
- * no frontend são bloqueados ao tentar acessar ou deletar documentos onde 'userId != auth.uid'.
- * 
- * STATUS: LEGADA. Para resets reais de dados de terceiros, utilize a Cloud Function 'adminHardResetUserData'.
- */
-export const atomicClearUserTables = async (targetUserId: string, tableIds: string[]) => {
-    const currentUid = await getAuthenticatedUid();
-    const batch = writeBatch(db);
-    
-    Logger.warn(`LIMPEZA ATÔMICA (LEGACY CLIENT): UID ${targetUserId}`);
-
-    for (const tableId of tableIds) {
-        const q = query(collection(db, tableId), where("userId", "==", targetUserId));
-        const snap = await getDocs(q);
-        snap.docs.forEach(d => batch.delete(d.ref));
-
-        if (targetUserId === currentUid) {
-            const dbInstance = await initDB();
-            if (dbInstance && (dbInstance.objectStoreNames as any).contains(tableId)) {
-                const tx = dbInstance.transaction(tableId as any, 'readwrite');
-                await tx.store.clear();
-                await tx.done;
-            }
-        }
-    }
-    await batch.commit();
-};
-
-export const clearAllSales = async () => {
-    const uid = await getAuthenticatedUid();
-    const q = query(collection(db, "sales"), where("userId", "==", uid));
-    const snap = await getDocs(q);
-    const batch = writeBatch(db);
-    snap.docs.forEach(d => {
-        batch.delete(d.ref);
-        SessionTraffic.trackWrite();
-    });
-    await batch.commit();
-
-    const dbInstance = await initDB();
-    if (dbInstance.objectStoreNames.contains('sales')) {
-        const tx = dbInstance.transaction('sales', 'readwrite');
-        await tx.store.clear();
-        await tx.done;
-    }
-};
-
 export const getFinanceData = async () => {
     const uid = await getAuthenticatedUid();
-    const results = await Promise.all([
-        getDocs(query(collection(db, "accounts"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "cards"), where("userId", "==", uid), where("deleted", "==", false))),
-        // FIX: Adicionado filtro de userId para conformidade com regras Firestore (RLS)
-        getDocs(query(collection(db, "categories"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "goals"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "challenges"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "challenge_cells"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "receivables"), where("userId", "==", uid), where("deleted", "==", false))),
+    
+    const fetchSafeCollection = async (colName: string) => {
+        try {
+            const q = query(collection(db, colName), where("userId", "==", uid), where("deleted", "==", false));
+            const snap = await getDocs(q);
+            SessionTraffic.trackRead(snap.size);
+            return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch (e) {
+            console.warn(`[Firestore] Sem permissão ou erro na coleção '${colName}':`, e);
+            return []; 
+        }
+    };
+
+    const [
+        rawAccounts, rawTransactions, rawCards, rawCategories, 
+        rawGoals, rawChallenges, rawCells, rawReceivables
+    ] = await Promise.all([
+        fetchSafeCollection("accounts"),
+        fetchSafeCollection("transactions"),
+        fetchSafeCollection("cards"),
+        fetchSafeCollection("categories"),
+        fetchSafeCollection("goals"),
+        fetchSafeCollection("challenges"),
+        fetchSafeCollection("challenge_cells"),
+        fetchSafeCollection("receivables"),
     ]);
 
     return {
-        accounts: results[0].docs.map(d => {
-            const data = d.data();
-            return { id: d.id, ...data, balance: ensureNumber(data.balance) } as FinanceAccount;
-        }),
-        transactions: results[1].docs.map(d => {
-            const data = d.data();
-            return { id: d.id, ...data, amount: ensureNumber(data.amount) } as Transaction;
-        }),
-        cards: results[2].docs.map(d => {
-            const data = d.data();
-            return { id: d.id, ...data, limit: ensureNumber(data.limit), currentInvoice: ensureNumber(data.currentInvoice) } as CreditCard;
-        }),
-        categories: results[3].docs.map(d => ({ id: d.id, ...d.data() } as TransactionCategory)),
-        goals: results[4].docs.map(d => {
-            const data = d.data();
-            return { id: d.id, ...data, targetValue: ensureNumber(data.targetValue), currentValue: ensureNumber(data.currentValue) } as FinanceGoal;
-        }),
-        challenges: results[5].docs.map(d => {
-            const data = d.data();
-            return { id: d.id, ...data, targetValue: ensureNumber(data.targetValue) } as Challenge;
-        }),
-        cells: results[6].docs.map(d => {
-            const data = d.data();
-            return { id: d.id, ...data, value: ensureNumber(data.value) } as ChallengeCell;
-        }),
-        receivables: results[7].docs.map(d => {
-            const data = d.data();
-            return { id: d.id, ...data, value: ensureNumber(data.value) } as Receivable;
-        }),
+        accounts: rawAccounts.map(d => ({ ...d, balance: ensureNumber(d.balance) } as FinanceAccount)),
+        transactions: rawTransactions.map(d => ({ ...d, amount: ensureNumber(d.amount) } as Transaction)),
+        cards: rawCards.map(d => ({ ...d, limit: ensureNumber(d.limit), currentInvoice: ensureNumber(d.currentInvoice) } as CreditCard)),
+        categories: rawCategories as TransactionCategory[],
+        goals: rawGoals.map(d => ({ ...d, targetValue: ensureNumber(d.targetValue), currentValue: ensureNumber(d.currentValue) } as FinanceGoal)),
+        challenges: rawChallenges.map(d => ({ ...d, targetValue: ensureNumber(d.targetValue) } as Challenge)),
+        cells: rawCells.map(d => ({ ...d, value: ensureNumber(d.value) } as ChallengeCell)),
+        receivables: rawReceivables.map(d => ({ ...d, value: ensureNumber(d.value) } as Receivable)),
     };
+};
+
+export const saveFinanceData = async (
+    accounts: FinanceAccount[], 
+    cards: CreditCard[], 
+    transactions: Transaction[], 
+    categories: TransactionCategory[],
+    goals: FinanceGoal[] = [],
+    challenges: Challenge[] = [],
+    receivables: Receivable[] = []
+) => {
+    const uid = await getAuthenticatedUid();
+    const batch = writeBatch(db);
+    
+    const prep = (item: any) => sanitizeForFirestore({ ...item, userId: uid, updatedAt: serverTimestamp() });
+
+    accounts.forEach(acc => batch.set(doc(db, "accounts", acc.id), prep(acc), { merge: true }));
+    cards.forEach(card => batch.set(doc(db, "cards", card.id), prep(card), { merge: true }));
+    categories.forEach(cat => batch.set(doc(db, "categories", cat.id), prep(cat), { merge: true }));
+    goals.forEach(goal => batch.set(doc(db, "goals", goal.id), prep(goal), { merge: true }));
+    challenges.forEach(chal => batch.set(doc(db, "challenges", chal.id), prep(chal), { merge: true }));
+    receivables.forEach(rec => batch.set(doc(db, "receivables", rec.id), prep(rec), { merge: true }));
+    
+    transactions.slice(-100).forEach(tx => batch.set(doc(db, "transactions", tx.id), prep(tx), { merge: true }));
+
+    await batch.commit();
+    
+    await Promise.all([
+        dbBulkPut('accounts', accounts),
+        dbBulkPut('cards', cards),
+        dbBulkPut('transactions', transactions),
+        dbBulkPut('categories', categories),
+        dbBulkPut('goals', goals),
+        dbBulkPut('challenges', challenges),
+        dbBulkPut('receivables', receivables)
+    ]);
+};
+
+export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
+    try {
+        const uid = await getAuthenticatedUid();
+        const colMap: Record<ProductType, string> = { 
+            [ProductType.BASICA]: 'commission_basic', 
+            [ProductType.NATAL]: 'commission_natal', 
+            [ProductType.CUSTOM]: 'commission_custom' 
+        };
+        
+        const q = query(
+            collection(db, colMap[type]),
+            where("userId", "==", uid)
+        );
+        
+        const snap = await getDocs(q);
+        SessionTraffic.trackRead(snap.size);
+        return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
+    } catch (e) {
+        console.warn(`[Firestore] Falha ao ler tabela ${type}:`, e);
+        return [];
+    }
 };
 
 export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
@@ -291,57 +282,6 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
       commissionValue: Math.round((rawCommission + Number.EPSILON) * 100) / 100, 
       rateUsed: rate 
   };
-};
-
-export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
-    try {
-        const uid = await getAuthenticatedUid();
-        const colMap: Record<ProductType, string> = { 
-            [ProductType.BASICA]: 'commission_basic', 
-            [ProductType.NATAL]: 'commission_natal', 
-            [ProductType.CUSTOM]: 'commission_custom' 
-        };
-        
-        const q = query(
-            collection(db, colMap[type]),
-            where("userId", "==", uid),
-            where("deleted", "==", false)
-        );
-        
-        const snap = await getDocs(q);
-        SessionTraffic.trackRead(snap.size);
-        return snap.docs.map(d => ({ id: d.id, ...d.data() } as CommissionRule));
-    } catch (e) {
-        console.error(`[Logic] Falha ao ler tabela ${type}:`, e);
-        return [];
-    }
-};
-
-export const saveFinanceData = async (accounts: FinanceAccount[], cards: CreditCard[], transactions: Transaction[], categories: TransactionCategory[]) => {
-    const uid = await getAuthenticatedUid();
-    const batch = writeBatch(db);
-    
-    accounts.forEach(acc => {
-        batch.set(doc(db, "accounts", acc.id), sanitizeForFirestore({ ...acc, userId: uid, updatedAt: serverTimestamp() }), { merge: true });
-    });
-
-    // FIX: Categorias agora são salvas no Firestore vinculadas ao usuário
-    categories.forEach(cat => {
-        batch.set(doc(db, "categories", cat.id), sanitizeForFirestore({ ...cat, userId: uid, updatedAt: serverTimestamp() }), { merge: true });
-    });
-    
-    const recentTx = transactions.slice(-100); 
-    recentTx.forEach(tx => {
-        batch.set(doc(db, "transactions", tx.id), sanitizeForFirestore({ ...tx, userId: uid, updatedAt: serverTimestamp() }), { merge: true });
-    });
-
-    await batch.commit();
-    await Promise.all([
-        dbBulkPut('accounts', accounts),
-        dbBulkPut('cards', cards),
-        dbBulkPut('transactions', transactions),
-        dbBulkPut('categories', categories)
-    ]);
 };
 
 export const getSystemConfig = async (): Promise<SystemConfig> => {
@@ -598,6 +538,46 @@ export const clearLocalCache = async () => {
     }
     localStorage.clear();
     sessionStorage.clear();
+};
+
+export const clearAllSales = async () => {
+    const uid = await getAuthenticatedUid();
+    const q = query(collection(db, "sales"), where("userId", "==", uid));
+    const snap = await getDocs(q);
+    
+    if (!snap.empty) {
+        const batch = writeBatch(db);
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+    }
+
+    const dbInstance = await initDB();
+    await dbInstance.clear('sales');
+};
+
+export const atomicClearUserTables = async (userId: string, tables: string[]) => {
+    for (const table of tables) {
+        try {
+            const q = query(collection(db, table), where("userId", "==", userId));
+            const snap = await getDocs(q);
+            
+            if (!snap.empty) {
+                const batch = writeBatch(db);
+                snap.docs.forEach(d => batch.delete(d.ref));
+                await batch.commit();
+            }
+            
+            if (userId === auth.currentUser?.uid) {
+                const dbInstance = await initDB();
+                if (dbInstance.objectStoreNames.contains(table as any)) {
+                    await dbInstance.clear(table as any);
+                }
+            }
+        } catch (e) {
+            console.error(`[Firestore] Erro ao limpar tabela ${table}:`, e);
+            throw e;
+        }
+    }
 };
 
 export const bootstrapProductionData = async () => {};

@@ -119,7 +119,6 @@ const App: React.FC = () => {
                 await AudioService.preload();
                 const sessionUser = await reloadSession();
                 if (sessionUser) {
-                    // Importante: User logado, mas precisamos garantir que o Firestore receba o token
                     await handleLoginSuccess(sessionUser);
                 } else {
                     setAuthView('LOGIN');
@@ -138,7 +137,6 @@ const App: React.FC = () => {
         setCurrentUser(user);
         try {
             await bootstrapProductionData();
-            // Pequeno delay para garantir injeção de token JWT no Firestore
             await new Promise(r => setTimeout(r, 500));
             await loadDataForUser();
             setAuthView('APP');
@@ -150,14 +148,8 @@ const App: React.FC = () => {
         }
     };
 
-    /**
-     * FIX: Promise.all blindado com .catch() individual.
-     * Isso impede que a falha em uma query (ex: Tabelas de Comissão rejeitadas)
-     * interrompa o carregamento de todas as outras (Vendas, Finanças, etc).
-     */
     const loadDataForUser = async () => {
         try {
-            // Carrega regras de comissão com tratamento individual de erros
             const [rBasic, rNatal, rCustom] = await Promise.all([
                 getStoredTable(ProductType.BASICA).catch(e => { console.error("Rules Basic Load Failed", e); return [] as CommissionRule[]; }),
                 getStoredTable(ProductType.NATAL).catch(e => { console.error("Rules Natal Load Failed", e); return [] as CommissionRule[]; }),
@@ -167,8 +159,6 @@ const App: React.FC = () => {
             setRulesNatal(rNatal);
             setRulesCustom(rCustom);
 
-            // Carrega dados operacionais com tratamento individual de erros
-            // Fix: Improved fallback typing and explicit casting to resolve property access errors on empty object results
             const results = await Promise.all([
                 getStoredSales().catch(e => { console.error("Sales Load Failed", e); return [] as Sale[]; }), 
                 getClients().catch(e => { console.error("Clients Load Failed", e); return [] as Client[]; }), 
@@ -185,12 +175,10 @@ const App: React.FC = () => {
 
             const [storedSales, storedClients, finData, sysCfg, rConfig] = results;
 
-            // Fix: Using any cast to safely access properties on potentially empty objects from failed promises
             if (sysCfg && sysCfg.theme) setTheme(sysCfg.theme);
             setSales(storedSales || []);
             setClients(storedClients || []);
             
-            // Access properties on finData (cast as any from Promise.all result)
             setAccounts(finData.accounts || []);
             setCards(finData.cards || []);
             setTransactions(finData.transactions || []);
@@ -200,7 +188,6 @@ const App: React.FC = () => {
             setCells(finData.cells || []);
             setReceivables(finData.receivables || []);
             
-            // Fix: Property check for ReportConfig
             if (rConfig && rConfig.daysForLost) setReportConfig(rConfig as ReportConfig);
             
         } catch (e) {
@@ -373,15 +360,17 @@ const App: React.FC = () => {
             case 'fin_dashboard':
                 return ( <FinanceDashboard accounts={accounts} transactions={transactions} cards={cards} receivables={receivables} hideValues={hideValues} onToggleHide={() => setHideValues(!hideValues)} config={dashboardConfig} onUpdateConfig={setDashboardConfig} onNavigate={setActiveTab} darkMode={theme !== 'neutral' && theme !== 'rose'} /> );
             case 'fin_manager':
-                return ( <FinanceManager accounts={accounts} cards={cards} transactions={transactions} onUpdate={async (acc, trans, crds) => { await saveFinanceData(acc, crds, trans, categories); loadDataForUser(); }} onPayInvoice={async () => {}} darkMode={theme !== 'neutral' && theme !== 'rose'} onNotify={addToast} /> );
+                return ( <FinanceManager accounts={accounts} cards={cards} transactions={transactions} onUpdate={async (acc, trans, crds) => { await saveFinanceData(acc, crds, trans, categories, goals, challenges, receivables); loadDataForUser(); }} onPayInvoice={async () => {}} darkMode={theme !== 'neutral' && theme !== 'rose'} onNotify={addToast} /> );
             case 'fin_transactions':
-                return ( <FinanceTransactionsList transactions={transactions} accounts={accounts} categories={categories} onDelete={async (id) => { const updated = transactions.map(t => t.id === id ? {...t, deleted: true} : t); await saveFinanceData(accounts, cards, updated, categories); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} /> );
+                return ( <FinanceTransactionsList transactions={transactions} accounts={accounts} categories={categories} onDelete={async (id) => { const updated = transactions.map(t => t.id === id ? {...t, deleted: true} : t); await saveFinanceData(accounts, cards, updated, categories, goals, challenges, receivables); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} /> );
             case 'fin_categories':
-                return <FinanceCategories categories={categories} onUpdate={async (cats) => { await saveFinanceData(accounts, cards, transactions, cats); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+                return <FinanceCategories categories={categories} onUpdate={async (cats) => { await saveFinanceData(accounts, cards, transactions, cats, goals, challenges, receivables); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+            case 'fin_receivables':
+                return <FinanceReceivables receivables={receivables} onUpdate={async (recs) => { await saveFinanceData(accounts, cards, transactions, categories, goals, challenges, recs); loadDataForUser(); }} sales={sales} accounts={accounts} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
             case 'fin_goals':
-                return <FinanceGoals goals={goals} onUpdate={async (gls) => { await saveFinanceData(accounts, cards, transactions, categories); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+                return <FinanceGoals goals={goals} onUpdate={async (gls) => { await saveFinanceData(accounts, cards, transactions, categories, gls, challenges, receivables); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
             case 'fin_challenges':
-                return <FinanceChallenges challenges={challenges} cells={cells} onUpdate={async (chals, clls) => { await saveFinanceData(accounts, cards, transactions, categories); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+                return <FinanceChallenges challenges={challenges} cells={cells} onUpdate={async (chals, clls) => { await saveFinanceData(accounts, cards, transactions, categories, goals, chals, receivables); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
             case 'dev_roadmap':
                 return isDev ? <DevRoadmap /> : null;
             default:
@@ -394,7 +383,7 @@ const App: React.FC = () => {
             {showSnow && <SnowOverlay />}
             <ToastContainer toasts={toasts} removeToast={removeToast} />
             {showSalesForm && ( <SalesForm isOpen={showSalesForm} onClose={() => { setShowSalesForm(false); setEditingSale(null); }} initialData={editingSale} onSave={saveSingleSale} onSaved={loadDataForUser} /> )}
-            {showTxForm && ( <FinanceTransactionForm isOpen={showTxForm} onClose={() => setShowTxForm(false)} accounts={accounts} cards={cards} categories={categories} onSave={async (tx: Transaction) => { await saveFinanceData(accounts, cards, [...transactions, tx], categories); }} onSaved={loadDataForUser} /> )}
+            {showTxForm && ( <FinanceTransactionForm isOpen={showTxForm} onClose={() => setShowTxForm(false)} accounts={accounts} cards={cards} categories={categories} onSave={async (tx: Transaction) => { await saveFinanceData(accounts, cards, [...transactions, tx], categories, goals, challenges, receivables); }} onSaved={loadDataForUser} /> )}
             {isBackupModalOpen && ( <BackupModal isOpen={isBackupModalOpen} onClose={() => setIsBackupModalOpen(false)} mode="RESTORE" onSuccess={() => {}} onRestoreSuccess={loadDataForUser} /> )}
             {isBulkDateModalOpen && ( <BulkDateModal isOpen={isBulkDateModalOpen} onClose={() => setIsBulkDateModalOpen(false)} onConfirm={handleBulkUpdateDate} darkMode={theme !== 'neutral' && theme !== 'rose'} /> )}
             {isClearLocalModalOpen && ( <ConfirmationModal isOpen={isClearLocalModalOpen} onClose={() => setIsClearLocalModalOpen(false)} onConfirm={() => { handleClearLocalData(); }} title="Resetar Banco de Dados Local?" message="Isso limpará seu cache temporário para forçar o download dos dados da nuvem. Use apenas para resolver erros de sincronia." type="WARNING" /> )}
