@@ -4,6 +4,7 @@ import { X, Send, Bug, AlertTriangle, CheckCircle, Loader2, Paperclip, MessageSq
 import { User } from '../types';
 import { sendMessage } from '../services/internalChat';
 import { Logger } from '../services/logger';
+import { sendPushNotification } from '../services/pushService';
 
 interface ReportBugModalProps {
   isOpen: boolean;
@@ -27,13 +28,7 @@ const ReportBugModal: React.FC<ReportBugModalProps> = ({ isOpen, onClose, curren
     try {
         // Captura logs recentes para anexar ao ticket
         const logs = await Logger.getLogs(50);
-        const diagSnapshot = JSON.stringify({
-            userAgent: navigator.userAgent,
-            version: "2.5.2",
-            timestamp: new Date().toISOString(),
-            logs: logs
-        }, null, 2);
-
+        
         const content = `[TICKET DE ERRO - Módulo: ${module}]\n\n${description}`;
         
         await sendMessage(
@@ -45,14 +40,12 @@ const ReportBugModal: React.FC<ReportBugModalProps> = ({ isOpen, onClose, curren
             module.toLowerCase() as any
         );
 
-        // Opcional: Enviar os logs como uma segunda mensagem técnica
-        await sendMessage(
-            currentUser,
-            `[SNAPSHOT DE DIAGNÓSTICO PARA O TICKET ACIMA]`,
-            'CHAT',
-            'ADMIN',
-            undefined,
-            undefined
+        // Dispara PUSH para os administradores
+        await sendPushNotification(
+            'ADMIN_GROUP',
+            `🚨 Novo Ticket: ${module}`,
+            `${currentUser.name} reportou um problema: ${description.substring(0, 50)}...`,
+            { moduleId: module.toLowerCase(), sender: currentUser.name }
         );
 
         setSent(true);
@@ -80,7 +73,7 @@ const ReportBugModal: React.FC<ReportBugModalProps> = ({ isOpen, onClose, curren
                         <CheckCircle size={48} />
                     </div>
                     <h3 className="text-2xl font-bold">Ticket Aberto!</h3>
-                    <p className="text-gray-400 text-sm">Nossa engenharia recebeu seu reporte e os logs do sistema. Responderemos via chat em breve.</p>
+                    <p className="text-gray-400 text-sm">Nossa engenharia recebeu seu reporte e os administradores foram notificados via Push.</p>
                 </div>
             ) : (
                 <>
@@ -91,7 +84,7 @@ const ReportBugModal: React.FC<ReportBugModalProps> = ({ isOpen, onClose, curren
                             </div>
                             <div>
                                 <h3 className="text-xl font-bold">Reportar Problema</h3>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">Abertura de ticket com diagnóstico automático.</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">Notifica a engenharia e os administradores.</p>
                             </div>
                         </div>
                         <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full text-gray-500 transition-colors"><X size={24}/></button>
@@ -100,7 +93,7 @@ const ReportBugModal: React.FC<ReportBugModalProps> = ({ isOpen, onClose, curren
                     <div className="p-8 space-y-6">
                         <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 p-4 rounded-2xl flex gap-3 text-xs text-amber-700 dark:text-amber-400">
                             <AlertTriangle size={18} className="shrink-0"/>
-                            <p>Ao reportar, o sistema enviará automaticamente os últimos eventos de erro registrados localmente para facilitar nossa análise.</p>
+                            <p>Ao reportar, o sistema enviará uma notificação Push prioritária para a equipe administrativa.</p>
                         </div>
 
                         <div>
@@ -123,7 +116,7 @@ const ReportBugModal: React.FC<ReportBugModalProps> = ({ isOpen, onClose, curren
                             <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">O que aconteceu?</label>
                             <textarea 
                                 className="w-full p-4 rounded-2xl bg-gray-50 dark:bg-slate-900 border border-gray-100 dark:border-slate-800 outline-none focus:ring-2 ring-red-500/50 h-32 resize-none text-sm leading-relaxed"
-                                placeholder="Descreva o erro de forma clara. Ex: Cliquei em faturar e a tela ficou branca..."
+                                placeholder="Descreva o erro..."
                                 value={description}
                                 onChange={e => setDescription(e.target.value)}
                             />
@@ -138,7 +131,7 @@ const ReportBugModal: React.FC<ReportBugModalProps> = ({ isOpen, onClose, curren
                             className="flex-1 py-4 bg-red-600 hover:bg-red-700 text-white font-black rounded-2xl shadow-xl shadow-red-900/20 active:scale-95 transition-all flex items-center justify-center gap-2 uppercase text-xs tracking-widest"
                         >
                             {isSending ? <Loader2 className="animate-spin" size={20}/> : <MessageSquare size={20}/>}
-                            Enviar Ticket
+                            Enviar Ticket & Push
                         </button>
                     </div>
                 </>

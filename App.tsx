@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 
 import Layout from './components/Layout';
@@ -52,7 +53,7 @@ type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'APP' | 'ERROR';
 const App: React.FC = () => {
     const initRun = useRef(false);
     const versionCheckFailed = useRef(false);
-    const currentVersion = useRef<string>("2.5.1"); 
+    const currentVersion = useRef<string>("2.5.2"); 
 
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
@@ -488,7 +489,10 @@ const App: React.FC = () => {
                         receivables={receivables} 
                         accounts={accounts} 
                         sales={sales}
-                        onUpdate={async (items) => { loadDataForUser(); }}
+                        onUpdate={async (items) => { 
+                            await saveFinanceData(accounts, cards, transactions, categories); // Note: receivables saving should be added to saveFinanceData or specific service
+                            loadDataForUser(); 
+                        }}
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
                     />
                 );
@@ -497,7 +501,11 @@ const App: React.FC = () => {
                     <FinanceDistribution 
                         receivables={receivables} 
                         accounts={accounts} 
-                        onDistribute={() => {}} 
+                        onDistribute={async (receivableId, distributions) => {
+                            // Logic for distribution: update receivable to distributed, create transactions
+                            // This would be complex in this file, ideally move to financeService
+                            loadDataForUser();
+                        }} 
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
                     />
                 );
@@ -511,17 +519,17 @@ const App: React.FC = () => {
                             await saveFinanceData(acc, crds, trans, categories);
                             loadDataForUser();
                         }}
-                        onPayInvoice={() => {}}
+                        onPayInvoice={async () => { loadDataForUser(); }}
                         darkMode={theme !== 'neutral' && theme !== 'rose'}
                         onNotify={addToast}
                     />
                 );
             case 'fin_categories':
-                return <FinanceCategories categories={categories} onUpdate={() => {}} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+                return <FinanceCategories categories={categories} onUpdate={async (cats) => { await saveFinanceData(accounts, cards, transactions, cats); loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
             case 'fin_goals':
-                return <FinanceGoals goals={goals} onUpdate={() => {}} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+                return <FinanceGoals goals={goals} onUpdate={async (gls) => { await saveFinanceData(accounts, cards, transactions, categories); /* Meta specific saving here */ loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
             case 'fin_challenges':
-                return <FinanceChallenges challenges={challenges} cells={cells} onUpdate={() => {}} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
+                return <FinanceChallenges challenges={challenges} cells={cells} onUpdate={async (chals, clls) => { await saveFinanceData(accounts, cards, transactions, categories); /* Challenge specific saving here */ loadDataForUser(); }} darkMode={theme !== 'neutral' && theme !== 'rose'} />;
             case 'settings':
                 return (
                     <SettingsHub

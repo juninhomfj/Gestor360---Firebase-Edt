@@ -1,22 +1,27 @@
-# Gestor360 v2.5.0 - Manual de Engenharia (Firebase Native)
 
-Este documento contém os guias necessários para configuração do ambiente e governança de dados.
+# Gestor360 v2.5.2 - Manual de Engenharia (Firebase Native)
 
-## 1. Arquitetura v2.5.0
-O sistema utiliza **Cloud Firestore** com escrita direta (AWAIT) para garantir consistência em tempo real. A Sync Queue legada foi removida em favor de persistência síncrona.
+## 🚀 Novidades v2.5.2
+- **Firestore Guard**: Camada de sanitização automática de objetos antes da escrita.
+- **Admin Messaging**: Hub de comunicados formatados com suporte a GIFs e Push.
+- **Ticket Tracking**: Sistema de resolução de bugs integrado ao chat interno.
 
-## 2. Governança de Cálculos (VENDAS)
-**IMPORTANTE**: As regras de cálculo de comissão e margem de lucro localizadas em `services/logic.ts` (`computeCommissionValues`) são consideradas o "Core de Negócio" e **não devem ser alteradas** em atualizações de interface.
+## 🔒 Segurança & Permissões
+A granulação de acesso agora suporta os seguintes níveis:
+- **DEV**: Acesso Root. Ignora regras de UID e pode realizar limpezas atômicas.
+- **ADMIN**: Gestão de usuários, alteração de tabelas de comissão e resposta a tickets.
+- **USER**: Operação padrão. Vê apenas seus próprios dados (RLS).
 
-## 3. Segurança & Índices
-Para manter a performance sem depender de índices compostos manuais (que geram custos e complexidade de deploy), a ordenação de grandes listas (Vendas/Transações) é realizada via **JavaScript no lado do cliente** após o fetch inicial filtrado por UID.
+### Matriz de Permissões:
+| Módulo | User | Admin | Dev |
+| :--- | :--- | :--- | :--- |
+| Vendas | Leitura/Escrita (Proprio) | Tudo | Tudo |
+| Financeiro | Leitura/Escrita (Proprio) | Tudo | Tudo |
+| Comunicados | Leitura | Tudo | Tudo |
+| Engenharia | Bloqueado | Bloqueado | Tudo |
 
-## 4. Estrutura do Firestore
-As coleções principais seguem o esquema:
-- `profiles`: Metadados do usuário e permissões (RLS baseada em auth.uid).
-- `sales`: Registro de faturamentos e orçamentos.
-- `transactions`: Fluxo de caixa detalhado.
-- `clients`: Base CRM compartilhada/privada.
+## 🛠️ Manutenção do Módulo Financeiro
+O módulo financeiro utiliza persistência síncrona. Caso uma aba não carregue, verifique se a coleção Firestore correspondente (`accounts`, `categories`, `goals`, `transactions`) possui documentos com o `userId` correto.
 
 ---
 **Hypelab Engineering Team - 2025**

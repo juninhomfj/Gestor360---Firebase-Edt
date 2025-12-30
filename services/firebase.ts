@@ -1,13 +1,8 @@
-// services/firebase.ts
 
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
-
-/**
- * Firebase – Configuração ÚNICA e determinística
- * Ambiente: Vite (import.meta.env) ou process.env
- */
+import { getMessaging, Messaging, isSupported } from "firebase/messaging";
 
 const getEnv = (key: string): string => {
   return (import.meta as any).env?.[key] || (process as any).env?.[key] || "";
@@ -23,7 +18,6 @@ export const firebaseConfig = {
   measurementId: getEnv('VITE_FIREBASE_MEASUREMENT_ID') || "G-LMLPQN2PHQ"
 };
 
-// Singleton REAL – sem risco de múltiplas instâncias
 const app: FirebaseApp = getApps().length === 0
   ? initializeApp(firebaseConfig)
   : getApp();
@@ -31,6 +25,12 @@ const app: FirebaseApp = getApps().length === 0
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
 
-console.info(
-  `[Firebase] Inicializado | projectId=${firebaseConfig.projectId}`
-);
+// Messaging só é inicializado se o navegador suportar (evita erro em modo incognito/safari antigo)
+export const initMessaging = async (): Promise<Messaging | null> => {
+    if (typeof window !== "undefined" && await isSupported()) {
+        return getMessaging(app);
+    }
+    return null;
+};
+
+console.info(`[Firebase] Inicializado com Messaging Support | ${firebaseConfig.projectId}`);

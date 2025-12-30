@@ -1,9 +1,11 @@
+
 import React, { useState, useRef } from 'react';
 import { User, UserStatus } from '../types';
 import { logout, updateUser, deactivateUser } from '../services/auth';
+import { requestAndSaveToken } from '../services/pushService';
 import { 
   Save, User as UserIcon, LogOut, Camera, CheckCircle, 
-  AlertTriangle, MessageSquare, Shield, Lock, UserX, ShieldAlert, Key
+  AlertTriangle, MessageSquare, Shield, Lock, UserX, ShieldAlert, Key, Bell, BellRing
 } from 'lucide-react';
 import { optimizeImage } from '../utils/fileHelper';
 
@@ -24,6 +26,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
   const [modules, setModules] = useState(currentUser.permissions || {});
   
   const [isSaving, setIsSaving] = useState(false);
+  const [isRegisteringPush, setIsRegisteringPush] = useState(false);
   const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -37,7 +40,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
         name: name.trim(),
         username: username.trim(),
         tel: tel.trim(),
-        profilePhoto: profilePhoto, // Corrigido de profilePictureUrl para profilePhoto
+        profilePhoto: profilePhoto,
         contactVisibility: contactVisibility,
         permissions: modules
       };
@@ -60,6 +63,23 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleEnablePush = async () => {
+      setIsRegisteringPush(true);
+      try {
+          const token = await requestAndSaveToken(currentUser.id);
+          if (token) {
+              setMessage({ type: 'success', text: 'Notificações Push habilitadas neste dispositivo!' });
+          } else {
+              setMessage({ type: 'error', text: 'Permissão de notificação negada ou não suportada.' });
+          }
+      } catch (e) {
+          setMessage({ type: 'error', text: 'Falha ao registrar para notificações.' });
+      } finally {
+          setIsRegisteringPush(false);
+          setTimeout(() => setMessage(null), 3000);
+      }
   };
 
   const handleDeactivate = async () => {
@@ -126,6 +146,21 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                         <Shield size={10} className="mr-1"/> {currentUser.role}
                     </div>
                 </div>
+                
+                {/* NOVO BOTÃO DE PUSH */}
+                <div className="w-full mt-6 pt-6 border-t dark:border-slate-800">
+                    <button 
+                        onClick={handleEnablePush}
+                        disabled={isRegisteringPush}
+                        className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${currentUser.fcmToken ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-900/20'}`}
+                    >
+                        {isRegisteringPush ? <Loader2 size={16} className="animate-spin"/> : (currentUser.fcmToken ? <BellRing size={16}/> : <Bell size={16}/>)}
+                        {currentUser.fcmToken ? 'Notificações Ativas' : 'Habilitar Notificações Push'}
+                    </button>
+                    {currentUser.fcmToken && (
+                        <p className="text-[9px] text-gray-400 mt-2 text-center opacity-60">Você receberá alertas de tickets e faturamento direto neste dispositivo.</p>
+                    )}
+                </div>
             </div>
 
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm">
@@ -140,7 +175,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                         </div>
                     ))}
                 </div>
-                {!isSuper && <p className="text-[10px] text-gray-400 mt-4 italic text-center">Configurado pelo administrador.</p>}
             </div>
           </div>
 
@@ -205,7 +239,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
   );
 };
 
-// Helper loader simple replacement if not imported
 const Loader2 = ({ size, className }: { size: number, className: string }) => (
     <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
 );

@@ -57,6 +57,7 @@ export interface User {
     modules?: UserModules;
     financialProfile?: FinancialProfile;
     contactVisibility?: 'PUBLIC' | 'PRIVATE';
+    fcmToken?: string;
 }
 
 export type SystemModules = Partial<UserPermissions>;
@@ -228,6 +229,7 @@ export interface SystemConfig {
     initializedAt?: any;
     supportEmail?: string;
     supportTelegram?: string;
+    fcmServerKey?: string;
 }
 
 export interface ReportConfig {
@@ -369,3 +371,17 @@ export type AudioType = 'NOTIFICATION' | 'ALERT' | 'SUCCESS' | 'WARNING';
 export type ChallengeModel = 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
 export interface Challenge { id: string; name: string; targetValue: number; depositCount: number; model: ChallengeModel; createdAt: string; status: 'ACTIVE' | 'COMPLETED'; userId: string; deleted: boolean; isSeed?: boolean; }
 export interface ChallengeCell { id: string; challengeId: string; number: number; value: number; status: 'PENDING' | 'PAID'; paidDate?: string; userId: string; deleted: boolean; isSeed?: boolean; }
+
+export interface ReleaseChange {
+    type: 'NEW' | 'FIX' | 'SECURITY' | 'IMPROVE';
+    text: string;
+}
+
+export interface Release {
+    version: string;
+    date: string;
+    title: string;
+    type: 'MAJOR' | 'MINOR' | 'PATCH';
+    description: string;
+    changes: ReleaseChange[];
+}

@@ -1,7 +1,9 @@
 
 import React, { useState } from 'react';
 import { Rocket, GitCommit, ShieldCheck, Zap, Bug, Calendar, Tag, ChevronDown, ChevronUp, Search } from 'lucide-react';
-import { RELEASES, Release } from '../data/releases';
+// Fix: Import Release from types.ts and RELEASES from data/releases.ts
+import { RELEASES } from '../data/releases';
+import { Release } from '../types';
 
 const ReleaseNotes: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
