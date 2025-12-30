@@ -176,6 +176,8 @@ export const createUser = async (adminId: string, userData: any) => {
     try {
         const userCredential = await createUserWithEmailAndPassword(secondaryAuth, userData.email, "Gestor360!");
         const fbUser = userCredential.user;
+        Logger.info("Auth ID criado para novo usuário", { uid: fbUser.uid });
+        
         const role: UserRole = userData.role || 'USER';
         
         await setDoc(doc(db, "profiles", fbUser.uid), {
@@ -191,6 +193,8 @@ export const createUser = async (adminId: string, userData: any) => {
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
         });
+
+        Logger.info("Perfil Firestore criado com sucesso para novo usuário", { uid: fbUser.uid });
 
         await sendPasswordResetEmail(secondaryAuth, userData.email);
         await signOut(secondaryAuth);

@@ -2,20 +2,28 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helpers
+    // Helpers robustos
     function isSignedIn() {
       return request.auth != null;
     }
 
+    // Verifica se o usuário logado tem papel administrativo com fallback seguro
     function isAdmin() {
       return isSignedIn() && 
-        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role in ['ADMIN', 'DEV'];
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.get('role', 'USER') in ['ADMIN', 'DEV'];
     }
 
+    // Regra de propriedade ou administração global
     function isOwner(res) {
-      return isSignedIn() && (res == null || res.data.userId == request.auth.uid || isAdmin());
+      return isSignedIn() && (
+        res == null || 
+        res.data.get('userId', '') == request.auth.uid || 
+        isAdmin()
+      );
     }
 
+    // Regras por Coleção
+    
     // Dados Privados (Dono ou Admin)
     match /sales/{id} { allow read, write: if isOwner(resource); }
     match /transactions/{id} { allow read, write: if isOwner(resource); }

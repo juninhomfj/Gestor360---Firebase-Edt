@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CommissionRule, ProductType, ReportConfig, SystemConfig, AppTheme, User, Sale, AiUsageStats, ProductLabels, DuplicateGroup, Transaction, SyncEntry, AudioType } from '../types';
 import CommissionEditor from './CommissionEditor';
 import ClientList from './ClientList';
-import { Settings, Shield, Server, Volume2, Trash2, Database, User as UserIcon, Palette, Activity, Hammer, X, ArrowLeft, Users, Save, PlayCircle, Plus, Bell, Key, MessageSquare } from 'lucide-react';
+import { Settings, Shield, Server, Volume2, Trash2, Database, User as UserIcon, Palette, Activity, Hammer, X, ArrowLeft, Users, Save, PlayCircle, Plus, Bell, Key, MessageSquare, Terminal, Eraser } from 'lucide-react';
 import { getSystemConfig, saveSystemConfig, DEFAULT_SYSTEM_CONFIG } from '../services/logic';
 import { dbGetAll } from '../storage/db';
 import { auth, db } from '../services/firebase';
 import { fileToBase64 } from '../utils/fileHelper';
+import { Logger } from '../services/logger';
 import BackupModal from './BackupModal';
 import UserProfile from './UserProfile';
 import AdminUsers from './AdminUsers';
@@ -37,7 +38,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
   darkMode, onThemeChange, currentUser, onUpdateUser, sales, onUpdateSales, onNotify,
   isAdmin, isDev
 }) => {
-  const [activeTab, setActiveTab] = useState<'PROFILE' | 'SYSTEM' | 'USERS' | 'CLOUD' | 'COMMISSIONS' | 'ROADMAP' | 'SOUNDS' | 'TRASH' | 'CLIENTS' | 'MESSAGING'>('PROFILE');
+  const [activeTab, setActiveTab] = useState<'PROFILE' | 'SYSTEM' | 'USERS' | 'CLOUD' | 'COMMISSIONS' | 'ROADMAP' | 'SOUNDS' | 'TRASH' | 'CLIENTS' | 'MESSAGING' | 'LOGS'>('PROFILE');
   const [commissionTab, setCommissionTab] = useState<ProductType>(ProductType.BASICA); 
   const [showMobileContent, setShowMobileContent] = useState(false);
   
@@ -97,6 +98,13 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
       audioInputRef.current?.click();
   };
 
+  const handleClearLogs = async () => {
+      if (confirm("Deseja apagar todos os logs de auditoria locais? Esta ação não afeta os logs na nuvem.")) {
+          await Logger.clearLogs();
+          onNotify('INFO', 'Logs locais limpos.');
+      }
+  };
+
   const handleSaveSystemSettings = async () => {
       const newConfig: any = { 
           ...systemConfig, 
@@ -148,6 +156,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
                <h2 className="px-2 mb-4 text-[10px] font-black uppercase tracking-widest text-indigo-500">Perfil & App</h2>
                <NavBtn id="PROFILE" icon={UserIcon} label="Meu Perfil" />
                <NavBtn id="SOUNDS" icon={Volume2} label="Sons & Avisos" />
+               <NavBtn id="LOGS" icon={Terminal} label="Logs & Diagnóstico" />
                <NavBtn id="SYSTEM" icon={Settings} label="Sistema (Admin)" show={isAdmin} />
                
                <h2 className="px-2 mb-4 mt-6 text-[10px] font-black uppercase tracking-widest text-indigo-500">Módulos</h2>
@@ -182,6 +191,31 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
                {activeTab === 'USERS' && (isAdmin || isDev) && <AdminUsers currentUser={currentUser} />}
                {activeTab === 'MESSAGING' && (isAdmin || isDev) && <AdminMessaging currentUser={currentUser} darkMode={!!darkMode} />}
                
+               {activeTab === 'LOGS' && (
+                    <div className={`p-8 rounded-2xl border shadow-sm animate-in fade-in slide-in-from-right-2 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-100'}`}>
+                        <div className="flex items-center gap-3 mb-8">
+                            <Terminal className="text-indigo-500" size={28}/>
+                            <h3 className="text-xl font-black">Auditoria de Sistema</h3>
+                        </div>
+                        <p className="text-sm text-gray-500 mb-6 leading-relaxed">
+                            Aqui você pode gerenciar os logs de eventos armazenados no seu navegador (IndexedDB). 
+                            Limpar estes logs ajuda a manter o sistema ágil, mas remove o histórico de diagnóstico local.
+                        </p>
+                        <div className="p-6 rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-800 flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div>
+                                <h4 className="font-bold text-indigo-900 dark:text-indigo-300">Base de Auditoria Local</h4>
+                                <p className="text-xs text-indigo-700 dark:text-indigo-400 mt-1">Sincronia com nuvem permanece ativa para administradores.</p>
+                            </div>
+                            <button 
+                                onClick={handleClearLogs}
+                                className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold text-xs uppercase tracking-widest flex items-center gap-2 hover:bg-red-700 transition-all shadow-lg shadow-red-900/20"
+                            >
+                                <Eraser size={16}/> Limpar Logs Locais
+                            </button>
+                        </div>
+                    </div>
+               )}
+
                {activeTab === 'SYSTEM' && isAdmin && (
                     <div className={`p-8 rounded-2xl border shadow-sm animate-in fade-in slide-in-from-right-2 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-100'}`}>
                         <div className="flex items-center gap-3 mb-8">
