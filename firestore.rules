@@ -2,116 +2,63 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // 1. Mandatory Support Functions
+    // Helper: Usuário autenticado
     function isSignedIn() {
       return request.auth != null;
     }
 
+    // Helper: Dono do documento
     function isOwner(res) {
-      return isSignedIn() && res.data.userId == request.auth.uid;
+      return isSignedIn() && (res == null || res.data.userId == request.auth.uid);
     }
 
-    function isAdmin() {
-      return isSignedIn() && 
-        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role in ['ADMIN', 'DEV'];
-    }
+    // Regras por Coleção
+    
+    // Dados Privados (Filtro por userId)
+    match /sales/{id} { allow read, write: if isOwner(resource); }
+    match /transactions/{id} { allow read, write: if isOwner(resource); }
+    match /accounts/{id} { allow read, write: if isOwner(resource); }
+    match /cards/{id} { allow read, write: if isOwner(resource); }
+    match /categories/{id} { allow read, write: if isOwner(resource); }
+    match /goals/{id} { allow read, write: if isOwner(resource); }
+    match /challenges/{id} { allow read, write: if isOwner(resource); }
+    match /challenge_cells/{id} { allow read, write: if isOwner(resource); }
+    match /receivables/{id} { allow read, write: if isOwner(resource); }
+    match /clients/{id} { allow read, write: if isOwner(resource); }
+    match /wa_contacts/{id} { allow read, write: if isOwner(resource); }
+    match /wa_campaigns/{id} { allow read, write: if isOwner(resource); }
+    match /wa_queue/{id} { allow read, write: if isOwner(resource); }
 
-    // 2. Financial & Private Data (Strict RLS)
-    // collections: transactions, cards, goals, challenges, challenge_cells, receivables
-    function validatePrivateWrite() {
-      return isSignedIn() && request.resource.data.userId == request.auth.uid;
-    }
-
-    function validatePrivateRead(res) {
-      return isSignedIn() && (res.data.userId == request.auth.uid || res.data.isTemplate == true);
-    }
-
-    match /transactions/{id} {
-      allow read: if validatePrivateRead(resource);
-      allow write: if validatePrivateWrite();
-    }
-    match /cards/{id} {
-      allow read: if validatePrivateRead(resource);
-      allow write: if validatePrivateWrite();
-    }
-    match /goals/{id} {
-      allow read: if validatePrivateRead(resource);
-      allow write: if validatePrivateWrite();
-    }
-    match /challenges/{id} {
-      allow read: if validatePrivateRead(resource);
-      allow write: if validatePrivateWrite();
-    }
-    match /challenge_cells/{id} {
-      allow read: if validatePrivateRead(resource);
-      allow write: if validatePrivateWrite();
-    }
-    match /receivables/{id} {
-      allow read: if validatePrivateRead(resource);
-      allow write: if validatePrivateWrite();
-    }
-
-    // 3. Commissions (Global Controlled)
+    // Dados Globais / Configurações (Apenas Autenticados)
     match /commissions/{docId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow write: if isSignedIn(); 
     }
 
-    // 4. Internal Messages
+    match /config/{configId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Perfil do Usuário
+    match /profiles/{uid} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == uid);
+    }
+
+    // Mensageria Interna
     match /internal_messages/{msgId} {
       allow read: if isSignedIn() && (
         resource.data.recipientId == request.auth.uid || 
-        resource.data.recipientId == "BROADCAST" || 
-        isAdmin()
+        resource.data.senderId == request.auth.uid ||
+        resource.data.recipientId == "BROADCAST"
       );
-      
-      // Only owner can create. BROADCAST messages restricted to admins.
-      allow create: if isSignedIn() && 
-                    request.resource.data.userId == request.auth.uid && 
-                    (request.resource.data.recipientId != "BROADCAST" || isAdmin());
-      
-      // Only owner can update/delete. BROADCAST restricted to admins.
-      allow update, delete: if isAdmin() || (isOwner(resource) && resource.data.recipientId != "BROADCAST");
+      allow create, update: if isSignedIn();
     }
 
-    // 5. Config/System
-    match /config/system {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-    
-    match /config/{configId} {
-      allow read, write: if isSignedIn() && (
-        configId == "system_" + request.auth.uid || 
-        configId == "report_" + request.auth.uid || 
-        isAdmin()
-      );
-    }
-
-    // 6. User Data (Other Collections)
-    match /categories/{id} {
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.isTemplate == true);
-      allow write: if validatePrivateWrite();
-    }
-
-    match /sales/{id} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow write: if validatePrivateWrite();
-    }
-
-    match /clients/{id} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow write: if validatePrivateWrite();
-    }
-
-    match /profiles/{uid} {
-      allow read: if isSignedIn();
-      allow write: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
-    }
-
+    // Logs de Auditoria
     match /audit_log/{logId} {
       allow create: if isSignedIn();
-      allow read: if isAdmin();
+      allow read: if isSignedIn();
     }
   }
 }

@@ -2,17 +2,22 @@ import { dbPut, dbGetAll } from '../storage/db';
 import { LogEntry, LogLevel } from '../types';
 import { db, auth } from './firebase';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { sanitizeForFirestore } from './logic';
 
 const LOG_STORE = 'audit_log';
 
 export const Logger = {
     async log(level: LogLevel, message: string, details?: any) {
         const uid = auth.currentUser?.uid || 'anonymous';
+        
+        // Sanitiza os detalhes para evitar valores undefined/inválidos no Firestore
+        const safeDetails = details ? sanitizeForFirestore(JSON.parse(JSON.stringify(details))) : null;
+
         const entry: LogEntry = {
             timestamp: Date.now(),
             level,
             message,
-            details: details ? JSON.parse(JSON.stringify(details)) : undefined, 
+            details: safeDetails,
             userAgent: navigator.userAgent
         };
 
@@ -25,6 +30,7 @@ export const Logger = {
                 const cloudLogRef = doc(collection(db, "audit_log"));
                 await setDoc(cloudLogRef, {
                     ...entry,
+                    details: safeDetails, // Reforço de segurança
                     userId: uid,
                     userName: auth.currentUser.displayName || 'System User',
                     createdAt: serverTimestamp()
