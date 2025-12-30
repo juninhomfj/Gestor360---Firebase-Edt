@@ -40,12 +40,16 @@ export const SessionTraffic = {
 export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     bootstrapVersion: 1,
     notificationSounds: { enabled: true, volume: 1, sound: '' },
-    includeNonAccountingInTotal: false
+    includeNonAccountingInTotal: false,
+    notificationSound: '',
+    alertSound: '',
+    successSound: '',
+    warningSound: ''
 };
 
 export const getSystemConfig = async (): Promise<SystemConfig & UserPreferences> => {
     const globalSnap = await getDoc(doc(db, "config", "system"));
-    const globalConfig = globalSnap.exists() ? globalSnap.data() as SystemConfig : DEFAULT_SYSTEM_CONFIG;
+    const globalConfig = globalSnap.exists() ? { ...DEFAULT_SYSTEM_CONFIG, ...globalSnap.data() } as SystemConfig : DEFAULT_SYSTEM_CONFIG;
 
     const uid = auth.currentUser?.uid;
     if (uid) {
@@ -69,13 +73,20 @@ export const saveSystemConfig = async (config: any) => {
 
     await setDoc(doc(db, "config", `system_${uid}`), userPrefs, { merge: true });
 
-    if (config.notificationSounds || config.fcmServerKey || config.ntfyTopic) {
-        const globalConfig: any = {};
-        if (config.notificationSounds) globalConfig.notificationSounds = config.notificationSounds;
-        if (config.fcmServerKey) globalConfig.fcmServerKey = config.fcmServerKey;
-        if (config.ntfyTopic) globalConfig.ntfyTopic = config.ntfyTopic;
+    const globalFields = [
+        'notificationSounds', 'fcmServerKey', 'ntfyTopic', 
+        'notificationSound', 'alertSound', 'successSound', 'warningSound'
+    ];
+
+    const globalConfig: any = {};
+    globalFields.forEach(field => {
+        if (config[field] !== undefined) globalConfig[field] = config[field];
+    });
+
+    if (Object.keys(globalConfig).length > 0) {
         await setDoc(doc(db, "config", "system"), globalConfig, { merge: true });
     }
+    
     Logger.info("Auditoria: Configurações de sistema salvas.");
 };
 

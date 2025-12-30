@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { CommissionRule, ProductType, ReportConfig, SystemConfig, AppTheme, User, Sale, AiUsageStats, ProductLabels, DuplicateGroup, Transaction, SyncEntry } from '../types';
+import { CommissionRule, ProductType, ReportConfig, SystemConfig, AppTheme, User, Sale, AiUsageStats, ProductLabels, DuplicateGroup, Transaction, SyncEntry, AudioType } from '../types';
 import CommissionEditor from './CommissionEditor';
 import ClientList from './ClientList';
 import { Settings, Shield, Server, Volume2, Trash2, Database, User as UserIcon, Palette, Activity, Hammer, X, ArrowLeft, Users, Save, PlayCircle, Plus, Bell, Key, MessageSquare } from 'lucide-react';
@@ -46,8 +45,13 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
   const [showBackupModal, setShowBackupModal] = useState(false);
 
   const [notificationSound, setNotificationSound] = useState('');
+  const [alertSound, setAlertSound] = useState('');
+  const [successSound, setSuccessSound] = useState('');
+  const [warningSound, setWarningSound] = useState('');
+  
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundVolume, setSoundVolume] = useState(1);
+  const [uploadingFor, setUploadingFor] = useState<AudioType | 'GENERAL'>('GENERAL');
   
   const audioInputRef = useRef<HTMLInputElement>(null);
 
@@ -57,12 +61,15 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
           setSystemConfig(cfg);
           
           if (cfg.notificationSounds) {
-              setNotificationSound(cfg.notificationSounds.sound || '');
+              setNotificationSound(cfg.notificationSound || cfg.notificationSounds.sound || '');
               setSoundEnabled(cfg.notificationSounds.enabled);
               setSoundVolume(cfg.notificationSounds.volume);
           } else {
               setNotificationSound(cfg.notificationSound || '');
           }
+          setAlertSound(cfg.alertSound || '');
+          setSuccessSound(cfg.successSound || '');
+          setWarningSound(cfg.warningSound || '');
       };
       loadConfig();
   }, []);
@@ -72,7 +79,12 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
       if (!file) return;
       try {
           const base64 = await fileToBase64(file);
-          setNotificationSound(base64);
+          if (uploadingFor === 'GENERAL') setNotificationSound(base64);
+          else if (uploadingFor === 'NOTIFICATION') setNotificationSound(base64);
+          else if (uploadingFor === 'ALERT') setAlertSound(base64);
+          else if (uploadingFor === 'SUCCESS') setSuccessSound(base64);
+          else if (uploadingFor === 'WARNING') setWarningSound(base64);
+
           onNotify('SUCCESS', 'Som carregado com sucesso!');
       } catch (err) {
           onNotify('ERROR', 'Erro ao processar áudio.');
@@ -80,14 +92,23 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
       if (audioInputRef.current) audioInputRef.current.value = '';
   };
 
+  const openUpload = (type: AudioType | 'GENERAL') => {
+      setUploadingFor(type);
+      audioInputRef.current?.click();
+  };
+
   const handleSaveSystemSettings = async () => {
-      const newConfig: SystemConfig = { 
+      const newConfig: any = { 
           ...systemConfig, 
           notificationSounds: {
               enabled: soundEnabled,
               volume: soundVolume,
               sound: notificationSound
-          }
+          },
+          notificationSound,
+          alertSound,
+          successSound,
+          warningSound
       };
       setSystemConfig(newConfig);
       await saveSystemConfig(newConfig);
@@ -245,15 +266,48 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
 
                         <div className="space-y-4">
                             <SoundRow 
-                                label="Som das Notificações" 
+                                label="Som das Notificações (Geral)" 
                                 value={notificationSound} 
-                                onUpload={() => audioInputRef.current?.click()} 
+                                onUpload={() => openUpload('GENERAL')} 
                                 onTest={() => {
                                     const a = new Audio(notificationSound);
                                     a.volume = soundVolume;
                                     a.play();
                                 }} 
                                 onDelete={() => setNotificationSound('')} 
+                            />
+                            <SoundRow 
+                                label="Som de Alerta / Erro" 
+                                value={alertSound} 
+                                onUpload={() => openUpload('ALERT')} 
+                                onTest={() => {
+                                    const a = new Audio(alertSound);
+                                    a.volume = soundVolume;
+                                    a.play();
+                                }} 
+                                onDelete={() => setAlertSound('')} 
+                            />
+                            <SoundRow 
+                                label="Som de Sucesso / Venda" 
+                                value={successSound} 
+                                onUpload={() => openUpload('SUCCESS')} 
+                                onTest={() => {
+                                    const a = new Audio(successSound);
+                                    a.volume = soundVolume;
+                                    a.play();
+                                }} 
+                                onDelete={() => setSuccessSound('')} 
+                            />
+                            <SoundRow 
+                                label="Som de Aviso / Pendência" 
+                                value={warningSound} 
+                                onUpload={() => openUpload('WARNING')} 
+                                onTest={() => {
+                                    const a = new Audio(warningSound);
+                                    a.volume = soundVolume;
+                                    a.play();
+                                }} 
+                                onDelete={() => setWarningSound('')} 
                             />
                         </div>
 

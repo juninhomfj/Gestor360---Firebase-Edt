@@ -2,19 +2,21 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper: Usuário autenticado
+    // Helpers
     function isSignedIn() {
       return request.auth != null;
     }
 
-    // Helper: Dono do documento
-    function isOwner(res) {
-      return isSignedIn() && (res == null || res.data.userId == request.auth.uid);
+    function isAdmin() {
+      return isSignedIn() && 
+        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role in ['ADMIN', 'DEV'];
     }
 
-    // Regras por Coleção
-    
-    // Dados Privados (Filtro por userId)
+    function isOwner(res) {
+      return isSignedIn() && (res == null || res.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Dados Privados (Dono ou Admin)
     match /sales/{id} { allow read, write: if isOwner(resource); }
     match /transactions/{id} { allow read, write: if isOwner(resource); }
     match /accounts/{id} { allow read, write: if isOwner(resource); }
@@ -29,20 +31,20 @@ service cloud.firestore {
     match /wa_campaigns/{id} { allow read, write: if isOwner(resource); }
     match /wa_queue/{id} { allow read, write: if isOwner(resource); }
 
-    // Dados Globais / Configurações (Apenas Autenticados)
+    // Dados Globais / Configurações
     match /commissions/{docId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn(); 
+      allow write: if isAdmin(); 
     }
 
     match /config/{configId} {
       allow read, write: if isSignedIn();
     }
 
-    // Perfil do Usuário
+    // Perfil do Usuário (Dono ou Admin pode editar)
     match /profiles/{uid} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && (request.auth.uid == uid);
+      allow write: if isSignedIn() && (request.auth.uid == uid || isAdmin());
     }
 
     // Mensageria Interna
@@ -50,7 +52,8 @@ service cloud.firestore {
       allow read: if isSignedIn() && (
         resource.data.recipientId == request.auth.uid || 
         resource.data.senderId == request.auth.uid ||
-        resource.data.recipientId == "BROADCAST"
+        resource.data.recipientId == "BROADCAST" ||
+        isAdmin()
       );
       allow create, update: if isSignedIn();
     }
@@ -58,7 +61,7 @@ service cloud.firestore {
     // Logs de Auditoria
     match /audit_log/{logId} {
       allow create: if isSignedIn();
-      allow read: if isSignedIn();
+      allow read: if isAdmin();
     }
   }
 }

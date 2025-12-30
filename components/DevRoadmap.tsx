@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Code2, Terminal, Database, Server, Cpu, RefreshCw, 
     CheckCircle2, Cloud, Activity, 
-    Shield, Download, FileJson, Copy, AlertTriangle, Trash2, ArrowUpRight, ArrowDownLeft
+    Shield, Download, FileJson, Copy, AlertTriangle, Trash2, ArrowUpRight, ArrowDownLeft, Eraser
 } from 'lucide-react';
 import { db } from '../services/firebase';
 import { Logger } from '../services/logger';
@@ -45,6 +44,13 @@ const DevRoadmap: React.FC = () => {
       const logs = await Logger.getLogs(100);
       setSystemLogs(logs);
       setIsRefreshing(false);
+  };
+
+  const handleClearLogs = async () => {
+      if (confirm("Deseja apagar todos os logs de auditoria locais? Esta ação não afeta os logs na nuvem.")) {
+          await Logger.clearLogs();
+          await loadLogs();
+      }
   };
 
   const loadTable = async () => {
@@ -91,7 +97,7 @@ const DevRoadmap: React.FC = () => {
                     <p className="text-slate-400 mt-2 text-xs font-mono uppercase tracking-widest">Painel de Diagnóstico & Auditoria</p>
                 </div>
                 <div className="flex gap-2">
-                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-black border border-emerald-500/30">v2.5.2 INTELLIGENCE</span>
+                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-black border border-emerald-500/30">v2.5.3 STABLE</span>
                 </div>
             </div>
         </div>
@@ -114,13 +120,16 @@ const DevRoadmap: React.FC = () => {
 
         {activeTab === 'LOGS' && (
             <div className="space-y-4 animate-in slide-in-from-right-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex justify-between items-center">
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-center gap-4">
                     <div className="flex items-center gap-2">
                         <Terminal className="text-indigo-400" size={20}/>
                         <h3 className="font-bold text-white">Eventos de Sistema</h3>
                     </div>
-                    <div className="flex gap-2">
-                        <button onClick={() => Logger.downloadLogs()} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold flex items-center gap-2">
+                    <div className="flex gap-2 w-full sm:w-auto">
+                        <button onClick={handleClearLogs} className="flex-1 sm:flex-none px-4 py-2 bg-red-600/20 text-red-500 border border-red-500/30 rounded-lg text-xs font-bold flex items-center justify-center gap-2 hover:bg-red-600 hover:text-white transition-all">
+                            <Eraser size={14}/> Limpar Logs Locais
+                        </button>
+                        <button onClick={() => Logger.downloadLogs()} className="flex-1 sm:flex-none px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-2">
                             <Download size={14}/> Exportar Diagnóstico
                         </button>
                         <button onClick={loadLogs} className="p-2 bg-slate-800 rounded-lg"><RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''}/></button>
@@ -142,6 +151,7 @@ const DevRoadmap: React.FC = () => {
                             )}
                         </div>
                     ))}
+                    {systemLogs.length === 0 && <div className="p-10 text-center text-gray-600 font-mono text-xs">Nenhum evento registrado no IndexedDB.</div>}
                 </div>
             </div>
         )}
@@ -194,6 +204,7 @@ const DevRoadmap: React.FC = () => {
         
         {activeTab === 'ROADMAP' && (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 space-y-6">
+                <RoadmapItem done title="Hierarquia Admin Guard" desc="Correção das regras Firestore para permitir que Admins criem perfis de terceiros." />
                 <RoadmapItem done title="StatusCloud Monitoring" desc="Monitoramento de tráfego de sessão (Reads/Writes) realtime." />
                 <RoadmapItem done title="Motor de Chunking" desc="Processamento de lotes Firestore com limite de 500 operações." />
                 <RoadmapItem done title="Auditoria Granular" desc="Logs detalhados de sessões de importação e diagnóstico remoto." />

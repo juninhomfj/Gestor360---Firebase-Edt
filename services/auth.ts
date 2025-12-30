@@ -171,28 +171,35 @@ export const listUsers = async (): Promise<User[]> => {
 };
 
 export const createUser = async (adminId: string, userData: any) => {
-    const userCredential = await createUserWithEmailAndPassword(secondaryAuth, userData.email, "Gestor360!");
-    const fbUser = userCredential.user;
-    const role: UserRole = userData.role || 'USER';
+    Logger.info("Auditoria: Iniciando criação de novo usuário", { email: userData.email, role: userData.role });
     
-    await setDoc(doc(db, "profiles", fbUser.uid), {
-        uid: fbUser.uid,
-        username: userData.username || userData.email.split('@')[0],
-        name: userData.name,
-        email: userData.email,
-        role: role,
-        isActive: false, 
-        userStatus: 'PENDING',
-        permissions: role === 'DEV' ? DEV_PERMISSIONS : (userData.modules_config || DEFAULT_PERMISSIONS),
-        profilePhoto: "",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-    });
+    try {
+        const userCredential = await createUserWithEmailAndPassword(secondaryAuth, userData.email, "Gestor360!");
+        const fbUser = userCredential.user;
+        const role: UserRole = userData.role || 'USER';
+        
+        await setDoc(doc(db, "profiles", fbUser.uid), {
+            uid: fbUser.uid,
+            username: userData.username || userData.email.split('@')[0],
+            name: userData.name,
+            email: userData.email,
+            role: role,
+            isActive: false, 
+            userStatus: 'PENDING',
+            permissions: role === 'DEV' ? DEV_PERMISSIONS : (userData.modules_config || DEFAULT_PERMISSIONS),
+            profilePhoto: "",
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp()
+        });
 
-    await sendPasswordResetEmail(secondaryAuth, userData.email);
-    await signOut(secondaryAuth);
-    Logger.info("Novo usuário criado via painel administrativo", { email: userData.email });
-    return { success: true };
+        await sendPasswordResetEmail(secondaryAuth, userData.email);
+        await signOut(secondaryAuth);
+        Logger.info("Novo usuário criado via painel administrativo", { email: userData.email, uid: fbUser.uid });
+        return { success: true };
+    } catch (e: any) {
+        Logger.error("Erro ao criar usuário no Firebase", { error: e.message, code: e.code });
+        throw e;
+    }
 };
 
 export const resendInvitation = async (email: string) => {
@@ -201,12 +208,10 @@ export const resendInvitation = async (email: string) => {
     return { success: true };
 };
 
-/**
- * Atualiza dados do usuário no Firestore.
- */
 export const updateUser = async (userId: string, data: any) => {
-    const userRef = doc(db, "profiles", userId);
+    Logger.info("Auditoria: Atualizando perfil de usuário", { userId, fields: Object.keys(data) });
     
+    const userRef = doc(db, "profiles", userId);
     const ALLOWED_FIELDS = ['name', 'username', 'tel', 'profilePhoto', 'role', 'isActive', 'userStatus', 'permissions', 'theme', 'contactVisibility'];
     
     const cleanData = Object.entries(data).reduce((acc, [key, value]) => {
@@ -219,24 +224,29 @@ export const updateUser = async (userId: string, data: any) => {
     if (cleanData.isActive === true) cleanData.userStatus = 'ACTIVE';
     if (cleanData.isActive === false) cleanData.userStatus = 'INACTIVE';
 
-    await updateDoc(userRef, { 
-        ...cleanData, 
-        updatedAt: serverTimestamp() 
-    });
+    try {
+        await updateDoc(userRef, { 
+            ...cleanData, 
+            updatedAt: serverTimestamp() 
+        });
 
-    const current = await getDoc(userRef);
-    if (current.exists()) {
-        const fullData = current.data();
-        const userObj: User = {
-            id: userId,
-            uid: userId,
-            ...fullData,
-            createdAt: fullData.createdAt?.toDate?.()?.toISOString(),
-            updatedAt: new Date().toISOString()
-        } as User;
-        await dbPut('users', userObj);
+        const current = await getDoc(userRef);
+        if (current.exists()) {
+            const fullData = current.data();
+            const userObj: User = {
+                id: userId,
+                uid: userId,
+                ...fullData,
+                createdAt: fullData.createdAt?.toDate?.()?.toISOString(),
+                updatedAt: new Date().toISOString()
+            } as User;
+            await dbPut('users', userObj);
+        }
+        Logger.info("Perfil de usuário sincronizado com sucesso", { uid: userId });
+    } catch (e: any) {
+        Logger.error("Erro ao atualizar perfil no Firestore", { error: e.message });
+        throw e;
     }
-    Logger.info("Perfil de usuário atualizado", { uid: userId });
 };
 
 export const deactivateUser = async (userId: string) => {

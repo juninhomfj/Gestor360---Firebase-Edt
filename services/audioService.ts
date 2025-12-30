@@ -1,4 +1,3 @@
-
 import { getSystemConfig } from './logic';
 import { AudioType, SystemConfig } from '../types';
 
@@ -51,22 +50,19 @@ export class AudioService {
 
   /**
    * Mapeia o tipo de áudio para a propriedade correta na configuração.
-   * Suporta o novo formato nested e o formato legado para transição suave.
+   * Prioriza sons específicos e usa o geral como fallback.
    */
   private static getSoundData(config: SystemConfig, soundType: AudioType): string | undefined {
-    // New nested structure (Part 2)
-    if (config.notificationSounds?.sound) {
-        return config.notificationSounds.sound;
-    }
-
-    // Legacy fallback (Part 2 transition)
-    const soundMap: Record<AudioType, string | undefined> = {
+    // Mapeamento de tipos para chaves específicas
+    const specificSounds: Record<AudioType, string | undefined> = {
       NOTIFICATION: config.notificationSound,
       ALERT: config.alertSound,
       SUCCESS: config.successSound,
       WARNING: config.warningSound,
     };
-    return soundMap[soundType];
+
+    // Retorna o som específico se configurado, senão o som geral do objeto notificationSounds, senão undefined.
+    return specificSounds[soundType] || config.notificationSounds?.sound;
   }
 
   /**

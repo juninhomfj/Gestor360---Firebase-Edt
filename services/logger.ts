@@ -1,4 +1,4 @@
-import { dbPut, dbGetAll } from '../storage/db';
+import { dbPut, dbGetAll, initDB } from '../storage/db';
 import { LogEntry, LogLevel } from '../types';
 import { db, auth } from './firebase';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -10,7 +10,6 @@ export const Logger = {
     async log(level: LogLevel, message: string, details?: any) {
         const uid = auth.currentUser?.uid || 'anonymous';
         
-        // Sanitiza os detalhes para evitar valores undefined/inválidos no Firestore
         const safeDetails = details ? sanitizeForFirestore(JSON.parse(JSON.stringify(details))) : null;
 
         const entry: LogEntry = {
@@ -22,15 +21,13 @@ export const Logger = {
         };
 
         try {
-            // 1. Persistência Local
             await dbPut(LOG_STORE, entry);
             
-            // 2. Espelhamento em Nuvem (Auditoria Ativa)
             if (auth.currentUser) {
                 const cloudLogRef = doc(collection(db, "audit_log"));
                 await setDoc(cloudLogRef, {
                     ...entry,
-                    details: safeDetails, // Reforço de segurança
+                    details: safeDetails,
                     userId: uid,
                     userName: auth.currentUser.displayName || 'System User',
                     createdAt: serverTimestamp()
@@ -67,6 +64,17 @@ export const Logger = {
             return allLogs.sort((a: LogEntry, b: LogEntry) => b.timestamp - a.timestamp).slice(0, limit);
         } catch (e) {
             return [];
+        }
+    },
+
+    async clearLogs() {
+        try {
+            const dbInst = await initDB();
+            await dbInst.clear(LOG_STORE);
+            this.info("Auditoria: Logs locais limpos pelo usuário.");
+            return true;
+        } catch (e) {
+            return false;
         }
     },
 
