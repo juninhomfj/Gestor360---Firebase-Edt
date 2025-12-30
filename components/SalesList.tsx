@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useRef } from 'react';
 import { Sale, ProductType, SaleFormData } from '../types';
 import { 

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, UserModules, UserStatus } from '../types';
 import { listUsers, createUser, updateUser, resendInvitation } from '../services/auth';
@@ -206,7 +205,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                     onClick={() => setNewModules(prev => ({ ...prev, [mod]: !prev[mod as keyof UserModules] }))}
                                     className={`flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${newModules[mod as keyof UserModules] ? 'bg-emerald-500/10 border-emerald-500 shadow-md' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800'}`}
                                 >
-                                    <div className={`w-5 h-5 rounded flex items-center justify-center border ${newModules[mod as keyof UserModules] ? 'bg-emerald-500 text-white' : 'border-gray-300'}`}>
+                                    <div className={`w-5 h-5 rounded flex items-center justify-center border ${newModules[mod as keyof UserModules] ? 'bg-emerald-50 text-white' : 'border-gray-300'}`}>
                                         {newModules[mod as keyof UserModules] && <Check size={14}/>}
                                     </div>
                                     <span className={`text-[10px] font-black uppercase tracking-wide ${newModules[mod as keyof UserModules] ? 'text-emerald-600' : 'text-gray-400'}`}>{mod}</span>
@@ -281,13 +280,13 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
             </div>
         </div>
 
-        {/* MODAL RESET SELETIVO - RESTAURADA RESPONSIVIDADE */}
+        {/* MODAL RESET SELETIVO - RESTAURADA RESPONSIVIDADE E ALTURA */}
         {hardResetModal.isOpen && (
             <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/95 backdrop-blur-md p-2 md:p-4">
-                <div className="bg-slate-900 border-2 border-red-500 w-full max-w-lg rounded-[2.5rem] p-6 md:p-10 shadow-[0_0_50px_rgba(239,68,68,0.3)] animate-in zoom-in-95 max-h-[95vh] overflow-y-auto custom-scrollbar">
+                <div className="bg-slate-900 border-2 border-red-500 w-full max-w-lg rounded-[2rem] md:rounded-[2.5rem] p-6 md:p-10 shadow-[0_0_50px_rgba(239,68,68,0.3)] animate-in zoom-in-95 max-h-[90vh] overflow-y-auto custom-scrollbar">
                     <div className="text-center mb-8">
-                        <div className="w-20 h-20 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-red-500 shadow-lg shadow-red-500/20">
-                            <Bomb size={40} className="animate-pulse" />
+                        <div className="w-16 h-16 md:w-20 md:h-20 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-red-500 shadow-lg shadow-red-500/20">
+                            <Bomb size={32} className="md:size-[40px] animate-pulse" />
                         </div>
                         <h3 className="text-2xl md:text-3xl font-black text-white mb-2 uppercase tracking-tighter">Limpeza Atômica</h3>
                         <p className="text-slate-400 text-sm leading-relaxed">
