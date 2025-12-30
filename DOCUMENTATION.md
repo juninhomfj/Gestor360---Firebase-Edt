@@ -1,27 +1,21 @@
+# Documentação Técnica - Gestor360 v1.0.0
 
-# Gestor360 v2.5.2 - Manual de Engenharia (Firebase Native)
+## 🎯 Visão Geral
+Sistema estável de gestão de comissionamento e finanças integrando Firebase Cloud Native e IA Gemini.
 
-## 🚀 Novidades v2.5.2
-- **Firestore Guard**: Camada de sanitização automática de objetos antes da escrita.
-- **Admin Messaging**: Hub de comunicados formatados com suporte a GIFs e Push.
-- **Ticket Tracking**: Sistema de resolução de bugs integrado ao chat interno.
+## 🏗️ Estratégia de Parsing (Zero Migration)
+O sistema implementa uma camada de isolamento para tipos numéricos:
+1. **Camada de Leitura**: Utiliza `ensureNumber` para tratar strings ("1.234,56") e formatá-las como float.
+2. **Camada de Escrita**: Mantém os dados originais sem transformações forçadas, evitando corrupção de dados legados e garantindo compatibilidade com versões anteriores.
 
-## 🔒 Segurança & Permissões
-A granulação de acesso agora suporta os seguintes níveis:
-- **DEV**: Acesso Root. Ignora regras de UID e pode realizar limpezas atômicas.
-- **ADMIN**: Gestão de usuários, alteração de tabelas de comissão e resposta a tickets.
-- **USER**: Operação padrão. Vê apenas seus próprios dados (RLS).
+## 🔒 Segurança e Gestão de Dados
+- **RLS (Row Level Security)**: Aplicado no Firestore para garantir que usuários só acessem dados onde `userId == auth.uid`.
+- **Hard Reset**: Operação administrativa realizada via **Cloud Function (Node.js/Admin SDK)**. O frontend solicita a operação que é validada e executada no servidor para bypassar restrições de permissão local.
 
-### Matriz de Permissões:
-| Módulo | User | Admin | Dev |
-| :--- | :--- | :--- | :--- |
-| Vendas | Leitura/Escrita (Proprio) | Tudo | Tudo |
-| Financeiro | Leitura/Escrita (Proprio) | Tudo | Tudo |
-| Comunicados | Leitura | Tudo | Tudo |
-| Engenharia | Bloqueado | Bloqueado | Tudo |
-
-## 🛠️ Manutenção do Módulo Financeiro
-O módulo financeiro utiliza persistência síncrona. Caso uma aba não carregue, verifique se a coleção Firestore correspondente (`accounts`, `categories`, `goals`, `transactions`) possui documentos com o `userId` correto.
+## 📊 Módulos Principais
+- **Vendas**: Listagem com paginação client-side para alta performance, seleção global em dados filtrados e faturamento em massa.
+- **Finanças**: Extrato consolidado, gestão de contas PF/PJ e cartões com cálculo de fechamento de fatura.
+- **IA**: Consultor Gemini integrado via API SDK nativo para análise estratégica de ROI e métricas de produtividade.
 
 ---
-**Hypelab Engineering Team - 2025**
+**Status: Baseline Stable V1.0.0**

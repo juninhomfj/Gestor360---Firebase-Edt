@@ -1,13 +1,14 @@
 {
-  "name": "Gestor 360 - FIREBASE NATIVE",
-  "description": "Sistema V2.5.1 - Infraestrutura Firebase Nativa com Persistência Síncrona e Sanitização de Dados.",
-  "version": "2.5.1",
+  "name": "Gestor 360 - BASELINE STABLE",
+  "description": "Sistema V1.0.0 - Baseline funcional com parsing robusto de leitura e auditoria de funcionalidades concluída.",
+  "version": "1.0.0",
   "releaseDate": "2025-02-27",
   "features": [
     "Auth: Firebase Authentication Nativo",
-    "Database: Cloud Firestore com escrita direta (AWAIT)",
-    "Security: Sanitização automática de campos undefined (Firestore Guard)",
-    "Architecture: Motor de Chunking para salvamento em massa ilimitado"
+    "Database: Cloud Firestore com persistência sincronizada",
+    "Security: Reset administrativo via Admin SDK (Cloud Function)",
+    "Engine: Parser decimal Zero-Migration na camada de leitura",
+    "UI: SalesList otimizado com paginação e filtros combinados"
   ],
   "requestFramePermissions": [
     "camera",
