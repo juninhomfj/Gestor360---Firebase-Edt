@@ -1,4 +1,3 @@
-
 import {
   collection,
   query,
@@ -285,14 +284,14 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
 };
 
 export const getSystemConfig = async (): Promise<SystemConfig> => {
-    const uid = await getAuthenticatedUid();
-    const snap = await getDoc(doc(db, "config", `system_${uid}`));
+    // Carregamento global via config/system sem dependência de userId
+    const snap = await getDoc(doc(db, "config", "system"));
     return snap.exists() ? snap.data() as SystemConfig : DEFAULT_SYSTEM_CONFIG;
 };
 
 export const saveSystemConfig = async (config: SystemConfig) => {
-    const uid = await getAuthenticatedUid();
-    await setDoc(doc(db, "config", `system_${uid}`), sanitizeForFirestore(config), { merge: true });
+    // Persistência global em config/system usando merge: true para evitar overwrites
+    await setDoc(doc(db, "config", "system"), sanitizeForFirestore(config), { merge: true });
 };
 
 export const getClients = async (): Promise<Client[]> => {
