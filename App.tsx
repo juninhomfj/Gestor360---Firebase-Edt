@@ -70,7 +70,7 @@ const App: React.FC = () => {
         const nextValue = !showSnow;
         setShowSnow(nextValue);
         localStorage.setItem('sys_snow_enabled', String(nextValue));
-        Logger.info(`Neve ${nextValue ? 'ativada' : 'desativada'}`);
+        Logger.info(`Audit: Neve ${nextValue ? 'ativada' : 'desativada'}`);
     };
 
     const { isDev, isAdmin } = useMemo(() => {
@@ -124,19 +124,19 @@ const App: React.FC = () => {
         if (initRun.current) return;
         initRun.current = true;
         const init = async () => {
-            Logger.info("🚀 Inicializando Aplicação Gestor360");
+            Logger.info("🚀 Auditoria: Inicializando Aplicação Gestor360");
             try {
                 await AudioService.preload();
                 const sessionUser = await reloadSession();
                 if (sessionUser) {
                     await handleLoginSuccess(sessionUser);
                 } else {
-                    Logger.info("Nenhuma sessão ativa. Redirecionando para Login.");
+                    Logger.info("Audit: Nenhuma sessão ativa. Redirecionando Login.");
                     setAuthView('LOGIN');
                     setLoading(false);
                 }
             } catch (e: any) {
-                Logger.error("❌ Erro fatal na inicialização do App", e);
+                Logger.error("❌ Auditoria: Erro crítico na inicialização", e);
                 setAuthError("Erro na conexão com Cloud Firestore. Verifique as credenciais.");
                 setAuthView('ERROR');
                 setLoading(false);
@@ -147,14 +147,14 @@ const App: React.FC = () => {
 
     const handleLoginSuccess = async (user: User) => {
         setCurrentUser(user);
-        Logger.info(`🔑 Login bem-sucedido: ${user.name} (${user.role})`);
+        Logger.info(`🔑 Audit: Login bem-sucedido: ${user.name}`);
         try {
             await bootstrapProductionData();
             await new Promise(r => setTimeout(r, 500));
             await loadDataForUser();
             setAuthView('APP');
         } catch (e) {
-            Logger.error("Erro no bootstrap pós-login", e);
+            Logger.error("Audit: Erro pós-login", e);
             setAuthView('APP');
         } finally {
             setLoading(false);
@@ -162,30 +162,29 @@ const App: React.FC = () => {
     };
 
     const loadDataForUser = async () => {
-        Logger.info("📥 Iniciando sincronização global de dados...");
+        Logger.info("📥 Audit: Iniciando sincronização global de dados...");
         try {
-            // Sincroniza Tabelas de Comissão Primeiro (Essencial para cálculos)
             const [rBasic, rNatal, rCustom] = await Promise.all([
-                getStoredTable(ProductType.BASICA).catch(e => { Logger.error("Rules Basic Load Failed", e); return [] as CommissionRule[]; }),
-                getStoredTable(ProductType.NATAL).catch(e => { Logger.error("Rules Natal Load Failed", e); return [] as CommissionRule[]; }),
-                getStoredTable(ProductType.CUSTOM).catch(e => { Logger.error("Rules Custom Load Failed", e); return [] as CommissionRule[]; })
+                getStoredTable(ProductType.BASICA).catch(e => { Logger.error("Audit: Falha Carregar Rules Basic", e); return [] as CommissionRule[]; }),
+                getStoredTable(ProductType.NATAL).catch(e => { Logger.error("Audit: Falha Carregar Rules Natal", e); return [] as CommissionRule[]; }),
+                getStoredTable(ProductType.CUSTOM).catch(e => { Logger.error("Audit: Falha Carregar Rules Custom", e); return [] as CommissionRule[]; })
             ]);
             setRulesBasic(rBasic);
             setRulesNatal(rNatal);
             setRulesCustom(rCustom);
 
             const results = await Promise.all([
-                getStoredSales().catch(e => { Logger.error("Sales Load Failed", e); return [] as Sale[]; }), 
-                getClients().catch(e => { Logger.error("Clients Load Failed", e); return [] as Client[]; }), 
+                getStoredSales().catch(e => { Logger.error("Audit: Falha Carregar Sales", e); return [] as Sale[]; }), 
+                getClients().catch(e => { Logger.error("Audit: Falha Carregar Clients", e); return [] as Client[]; }), 
                 getFinanceData().catch(e => { 
-                    Logger.error("Finance Load Failed", e); 
+                    Logger.error("Audit: Falha Carregar Finance", e); 
                     return { 
                         accounts: [], transactions: [], cards: [], categories: [], 
                         goals: [], challenges: [], cells: [], receivables: [] 
                     }; 
                 }) as Promise<any>,
-                getSystemConfig().catch(e => { Logger.error("Config Load Failed", e); return {} as any; }),
-                getReportConfig().catch(e => { Logger.error("Report Config Load Failed", e); return {} as any; })
+                getSystemConfig().catch(e => { Logger.error("Audit: Falha Carregar Config", e); return {} as any; }),
+                getReportConfig().catch(e => { Logger.error("Audit: Falha Carregar Reports", e); return {} as any; })
             ]);
 
             const [storedSales, storedClients, finData, sysCfg, rConfig] = results;
@@ -205,105 +204,54 @@ const App: React.FC = () => {
             
             if (rConfig && rConfig.daysForLost) setReportConfig(rConfig as ReportConfig);
             
-            Logger.info("✅ Sincronização global concluída.");
+            Logger.info("✅ Audit: Sincronização global concluída.");
         } catch (e) {
-            Logger.error("🚨 Falha crítica ao sincronizar com Firestore.");
-            console.error("loadDataForUser critical error", e);
+            Logger.error("🚨 Audit: Falha crítica na sincronização.");
         }
     };
 
     const handleSaveCommissionRulesInApp = async (type: ProductType, rules: CommissionRule[]) => {
-        Logger.info(`💾 Usuário solicitou salvamento de comissões: ${type}`);
+        Logger.info(`💾 Audit: Usuário disparou salvamento de regras [${type}]`);
         try {
             await saveCommissionRules(type, rules);
             if (type === ProductType.BASICA) setRulesBasic(rules);
             else if (type === ProductType.NATAL) setRulesNatal(rules);
-            addToast('SUCCESS', `Tabela ${type} sincronizada com sucesso.`);
-            Logger.info(`✅ Tabela ${type} atualizada no estado da aplicação.`);
+            addToast('SUCCESS', `Tabela ${type === ProductType.BASICA ? 'Básica' : 'Natal'} salva com sucesso.`);
+            Logger.info(`✅ Audit: Tabela [${type}] atualizada.`);
         } catch (e) {
-            Logger.error(`❌ Falha ao salvar comissões ${type}`, e);
-            addToast('ERROR', 'Erro ao salvar parâmetros de comissão.');
+            Logger.error(`❌ Audit: Erro ao salvar regras [${type}]`, e);
+            addToast('ERROR', 'Falha ao sincronizar parâmetros.');
         }
     };
 
     const handleClearLocalData = async () => {
-        Logger.warn("⚠️ Usuário solicitou limpeza manual de cache local.");
+        Logger.warn("⚠️ Audit: Solicitação manual de limpeza de cache.");
         setLoading(true);
         try {
             await clearLocalCache();
-            Logger.info("Cache local limpo. Forçando recarregamento...");
+            Logger.info("Audit: Cache limpo. Reiniciando...");
             window.location.reload();
         } catch (e) {
-            Logger.error("Erro ao limpar cache local.", e);
-            addToast('ERROR', 'Erro ao limpar cache local.');
-            setLoading(false);
-        }
-    };
-
-    const handleBulkAddSales = async (newSalesData: SaleFormData[]) => {
-        const uid = fbAuth.currentUser?.uid;
-        if (!uid) return;
-        setLoading(true);
-        Logger.info(`📦 Iniciando importação em lote: ${newSalesData.length} vendas.`);
-        try {
-            const convertedSales: Sale[] = newSalesData.map(data => {
-                const rules = data.type === ProductType.NATAL ? rulesNatal : rulesBasic;
-                const qty = ensureNumber(data.quantity);
-                const valProp = ensureNumber(data.valueProposed);
-                const margin = ensureNumber(data.marginPercent);
-                const valSold = ensureNumber(data.valueSold);
-
-                const { commissionBase, commissionValue, rateUsed } = computeCommissionValues(qty, valProp, margin, rules);
-
-                return {
-                    id: crypto.randomUUID(),
-                    userId: uid,
-                    client: data.client,
-                    quantity: qty,
-                    type: data.type,
-                    status: data.isBilled ? 'FATURADO' : 'ORÇAMENTO',
-                    valueProposed: valProp,
-                    valueSold: valSold,
-                    marginPercent: margin,
-                    commissionBaseTotal: commissionBase,
-                    commissionValueTotal: commissionValue,
-                    commissionRateUsed: rateUsed,
-                    isBilled: data.isBilled,
-                    completionDate: data.completionDate,
-                    date: data.date,
-                    observations: data.observations || "",
-                    createdAt: new Date().toISOString(),
-                    deleted: false
-                } as Sale;
-            });
-
-            await saveSales(convertedSales);
-            addToast('SUCCESS', `${convertedSales.length} vendas sincronizadas.`);
-            Logger.info(`✅ Importação em lote concluída: ${convertedSales.length} registros.`);
-            await loadDataForUser();
-        } catch (e: any) {
-            Logger.error("❌ Erro na importação em lote.", e);
-            addToast('ERROR', 'Erro ao processar importação.');
-        } finally {
+            Logger.error("Audit: Erro ao limpar cache.", e);
             setLoading(false);
         }
     };
 
     const handleTabChange = (tab: string) => {
-        Logger.info(`📍 Navegação: Usuário mudou para aba [${tab}]`);
+        Logger.info(`📍 Audit: Navegação para aba [${tab}]`);
         setActiveTab(tab);
         localStorage.setItem('sys_last_tab', tab);
     };
 
     const handleModeChange = (mode: AppMode) => {
-        Logger.info(`🔄 Modo alternado: Usuário mudou para modo [${mode}]`);
+        Logger.info(`🔄 Audit: Modo de sistema alterado para [${mode}]`);
         setAppMode(mode);
         localStorage.setItem('sys_last_mode', mode);
     };
 
     if (loading) return <LoadingScreen />;
-    if (authView === 'LOGIN') return <Login onLoginSuccess={handleLoginSuccess} onRequestReset={() => { Logger.info("🔗 Navegação: Pedido de Reset de Senha"); setAuthView('REQUEST_RESET'); }} />;
-    if (authView === 'REQUEST_RESET') return <RequestReset onBack={() => { Logger.info("🔗 Navegação: Voltando do Reset p/ Login"); setAuthView('LOGIN'); }} />;
+    if (authView === 'LOGIN') return <Login onLoginSuccess={handleLoginSuccess} onRequestReset={() => { Logger.info("Audit: Abrindo Recuperação de Senha"); setAuthView('REQUEST_RESET'); }} />;
+    if (authView === 'REQUEST_RESET') return <RequestReset onBack={() => { Logger.info("Audit: Voltando p/ Login"); setAuthView('LOGIN'); }} />;
     if (authView === 'ERROR') return <div className="p-20 text-center text-red-500">{authError}</div>;
 
     return (
@@ -314,31 +262,31 @@ const App: React.FC = () => {
             setAppMode={handleModeChange} 
             darkMode={true}
             currentTheme={theme}
-            setTheme={(t) => { Logger.info(`🎨 Tema alterado para [${t}]`); setTheme(t); }}
+            setTheme={(t) => { Logger.info(`🎨 Audit: Tema alterado para [${t}]`); setTheme(t); }}
             currentUser={currentUser!}
-            onLogout={() => { Logger.info("🚪 Logout solicitado pelo usuário."); logout(); }}
-            onNewSale={() => { Logger.info("➕ Clique: Nova Venda (FAB/Header)"); setShowSalesForm(true); }}
-            onNewIncome={() => { Logger.info("➕ Clique: Nova Receita (Financeiro)"); setShowTxForm(true); }}
-            onNewExpense={() => { Logger.info("➕ Clique: Nova Despesa (Financeiro)"); setShowTxForm(true); }}
-            onNewTransfer={() => { Logger.info("➕ Clique: Nova Transferência (Financeiro)"); setShowTxForm(true); }}
+            onLogout={() => { Logger.info("🚪 Audit: Logout solicitado."); logout(); }}
+            onNewSale={() => { Logger.info("➕ Audit: Clique em Nova Venda"); setShowSalesForm(true); }}
+            onNewIncome={() => { Logger.info("➕ Audit: Clique em Nova Receita"); setShowTxForm(true); }}
+            onNewExpense={() => { Logger.info("➕ Audit: Clique em Nova Despesa"); setShowTxForm(true); }}
+            onNewTransfer={() => { Logger.info("➕ Audit: Clique em Nova Transferência"); setShowTxForm(true); }}
             isAdmin={isAdmin}
             isDev={isDev}
             showSnow={showSnow}
             onToggleSnow={toggleSnow}
         >
-            {activeTab === 'dashboard' && <Dashboard sales={sales} onNewSale={() => { Logger.info("➕ Clique: Nova Venda (Dashboard)"); setShowSalesForm(true); }} darkMode={true} hideValues={hideValues} config={dashboardConfig} onToggleHide={() => { Logger.info(`👁️ Visibilidade de valores alternada: ${!hideValues}`); setHideValues(!hideValues); }} onUpdateConfig={setDashboardConfig} currentUser={currentUser!} salesTargets={salesTargets} onUpdateTargets={setSalesTargets} isAdmin={isAdmin} isDev={isDev} />}
-            {activeTab === 'sales' && <SalesList sales={sales} onEdit={(s) => { Logger.info(`📝 Clique: Editar Venda ${s.id}`); setEditingSale(s); setShowSalesForm(true); }} onDelete={() => { Logger.info("🗑️ Clique: Deletar Venda"); }} onNew={() => { Logger.info("➕ Clique: Nova Venda (SalesList)"); setShowSalesForm(true); }} onExportTemplate={() => { Logger.info("📤 Clique: Exportar Template"); }} onClearAll={() => setIsClearLocalModalOpen(true)} onRestore={() => setIsBackupModalOpen(true)} onOpenBulkAdvanced={() => setIsBulkDateModalOpen(true)} onBillBulk={() => { Logger.info("💸 Clique: Faturar em Lote"); }} onDeleteBulk={() => { Logger.info("🗑️ Clique: Deletar em Lote"); }} onBulkAdd={handleBulkAddSales} onRecalculate={() => { Logger.info("🧮 Clique: Recalcular Comissões"); }} onNotify={addToast} darkMode={true} />}
-            {activeTab === 'boletos' && <BoletoControl sales={sales} onUpdateSale={async (s) => { Logger.info(`📄 Clique: Atualizar Boleto/NF ${s.id}`); await saveSingleSale(s); }} />}
+            {activeTab === 'dashboard' && <Dashboard sales={sales} onNewSale={() => { Logger.info("➕ Audit: Dashboard > Nova Venda"); setShowSalesForm(true); }} darkMode={true} hideValues={hideValues} config={dashboardConfig} onToggleHide={() => { Logger.info(`👁️ Audit: Visibilidade alternada: ${!hideValues}`); setHideValues(!hideValues); }} onUpdateConfig={setDashboardConfig} currentUser={currentUser!} salesTargets={salesTargets} onUpdateTargets={setSalesTargets} isAdmin={isAdmin} isDev={isDev} />}
+            {activeTab === 'sales' && <SalesList sales={sales} onEdit={(s) => { Logger.info(`📝 Audit: Editar Venda [${s.id}]`); setEditingSale(s); setShowSalesForm(true); }} onDelete={() => { Logger.info("🗑️ Audit: Remover Venda"); }} onNew={() => { Logger.info("➕ Audit: SalesList > Nova Venda"); setShowSalesForm(true); }} onExportTemplate={() => { Logger.info("📤 Audit: Exportar Template"); }} onClearAll={() => setIsClearLocalModalOpen(true)} onRestore={() => setIsBackupModalOpen(true)} onOpenBulkAdvanced={() => setIsBulkDateModalOpen(true)} onBillBulk={() => { Logger.info("💸 Audit: Faturar em Lote"); }} onDeleteBulk={() => { Logger.info("🗑️ Audit: Deletar em Lote"); }} onBulkAdd={() => { Logger.info("📦 Audit: Importação em lote"); }} onRecalculate={() => { Logger.info("🧮 Audit: Recalcular Comissões"); }} onNotify={addToast} darkMode={true} />}
+            {activeTab === 'boletos' && <BoletoControl sales={sales} onUpdateSale={async (s) => { Logger.info(`📄 Audit: Atualizar Boleto [${s.id}]`); await saveSingleSale(s); }} />}
             {activeTab === 'reports' && <ClientReports sales={sales} config={reportConfig} onOpenSettings={() => handleTabChange('settings')} userId={currentUser!.id} darkMode={true} />}
             {activeTab === 'whatsapp_main' && <WhatsAppModule darkMode={true} sales={sales} />}
             {activeTab === 'fin_dashboard' && <FinanceDashboard accounts={accounts} transactions={transactions} cards={cards} receivables={receivables} darkMode={true} hideValues={hideValues} config={dashboardConfig} onToggleHide={() => setHideValues(!hideValues)} onUpdateConfig={setDashboardConfig} onNavigate={handleTabChange} />}
-            {activeTab === 'fin_transactions' && <FinanceTransactionsList transactions={transactions} accounts={accounts} categories={categories} onDelete={() => { Logger.info("🗑️ Clique: Deletar Transação"); }} darkMode={true} />}
-            {activeTab === 'fin_receivables' && <FinanceReceivables receivables={receivables} onUpdate={() => { Logger.info("📥 Clique: Atualizar Recebíveis"); }} sales={sales} accounts={accounts} darkMode={true} />}
-            {activeTab === 'fin_distribution' && <FinanceDistribution receivables={receivables} accounts={accounts} onDistribute={() => { Logger.info("↔️ Clique: Distribuir Lucros"); }} darkMode={true} />}
-            {activeTab === 'fin_manager' && <FinanceManager accounts={accounts} cards={cards} transactions={transactions} onUpdate={() => { Logger.info("⚙️ Clique: Atualizar Contas/Cartões"); }} onPayInvoice={() => { Logger.info("💳 Clique: Pagar Fatura"); }} darkMode={true} />}
-            {activeTab === 'fin_categories' && <FinanceCategories categories={categories} onUpdate={() => { Logger.info("🏷️ Clique: Atualizar Categorias"); }} darkMode={true} />}
-            {activeTab === 'fin_goals' && <FinanceGoals goals={goals} onUpdate={() => { Logger.info("🎯 Clique: Atualizar Metas"); }} darkMode={true} />}
-            {activeTab === 'fin_challenges' && <FinanceChallenges challenges={challenges} cells={cells} onUpdate={() => { Logger.info("🏆 Clique: Atualizar Desafios"); }} darkMode={true} />}
+            {activeTab === 'fin_transactions' && <FinanceTransactionsList transactions={transactions} accounts={accounts} categories={categories} onDelete={() => { Logger.info("🗑️ Audit: Remover Transação"); }} darkMode={true} />}
+            {activeTab === 'fin_receivables' && <FinanceReceivables receivables={receivables} onUpdate={() => { Logger.info("📥 Audit: Atualizar Recebíveis"); }} sales={sales} accounts={accounts} darkMode={true} />}
+            {activeTab === 'fin_distribution' && <FinanceDistribution receivables={receivables} accounts={accounts} onDistribute={() => { Logger.info("↔️ Audit: Distribuir Lucros"); }} darkMode={true} />}
+            {activeTab === 'fin_manager' && <FinanceManager accounts={accounts} cards={cards} transactions={transactions} onUpdate={() => { Logger.info("⚙️ Audit: Atualizar Contas"); }} onPayInvoice={() => { Logger.info("💳 Audit: Pagar Fatura"); }} darkMode={true} />}
+            {activeTab === 'fin_categories' && <FinanceCategories categories={categories} onUpdate={() => { Logger.info("🏷️ Audit: Atualizar Categorias"); }} darkMode={true} />}
+            {activeTab === 'fin_goals' && <FinanceGoals goals={goals} onUpdate={() => { Logger.info("🎯 Audit: Atualizar Metas"); }} darkMode={true} />}
+            {activeTab === 'fin_challenges' && <FinanceChallenges challenges={challenges} cells={cells} onUpdate={() => { Logger.info("🏆 Audit: Atualizar Desafios"); }} darkMode={true} />}
             {activeTab === 'settings' && <SettingsHub rulesBasic={rulesBasic} rulesNatal={rulesNatal} rulesCustom={rulesCustom} reportConfig={reportConfig} onSaveRules={handleSaveCommissionRulesInApp} onSaveReportConfig={saveReportConfig} darkMode={true} currentUser={currentUser!} onUpdateUser={setCurrentUser} sales={sales} onUpdateSales={setSales} onNotify={addToast} isAdmin={isAdmin} isDev={isDev} />}
             {activeTab === 'dev_roadmap' && <DevRoadmap />}
             

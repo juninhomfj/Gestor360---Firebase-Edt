@@ -15,14 +15,11 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
   const [rules, setRules] = useState<{ id: string; minPercent: string; maxPercent: string; commissionRate: string; }[]>([]);
   const [isDirty, setIsDirty] = useState(false);
 
-  // Sincroniza estado interno com as regras vindas do banco/pai
   useEffect(() => {
     if (initialRules) {
       const sanitized = initialRules
         .sort((a, b) => a.minPercent - b.minPercent)
         .map(r => {
-          // BUG FIX: Garante que se o valor no banco estiver como 5 (antigo bug), ele seja tratado como 0.05
-          // O padrão correto no banco é decimal (ex: 0.05 para 5%)
           let rate = r.commissionRate;
           if (rate > 1) rate = rate / 100; 
 
@@ -55,8 +52,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
   };
 
   const handleSave = () => {
-    Logger.info(`📝 Usuário clicou em salvar comissões do tipo: ${type}`);
-    // Converte de volta para decimais antes de salvar no Firestore
+    Logger.info(`Audit: Usuário clicou em salvar parâmetros da tabela [${type}].`);
     const finalRules: CommissionRule[] = rules.map(r => ({
       id: r.id,
       minPercent: parseFloat(r.minPercent) || 0,
@@ -71,22 +67,16 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    Logger.info(`📤 Importando arquivo JSON de comissões: ${file.name}`);
+    Logger.info(`Audit: Importando arquivo JSON de comissões [${type}]: ${file.name}`);
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const imported = JSON.parse(event.target?.result as string);
         if (Array.isArray(imported)) {
           setRules(imported.map((r: any) => {
-            // LÓGICA DE PROTEÇÃO: Detecta se o arquivo importado usa 0.05 ou 5
             let rate = parseFloat(r.commissionRate) || 0;
-            if (rate > 0 && rate < 1) {
-              // Se for decimal (0.04), converte para exibição (4)
-              rate = rate * 100;
-            } else if (rate > 100) {
-              // Se for um valor absurdo (400), tenta corrigir para (4)
-              rate = rate / 100;
-            }
+            if (rate > 0 && rate < 1) rate = rate * 100;
+            else if (rate > 100) rate = rate / 100;
             
             return {
               id: r.id || crypto.randomUUID(),
@@ -96,15 +86,14 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
             };
           }));
           setIsDirty(true);
-          Logger.info(`✅ Importação de JSON concluída para ${type}.`);
         }
       } catch (err) {
-        Logger.error("Falha ao processar arquivo JSON de comissão.", err);
-        alert("Erro no formato do arquivo. Certifique-se que é um JSON válido.");
+        Logger.error("Audit: Falha ao processar arquivo JSON.", err);
+        alert("Erro no formato do arquivo.");
       }
     };
     reader.readAsText(file);
-    e.target.value = ''; // Reset input
+    e.target.value = '';
   };
 
   return (
@@ -122,7 +111,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
               </label>
               <button
                 onClick={() => {
-                  Logger.info(`📥 Exportando tabela de comissão: ${type}`);
+                  Logger.info(`Audit: Exportando tabela [${type}].`);
                   const finalRules = rules.map(r => ({
                     id: r.id,
                     minPercent: parseFloat(r.minPercent) || 0,
@@ -181,7 +170,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
           ))}
           {rules.length === 0 && (
             <div className="text-center py-12 bg-gray-50 dark:bg-slate-950/50 rounded-xl border border-dashed border-gray-200 dark:border-slate-800">
-              <p className="text-gray-400 text-sm italic">Nenhuma regra definida. Adicione faixas ou importe um arquivo.</p>
+              <p className="text-gray-400 text-sm italic">Nenhuma regra definida.</p>
             </div>
           )}
         </div>

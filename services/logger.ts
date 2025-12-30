@@ -1,10 +1,13 @@
 import { dbPut, dbGetAll } from '../storage/db';
 import { LogEntry, LogLevel } from '../types';
+import { db, auth } from './firebase';
+import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const LOG_STORE = 'audit_log';
 
 export const Logger = {
     async log(level: LogLevel, message: string, details?: any) {
+        const uid = auth.currentUser?.uid || 'anonymous';
         const entry: LogEntry = {
             timestamp: Date.now(),
             level,
@@ -14,13 +17,25 @@ export const Logger = {
         };
 
         try {
+            // 1. Persistência Local
             await dbPut(LOG_STORE, entry);
             
+            // 2. Espelhamento em Nuvem (Auditoria Ativa)
+            if (auth.currentUser) {
+                const cloudLogRef = doc(collection(db, "audit_log"));
+                await setDoc(cloudLogRef, {
+                    ...entry,
+                    userId: uid,
+                    userName: auth.currentUser.displayName || 'System User',
+                    createdAt: serverTimestamp()
+                });
+            }
+
             if (process.env.NODE_ENV === 'development') {
                 console.log(`[${level}] ${message}`, details);
             }
         } catch (e) {
-            console.error("Falha ao salvar log", e);
+            console.error("Critical Failure: Audit Log Error", e);
         }
     },
 
@@ -49,9 +64,6 @@ export const Logger = {
         }
     },
 
-    /**
-     * Gera um arquivo JSON para o usuário enviar ao desenvolvedor.
-     */
     async downloadLogs() {
         try {
             const logs = await this.getLogs(500);
@@ -70,7 +82,6 @@ export const Logger = {
         }
     },
 
-    // Alias para compatibilidade com Help.tsx
     async exportLogsToDrive() {
         return this.downloadLogs();
     }

@@ -23,7 +23,7 @@ import {
     Receivable, ReportConfig, SystemConfig, ProductType, CommissionRule, 
     CreditCard, ChallengeCell, FinancialPacing, Client, 
     ProductivityMetrics, Challenge, FinanceGoal, ImportMapping, UserPreferences,
-    User, DuplicateGroup, NtfyPayload
+    User, DuplicateGroup, NtfyPayload, ChallengeModel
 } from '../types';
 import { Logger } from './logger';
 
@@ -40,23 +40,6 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     bootstrapVersion: 1,
     notificationSounds: { enabled: true, volume: 1, sound: '' },
     includeNonAccountingInTotal: false
-};
-
-// Side effect: Disparo para ntfy.sh
-export const triggerNtfyPush = async (payload: Omit<NtfyPayload, 'topic'>) => {
-    try {
-        const sysConfig = await getSystemConfig();
-        if (!sysConfig.ntfyTopic) return;
-
-        const sendNtfy = httpsCallable(functions, 'sendNtfyNotification');
-        await sendNtfy({
-            ...payload,
-            topic: sysConfig.ntfyTopic
-        });
-    } catch (e) {
-        // Push é descartável e não bloqueia o fluxo do app
-        console.warn("[NTFY_PUSH_FAILED]", e);
-    }
 };
 
 export const getSystemConfig = async (): Promise<SystemConfig & UserPreferences> => {
@@ -77,6 +60,7 @@ export const saveSystemConfig = async (config: any) => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
     
+    Logger.info("Salvando configurações de sistema...");
     const userPrefs: UserPreferences & { userId: string } = {
         userId: uid
     };
@@ -94,7 +78,7 @@ export const saveSystemConfig = async (config: any) => {
         if (config.ntfyTopic) globalConfig.ntfyTopic = config.ntfyTopic;
         await setDoc(doc(db, "config", "system"), globalConfig, { merge: true });
     }
-    Logger.info("Configurações de sistema salvas");
+    Logger.info("Configurações persistidas com sucesso.");
 };
 
 export const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -140,7 +124,7 @@ async function getAuthenticatedUid(): Promise<string> {
 // --- COMISSÕES (SYNC FIX) ---
 
 const getCommissionDocId = (type: ProductType): string => {
-    // Mapeamento explícito para evitar erros de case ou plural
+    // IMPORTANTE: Mapeia BASICA para o ID 'basic' do banco para manter consistência
     if (type === ProductType.BASICA) return 'basic';
     if (type === ProductType.NATAL) return 'natal';
     return type.toLowerCase();
@@ -150,7 +134,7 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
     const storeName = type === ProductType.NATAL ? 'commission_natal' : 'commission_basic';
     const docId = getCommissionDocId(type);
 
-    Logger.info(`Solicitando tabela de comissões: ${docId}`);
+    Logger.info(`Audit: Requisitando tabela de comissão [${docId}] do Cloud.`);
 
     try {
         const docRef = doc(db, "commissions", docId);
@@ -159,51 +143,39 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
             const data = snap.data();
             const rules = (data.rules || []) as CommissionRule[];
             
-            // Sincroniza localmente para garantir que o cache esteja atualizado
+            // Sincroniza localmente para evitar perdas em navegação
             await dbBulkPut(storeName as any, rules);
             
             SessionTraffic.trackRead();
-            Logger.info(`Tabela ${docId} carregada do Firebase com sucesso.`, { count: rules.length });
+            Logger.info(`Audit: Tabela [${docId}] baixada e sincronizada.`, { count: rules.length });
             return rules;
         } else {
-            Logger.warn(`Documento de comissão ${docId} não encontrado no Firebase.`);
+            Logger.warn(`Audit: Tabela [${docId}] não encontrada no Cloud.`);
         }
     } catch (e) {
-        Logger.error(`Erro ao carregar comissões ${type} do Firebase. Tentando cache local...`, e);
+        Logger.error(`Audit: Falha ao baixar tabela [${docId}]. Usando local.`, e);
     }
     
     const cached = await dbGetAll(storeName as any);
-    Logger.info(`Tabela ${docId} carregada do cache local (Offline/Fallback).`, { count: cached?.length || 0 });
     return cached || [];
-};
-
-export const computeCommissionValues = (quantity: number, unitValue: number, margin: number, rules: CommissionRule[]) => {
-    const commissionBase = quantity * unitValue;
-    let rate = 0;
-    
-    // Procura a faixa correspondente à margem
-    const rule = rules.find(r => margin >= r.minPercent && (r.maxPercent === null || margin < r.maxPercent));
-    rate = rule ? rule.commissionRate : 0;
-    
-    return { commissionBase, commissionValue: commissionBase * rate, rateUsed: rate };
 };
 
 export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
     const storeName = type === ProductType.NATAL ? 'commission_natal' : 'commission_basic';
     const docId = getCommissionDocId(type);
     
-    Logger.info(`Iniciando salvamento de regras de comissão: ${docId}`, { count: rules.length });
+    Logger.info(`Audit: Iniciando persistência de regras para [${docId}]`, { count: rules.length });
     
     try {
-        // 1. Persistência Local Imediata (Resiliência)
+        // 1. Garantir persistência local PRIMEIRO (Resiliência)
         const dbInst = await initDB();
         await dbInst.clear(storeName as any);
         await dbBulkPut(storeName as any, rules);
-        Logger.info(`Cache local da tabela ${docId} atualizado.`);
-
-        // 2. Persistência Cloud
+        
+        // 2. Persistência Cloud (Escrita Direta)
         const docRef = doc(db, "commissions", docId);
         const sanitized = sanitizeForFirestore(rules);
+        
         await setDoc(docRef, { 
             id: docId,
             rules: sanitized, 
@@ -211,9 +183,9 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
         }, { merge: true });
         
         SessionTraffic.trackWrite();
-        Logger.info(`Tabela de comissões ${docId} sincronizada com Firebase.`);
+        Logger.info(`Audit: Tabela [${docId}] sincronizada com Firebase com sucesso.`);
     } catch (e) {
-        Logger.error(`Falha crítica ao salvar comissões ${docId} no Firebase.`, e);
+        Logger.error(`Audit: Erro fatal ao sincronizar comissões [${docId}]`, e);
         throw e;
     }
 };
@@ -222,44 +194,34 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
 
 export const getStoredSales = async (): Promise<Sale[]> => {
     const uid = await getAuthenticatedUid();
-    Logger.info("Carregando vendas do usuário...");
-    
+    Logger.info("Audit: Sincronizando base de vendas do usuário.");
     try {
         const q = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", false));
         const snap = await getDocs(q);
         SessionTraffic.trackRead(snap.size);
         const sales = snap.docs.map(d => ({ ...d.data(), id: d.id } as Sale));
-        
         await dbBulkPut('sales', sales);
-        Logger.info(`Carregadas ${sales.length} vendas da nuvem e sincronizadas localmente.`);
+        Logger.info(`Audit: ${sales.length} vendas sincronizadas.`);
         return sales;
     } catch (e) {
-        Logger.error("Erro ao carregar vendas da nuvem. Usando local.", e);
+        Logger.error("Audit: Falha na sincronia de vendas.", e);
         return await dbGetAll('sales');
     }
 };
 
 export const saveSales = async (sales: Sale[]) => {
     const uid = await getAuthenticatedUid();
-    Logger.info(`Sincronizando lote de ${sales.length} vendas...`);
-    
+    Logger.info(`Audit: Gravando lote de ${sales.length} vendas.`);
     const sanitized = sales.map(s => sanitizeForFirestore({ ...s, userId: uid, updatedAt: serverTimestamp() }));
     await dbBulkPut('sales', sanitized);
-    
     const batch = writeBatch(db);
     sanitized.forEach(s => {
         const { id, ...data } = s;
         batch.set(doc(db, "sales", id), data, { merge: true });
         SessionTraffic.trackWrite();
     });
-    
-    try {
-        await batch.commit();
-        Logger.info(`Lote de ${sales.length} vendas gravado no Firebase.`);
-    } catch (e) {
-        Logger.error("Erro ao gravar vendas em lote.", e);
-        throw e;
-    }
+    await batch.commit();
+    Logger.info("Audit: Lote de vendas persistido no Firestore.");
 };
 
 export const saveSingleSale = async (payload: any) => {
@@ -267,50 +229,35 @@ export const saveSingleSale = async (payload: any) => {
   const saleId = payload.id || crypto.randomUUID();
   const saleData = sanitizeForFirestore({ ...payload, id: saleId, userId: uid, updatedAt: serverTimestamp() });
   
-  Logger.info(`Salvando venda individual: ${saleId}`);
-  
+  Logger.info(`Audit: Salvando venda individual [${saleId}]`);
   try {
       await dbPut('sales', saleData);
       await setDoc(doc(db, "sales", saleId), saleData, { merge: true });
       SessionTraffic.trackWrite();
-      Logger.info(`Venda ${saleId} salva no Firebase.`);
-
-      if (saleData.valueSold > 5000) {
-          await triggerNtfyPush({
-              title: "💰 Venda de Alto Valor!",
-              message: `Nova venda registrada: ${saleData.client} - R$ ${saleData.valueSold.toFixed(2)}`,
-              priority: 'high',
-              tags: ['moneybag', 'rocket']
-          });
-      }
+      Logger.info(`Audit: Venda [${saleId}] persistida.`);
   } catch (e) {
-      Logger.error(`Erro ao salvar venda ${saleId}`, e);
+      Logger.error(`Audit: Erro ao salvar venda [${saleId}]`, e);
       throw e;
   }
 };
 
-// --- FINANCE ---
-
 export const getFinanceData = async () => {
     const uid = await getAuthenticatedUid();
-    Logger.info("Sincronizando dados financeiros completos...");
-    
+    Logger.info("Audit: Sincronizando dados financeiros globais.");
     const fetchSafe = async (col: string) => {
         const q = query(collection(db, col), where("userId", "==", uid), where("deleted", "==", false));
         const snap = await getDocs(q);
         SessionTraffic.trackRead(snap.size);
         const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        // Sincroniza localmente
         await dbBulkPut(col as any, items);
         return items;
     };
-    
     try {
         const [acc, tx, crd, cat, gl, chal, cell, rec] = await Promise.all([
             fetchSafe("accounts"), fetchSafe("transactions"), fetchSafe("cards"), fetchSafe("categories"),
             fetchSafe("goals"), fetchSafe("challenges"), fetchSafe("challenge_cells"), fetchSafe("receivables")
         ]);
-        Logger.info("Sincronização financeira concluída.");
+        Logger.info("Audit: Sincronia financeira concluída.");
         return {
             accounts: acc as FinanceAccount[], 
             transactions: tx as Transaction[], 
@@ -322,7 +269,7 @@ export const getFinanceData = async () => {
             receivables: rec as Receivable[]
         };
     } catch (e) {
-        Logger.error("Erro na sincronização financeira total.", e);
+        Logger.error("Audit: Erro na sincronia financeira.", e);
         throw e;
     }
 };
@@ -332,29 +279,21 @@ export const saveFinanceData = async (acc: FinanceAccount[], crd: CreditCard[], 
     const batch = writeBatch(db);
     const prep = (item: any) => sanitizeForFirestore({ ...item, userId: uid, updatedAt: serverTimestamp() });
     
-    Logger.info("Iniciando gravação de lote financeiro...");
-    
+    Logger.info("Audit: Gravando transações e contas no Cloud.");
     acc.forEach(i => batch.set(doc(db, "accounts", i.id), prep(i), { merge: true }));
     crd.forEach(i => batch.set(doc(db, "cards", i.id), prep(i), { merge: true }));
     cat.forEach(i => batch.set(doc(db, "categories", i.id), prep(i), { merge: true }));
     gl.forEach(i => batch.set(doc(db, "goals", i.id), prep(i), { merge: true }));
     chal.forEach(i => batch.set(doc(db, "challenges", i.id), prep(i), { merge: true }));
     rec.forEach(i => batch.set(doc(db, "receivables", i.id), prep(i), { merge: true }));
-    
     tx.slice(-500).forEach(i => batch.set(doc(db, "transactions", i.id), prep(i), { merge: true }));
     
     try {
         await batch.commit();
         SessionTraffic.trackWrite();
-        Logger.info("Lote financeiro gravado no Firebase.");
+        Logger.info("Audit: Dados financeiros salvos com sucesso.");
     } catch (e) {
-        Logger.error("Erro ao salvar lote financeiro.", e);
-        await triggerNtfyPush({
-            title: "🛑 Erro de Sincronia Financeira",
-            message: `Falha ao persistir lote financeiro para UID: ${uid}`,
-            priority: 'urgent',
-            tags: ['x', 'warning']
-        });
+        Logger.error("Audit: Erro ao salvar dados financeiros.", e);
         throw e;
     }
 };
@@ -376,7 +315,6 @@ export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
         current.orders += 1;
         clientMap.set(s.client, current);
     });
-
     const now = new Date();
     return Array.from(clientMap.values()).map(c => {
         const last = new Date(c.lastDate);
@@ -385,15 +323,7 @@ export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
         if (diffDays <= config.daysForNewClient) status = 'NEW';
         else if (diffDays >= config.daysForLost) status = 'LOST';
         else if (diffDays >= config.daysForInactive) status = 'INACTIVE';
-
-        return {
-            name: c.name,
-            status,
-            totalOrders: c.orders,
-            totalSpent: c.totalSpent,
-            lastPurchaseDate: c.lastDate,
-            daysSinceLastPurchase: diffDays
-        };
+        return { name: c.name, status, totalOrders: c.orders, totalSpent: c.totalSpent, lastPurchaseDate: c.lastDate, daysSinceLastPurchase: diffDays };
     });
 };
 
@@ -421,7 +351,6 @@ export const exportReportToCSV = (data: any[], fileName: string) => {
         headers.join(','),
         ...data.map(row => headers.map(fieldName => JSON.stringify(row[fieldName])).join(','))
     ].join('\r\n');
-
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
@@ -431,30 +360,21 @@ export const exportReportToCSV = (data: any[], fileName: string) => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    Logger.info(`Relatório exportado: ${fileName}`);
+    Logger.info(`Audit: Relatório [${fileName}] exportado.`);
 };
 
 export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
     const sales = await getStoredSales();
     const config = await getReportConfig();
     const clients = analyzeClients(sales, config);
-    
     const activeClients = clients.filter(c => c.status === 'ACTIVE' || c.status === 'NEW').length;
     const currentMonth = new Date().toISOString().substring(0, 7);
     const convertedThisMonth = clients.filter(c => c.lastPurchaseDate.startsWith(currentMonth)).length;
     const rate = activeClients > 0 ? (convertedThisMonth / activeClients) * 100 : 0;
-    
     let status: 'GREEN' | 'YELLOW' | 'RED' = 'RED';
     if (rate >= 70) status = 'GREEN';
     else if (rate >= 40) status = 'YELLOW';
-
-    return {
-        totalClients: clients.length,
-        activeClients,
-        convertedThisMonth,
-        conversionRate: rate,
-        productivityStatus: status
-    };
+    return { totalClients: clients.length, activeClients, convertedThisMonth, conversionRate: rate, productivityStatus: status };
 };
 
 export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]): FinancialPacing => {
@@ -462,25 +382,16 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
     const today = now.getDate();
     const nextDay = salaryDays.find(d => d > today) || salaryDays[0];
     const nextDate = new Date(now.getFullYear(), now.getMonth() + (nextDay <= today ? 1 : 0), nextDay);
-    
     const daysRemaining = Math.max(1, Math.ceil((nextDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
     const pendingExpenses = transactions.filter(t => t.type === 'EXPENSE' && !t.isPaid).reduce((acc, t) => acc + t.amount, 0);
     const available = balance - pendingExpenses;
-    
-    return {
-        daysRemaining,
-        safeDailySpend: Math.max(0, available / daysRemaining),
-        pendingExpenses,
-        nextIncomeDate: nextDate
-    };
+    return { daysRemaining, safeDailySpend: Math.max(0, available / daysRemaining), pendingExpenses, nextIncomeDate: nextDate };
 };
 
 export const getInvoiceMonth = (dateStr: string, closingDay: number): string => {
     const d = new Date(dateStr);
     const day = d.getDate();
-    if (day > closingDay) {
-        d.setMonth(d.getMonth() + 1);
-    }
+    if (day > closingDay) d.setMonth(d.getMonth() + 1);
     return d.toISOString().substring(0, 7);
 };
 
@@ -498,37 +409,35 @@ export const exportEncryptedBackup = async (passphrase: string) => {
         version: 1,
         exportedAt: new Date().toISOString()
     };
-    const json = JSON.stringify(data);
-    const encrypted = encryptData(json);
+    const encrypted = encryptData(JSON.stringify(data));
     const blob = new Blob([encrypted], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `backup_gestor360_${new Date().getTime()}.v360`;
     a.click();
-    Logger.info("Backup criptografado gerado e baixado");
+    Logger.info("Audit: Backup gerado.");
 };
 
 export const importEncryptedBackup = async (file: File, passphrase: string) => {
     const text = await file.text();
     const decrypted = decryptData(text);
     const data = JSON.parse(decrypted);
-    
     const stores: any = {
         sales: 'sales', accounts: 'accounts', transactions: 'transactions',
         categories: 'categories', cards: 'cards', receivables: 'receivables',
         goals: 'goals', challenges: 'challenges', challenge_cells: 'challenge_cells'
     };
-
     for (const key of Object.keys(stores)) {
         if (data[key]) await dbBulkPut(stores[key], data[key]);
     }
-    Logger.info("Backup restaurado localmente");
+    Logger.info("Audit: Backup restaurado localmente.");
 };
 
 export const clearAllSales = async () => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
+    Logger.warn("Audit: Iniciando limpeza total de vendas.");
     const q = query(collection(db, "sales"), where("userId", "==", uid));
     const snap = await getDocs(q);
     const batch = writeBatch(db);
@@ -536,80 +445,38 @@ export const clearAllSales = async () => {
     await batch.commit();
     const dbInst = await initDB();
     await dbInst.clear('sales');
-    Logger.warn("Todas as vendas foram excluídas via Admin");
+    Logger.warn("Audit: Todas as vendas excluídas.");
 };
 
-export const generateChallengeCells = (challengeId: string, target: number, count: number, model: 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM'): ChallengeCell[] => {
-    const cells: ChallengeCell[] = [];
-    const uid = auth.currentUser?.uid || '';
-    if (model === 'PROPORTIONAL') {
-        const val = target / count;
-        for (let i = 1; i <= count; i++) {
-            cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: val, status: 'PENDING', userId: uid, deleted: false });
-        }
-    } else if (model === 'LINEAR') {
-        const sumOfN = (count * (count + 1)) / 2;
-        const unit = target / sumOfN;
-        for (let i = 1; i <= count; i++) {
-            cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: i * unit, status: 'PENDING', userId: uid, deleted: false });
-        }
-    } else {
-        for (let i = 1; i <= count; i++) {
-            cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: 0, status: 'PENDING', userId: uid, deleted: false });
-        }
+export const bootstrapProductionData = async () => {
+    const config = await getSystemConfig();
+    if (config.bootstrapVersion && config.bootstrapVersion >= 1) return;
+    
+    Logger.info("Audit: Executando bootstrap de produção.");
+    
+    // Tabela 'basic' (Básica)
+    const commBasicRef = doc(db, "commissions", "basic");
+    const basicSnap = await getDoc(commBasicRef);
+    if (!basicSnap.exists()) {
+        await setDoc(commBasicRef, {
+            id: "basic",
+            rules: [
+                { id: crypto.randomUUID(), minPercent: 0, maxPercent: 10, commissionRate: 0.04, isActive: true },
+                { id: crypto.randomUUID(), minPercent: 10, maxPercent: 20, commissionRate: 0.05, isActive: true },
+                { id: crypto.randomUUID(), minPercent: 20, maxPercent: null, commissionRate: 0.06, isActive: true }
+            ],
+            updatedAt: serverTimestamp()
+        });
     }
-    Logger.info("Células de desafio geradas");
-    return cells;
-};
 
-export const processFinanceImport = (data: any[][], mapping: ImportMapping): Partial<Transaction>[] => {
-    const rows = data.slice(1);
-    const uid = auth.currentUser?.uid || '';
-    Logger.info(`Iniciando processamento de importação financeira: ${rows.length} linhas`);
-    return rows.map(row => {
-        const amount = ensureNumber(row[mapping.amount]);
-        const type = mapping.type !== -1 ? (String(row[mapping.type]).toUpperCase().includes('REC') ? 'INCOME' : 'EXPENSE') : (amount >= 0 ? 'INCOME' : 'EXPENSE');
-        return {
-            id: crypto.randomUUID(),
-            description: String(row[mapping.description] || 'Importado'),
-            amount: Math.abs(amount),
-            type: type as any,
-            date: row[mapping.date] ? new Date(row[mapping.date]).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-            categoryId: mapping.category !== -1 ? String(row[mapping.category]) : 'uncategorized',
-            isPaid: true,
-            provisioned: false,
-            isRecurring: false,
-            userId: uid,
-            deleted: false,
-            createdAt: new Date().toISOString()
-        };
-    });
-};
-
-export const readExcelFile = async (file: File): Promise<any[][]> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const text = e.target?.result as string;
-            const rows = text.split('\n').map(line => line.split(',').map(cell => cell.trim().replace(/^"|"$/g, '')));
-            resolve(rows);
-        };
-        reader.onerror = reject;
-        reader.readAsText(file);
-    });
-};
-
-export const atomicClearUserTables = async (userId: string, tables: string[]) => {
-    Logger.warn(`Executando Reset Atômico para usuário ${userId}`, { tables });
-    for (const t of tables) {
-        const q = query(collection(db, t), where("userId", "==", userId));
-        const snap = await getDocs(q);
-        const batch = writeBatch(db);
-        snap.docs.forEach(d => batch.delete(d.ref));
-        await batch.commit();
-        const dbInst = await initDB();
-        if ((dbInst.objectStoreNames as any).contains(t)) await dbInst.clear(t as any);
+    const commNatalRef = doc(db, "commissions", "natal");
+    const natalSnap = await getDoc(commNatalRef);
+    if (!natalSnap.exists()) {
+        await setDoc(commNatalRef, { id: "natal", rules: [], updatedAt: serverTimestamp() });
     }
+
+    await saveSystemConfig({ bootstrapVersion: 1 });
+    Logger.info("Audit: Bootstrap finalizado.");
 };
 
 export const getClients = async (): Promise<Client[]> => {
@@ -629,95 +496,11 @@ export const getReportConfig = async (): Promise<ReportConfig> => {
     return { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 };
 };
 
-export const bootstrapProductionData = async () => {
-    const config = await getSystemConfig();
-    if (config.bootstrapVersion && config.bootstrapVersion >= 1) return;
-    
-    Logger.info("Iniciando bootstrap de dados de produção");
-    
-    // Tabela básica
-    const commBasicRef = doc(db, "commissions", "basic");
-    const basicSnap = await getDoc(commBasicRef);
-    if (!basicSnap.exists()) {
-        await setDoc(commBasicRef, {
-            id: "basic",
-            rules: [
-                { id: crypto.randomUUID(), minPercent: 0, maxPercent: 10, commissionRate: 0.04, isActive: true },
-                { id: crypto.randomUUID(), minPercent: 10, maxPercent: 20, commissionRate: 0.05, isActive: true },
-                { id: crypto.randomUUID(), minPercent: 20, maxPercent: null, commissionRate: 0.06, isActive: true }
-            ],
-            updatedAt: serverTimestamp()
-        });
-    }
-
-    // Tabela Natal
-    const commNatalRef = doc(db, "commissions", "natal");
-    const natalSnap = await getDoc(commNatalRef);
-    if (!natalSnap.exists()) {
-        await setDoc(commNatalRef, {
-            id: "natal",
-            rules: [],
-            updatedAt: serverTimestamp()
-        });
-    }
-
-    await saveSystemConfig({ bootstrapVersion: 1 });
-};
-
-export const saveReportConfig = async (config: ReportConfig) => {
-    const uid = await getAuthenticatedUid();
-    await setDoc(doc(db, "config", `report_${uid}`), config, { merge: true });
-    Logger.info("Configurações de relatório salvas");
-};
-
 export const clearLocalCache = async () => {
     const dbInst = await initDB();
     const stores = ['sales', 'accounts', 'transactions', 'categories', 'cards', 'receivables', 'goals', 'challenges', 'challenge_cells', 'clients'];
-    for (const s of stores) {
-        await dbInst.clear(s as any);
-    }
-    Logger.info("Cache local limpo");
-};
-
-export const findPotentialDuplicates = (sales: Sale[]) => {
-    const names = Array.from(new Set(sales.map(s => s.client)));
-    const duplicates: { master: string, similar: string[] }[] = [];
-    const seen = new Set<string>();
-
-    for (let i = 0; i < names.length; i++) {
-        if (seen.has(names[i])) continue;
-        const group = { master: names[i], similar: [] as string[] };
-        for (let j = i + 1; j < names.length; j++) {
-            if (names[i].toLowerCase() === names[j].toLowerCase()) {
-                group.similar.push(names[j]);
-                seen.add(names[j]);
-            }
-        }
-        if (group.similar.length > 0) duplicates.push(group);
-    }
-    return duplicates;
-};
-
-export const smartMergeSales = (sales: Sale[]): Sale => {
-    return sales.reduce((acc, curr) => ({
-        ...acc,
-        quantity: acc.quantity + curr.quantity,
-        valueSold: acc.valueSold + curr.valueSold,
-        commissionBaseTotal: acc.commissionBaseTotal + curr.commissionBaseTotal,
-        commissionValueTotal: acc.commissionValueTotal + curr.commissionValueTotal,
-        observations: (acc.observations || '') + ' ' + (curr.observations || '')
-    }));
-};
-
-export const getTrashItems = async () => {
-    const uid = await getAuthenticatedUid();
-    const qS = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", true));
-    const qT = query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", true));
-    const [snapS, snapT] = await Promise.all([getDocs(qS), getDocs(qT)]);
-    return {
-        sales: snapS.docs.map(d => ({ ...d.data(), id: d.id } as Sale)),
-        transactions: snapT.docs.map(d => ({ ...d.data(), id: d.id } as Transaction))
-    };
+    for (const s of stores) await dbInst.clear(s as any);
+    Logger.info("Audit: Cache local limpo manualmente.");
 };
 
 export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
@@ -725,21 +508,14 @@ export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
     const updated = { ...item, deleted: false, updatedAt: serverTimestamp() };
     await setDoc(doc(db, col, item.id), updated, { merge: true });
     await dbPut(col as any, updated);
-    Logger.info(`Item restaurado: ${item.id}`, { type });
+    Logger.info(`Audit: Item restaurado [Type: ${type}, ID: ${item.id}]`);
 };
 
 export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
     const col = type === 'SALE' ? 'sales' : 'transactions';
     await deleteDoc(doc(db, col, id));
     await dbDelete(col as any, id);
-    Logger.warn(`Item excluído permanentemente: ${id}`, { type });
-};
-
-export const getDeletedClients = async (): Promise<Client[]> => {
-    const uid = await getAuthenticatedUid();
-    const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", true));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ ...d.data(), id: d.id } as Client));
+    Logger.warn(`Audit: Item excluído permanentemente [Type: ${type}, ID: ${id}]`);
 };
 
 export const restoreClient = async (id: string) => {
@@ -748,12 +524,176 @@ export const restoreClient = async (id: string) => {
         const updated = { ...client, deleted: false, updatedAt: new Date().toISOString() };
         await setDoc(doc(db, "clients", id), sanitizeForFirestore(updated), { merge: true });
         await dbPut('clients', updated);
-        Logger.info(`Cliente restaurado: ${client.name}`, { id });
+        Logger.info(`Audit: Cliente restaurado [${client.name}]`);
     }
 };
 
 export const permanentlyDeleteClient = async (id: string) => {
     await deleteDoc(doc(db, "clients", id));
     await dbDelete('clients', id);
-    Logger.warn(`Cliente excluído permanentemente: ${id}`);
+    Logger.warn(`Audit: Cliente excluído permanentemente [ID: ${id}]`);
+};
+
+// Fix: Implemented generateChallengeCells for saving challenge structure
+export const generateChallengeCells = (challengeId: string, target: number, count: number, model: ChallengeModel): ChallengeCell[] => {
+    const cells: ChallengeCell[] = [];
+    const uid = auth.currentUser?.uid || '';
+    
+    if (model === 'LINEAR') {
+        const sum = (count * (count + 1)) / 2;
+        const factor = target / sum;
+        for (let i = 1; i <= count; i++) {
+            cells.push({
+                id: crypto.randomUUID(),
+                challengeId,
+                number: i,
+                value: i * factor,
+                status: 'PENDING',
+                userId: uid,
+                deleted: false
+            });
+        }
+    } else if (model === 'PROPORTIONAL') {
+        const val = target / count;
+        for (let i = 1; i <= count; i++) {
+            cells.push({
+                id: crypto.randomUUID(),
+                challengeId,
+                number: i,
+                value: val,
+                status: 'PENDING',
+                userId: uid,
+                deleted: false
+            });
+        }
+    } else {
+        for (let i = 1; i <= count; i++) {
+            cells.push({
+                id: crypto.randomUUID(),
+                challengeId,
+                number: i,
+                value: 0,
+                status: 'PENDING',
+                userId: uid,
+                deleted: false
+            });
+        }
+    }
+    return cells;
+};
+
+// Fix: Implemented computeCommissionValues for sales calculations
+export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
+    const commissionBase = quantity * valueProposed;
+    const rule = rules.find(r => margin >= r.minPercent && (r.maxPercent === null || margin < r.maxPercent));
+    const rateUsed = rule ? rule.commissionRate : 0;
+    const commissionValue = commissionBase * rateUsed;
+    return { commissionBase, commissionValue, rateUsed };
+};
+
+// Fix: Implemented saveReportConfig to persist user report settings
+export const saveReportConfig = async (config: ReportConfig) => {
+    const uid = await getAuthenticatedUid();
+    await setDoc(doc(db, "config", `report_${uid}`), config, { merge: true });
+    Logger.info("Audit: Configuração de relatório salva.");
+};
+
+// Fix: Implemented readExcelFile (CSV fallback) for data import
+export const readExcelFile = async (file: File): Promise<any[][]> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const text = e.target?.result as string;
+            if (!text) return resolve([]);
+            const rows = text.split(/\r?\n/).filter(line => line.trim()).map(line => line.split(',').map(cell => cell.trim()));
+            resolve(rows);
+        };
+        reader.onerror = reject;
+        reader.readAsText(file);
+    });
+};
+
+// Fix: Implemented processFinanceImport to map file data to transactions
+export const processFinanceImport = (data: any[][], mapping: ImportMapping): Transaction[] => {
+    const rows = data.slice(1);
+    const uid = auth.currentUser?.uid || '';
+    
+    return rows.map(row => {
+        const amount = ensureNumber(row[mapping['amount']]);
+        return {
+            id: crypto.randomUUID(),
+            description: row[mapping['description']] || 'Importado',
+            amount: Math.abs(amount),
+            type: row[mapping['type']] ? (String(row[mapping['type']]).toUpperCase().includes('ENTRADA') ? 'INCOME' : 'EXPENSE') : (amount >= 0 ? 'INCOME' : 'EXPENSE'),
+            date: row[mapping['date']] || new Date().toISOString(),
+            categoryId: 'uncategorized',
+            accountId: '', 
+            isPaid: true,
+            provisioned: false,
+            isRecurring: false,
+            deleted: false,
+            createdAt: new Date().toISOString(),
+            userId: uid
+        } as Transaction;
+    });
+};
+
+// Fix: Implemented atomicClearUserTables for administrative data reset
+export const atomicClearUserTables = async (targetUserId: string, tables: string[]) => {
+    const resetFn = httpsCallable(functions, 'adminHardResetUserData');
+    const result = await resetFn({ targetUserId, tables });
+    return result.data;
+};
+
+// Fix: Implemented findPotentialDuplicates for client base hygiene
+export const findPotentialDuplicates = (sales: Sale[]) => {
+    const clients = Array.from(new Set(sales.map(s => s.client)));
+    const groups: { master: string, similar: string[] }[] = [];
+    const processed = new Set<string>();
+
+    for (let i = 0; i < clients.length; i++) {
+        const clientA = clients[i];
+        if (processed.has(clientA)) continue;
+        const group = { master: clientA, similar: [] as string[] };
+        const normA = clientA.toLowerCase().trim();
+        for (let j = i + 1; j < clients.length; j++) {
+            const clientB = clients[j];
+            if (processed.has(clientB)) continue;
+            if (normA === clientB.toLowerCase().trim()) {
+                group.similar.push(clientB);
+                processed.add(clientB);
+            }
+        }
+        if (group.similar.length > 0) { groups.push(group); processed.add(clientA); }
+    }
+    return groups;
+};
+
+// Fix: Implemented smartMergeSales for resolving duplicates
+export const smartMergeSales = (sales: Sale[]): Sale => {
+    const master = { ...sales[0] };
+    master.observations = sales.map(s => s.observations).filter(Boolean).join(' | ');
+    return master;
+};
+
+// Fix: Implemented getTrashItems to retrieve soft-deleted records
+export const getTrashItems = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return { sales: [], transactions: [] };
+    const salesQ = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", true));
+    const txQ = query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", true));
+    const [salesSnap, txSnap] = await Promise.all([getDocs(salesQ), getDocs(txQ)]);
+    return {
+        sales: salesSnap.docs.map(d => ({ ...d.data(), id: d.id } as Sale)),
+        transactions: txSnap.docs.map(d => ({ ...d.data(), id: d.id } as Transaction))
+    };
+};
+
+// Fix: Implemented getDeletedClients for trash bin management
+export const getDeletedClients = async (): Promise<Client[]> => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return [];
+    const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", true));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ ...d.data(), id: d.id } as Client));
 };

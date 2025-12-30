@@ -1,10 +1,9 @@
-
 import React, { useState, useEffect } from 'react';
 import { Sale, ProductType, Client, SaleStatus } from '../types';
-// Fix: Added missing 'getStoredTable', 'computeCommissionValues', 'getClients' to imports from services/logic
 import { getStoredTable, computeCommissionValues, getClients } from '../services/logic';
 import { X, Calculator, AlertCircle, Truck, DollarSign } from 'lucide-react';
 import { auth } from '../services/firebase';
+import { Logger } from '../services/logger';
 
 interface Props {
   isOpen: boolean;
@@ -65,7 +64,6 @@ const SalesForm: React.FC<Props> = ({
   useEffect(() => {
     const calc = async () => {
       const rules = await getStoredTable(productType);
-      // REGRA DE CÁLCULO MANTIDA - NÃO ALTERAR
       const { commissionBase: base, commissionValue: val, rateUsed } =
         computeCommissionValues(quantity, valueProposed, margin, rules);
 
@@ -87,6 +85,8 @@ const SalesForm: React.FC<Props> = ({
     const uid = auth.currentUser?.uid;
     if (!uid) return;
 
+    Logger.info(`Audit: Iniciando gravação de venda para [${clientName}]`);
+
     const normalizedStatus: SaleStatus = status;
     const isBilled = normalizedStatus === 'FATURADO';
 
@@ -98,7 +98,7 @@ const SalesForm: React.FC<Props> = ({
       type: productType,
       status: normalizedStatus,
       valueProposed,
-      valueSold, // Valor Total NF (Informativo)
+      valueSold,
       marginPercent: margin,
       quoteDate,
       completionDate: closeDate,
@@ -114,9 +114,15 @@ const SalesForm: React.FC<Props> = ({
       deleted: false
     };
 
-    if (onSave) await onSave(sale);
-    if (onSaved) await onSaved();
-    onClose();
+    try {
+        if (onSave) await onSave(sale);
+        if (onSaved) await onSaved();
+        Logger.info("Audit: Venda gravada com sucesso.");
+        onClose();
+    } catch (e) {
+        Logger.error("Audit: Erro ao gravar venda.", e);
+        alert("Erro ao salvar. Verifique sua conexão.");
+    }
   };
 
   const inputClasses = "w-full p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 transition-all text-gray-900 dark:text-white placeholder:text-gray-400";
@@ -128,7 +134,6 @@ const SalesForm: React.FC<Props> = ({
     >
       <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-5xl max-h-[95vh] shadow-2xl flex flex-col border border-gray-100 dark:border-slate-800 animate-in zoom-in-95 duration-200 overflow-hidden my-auto">
         
-        {/* Header - Fixo */}
         <div className="p-6 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-gray-50 dark:bg-slate-950 shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 rounded-xl">
@@ -138,16 +143,13 @@ const SalesForm: React.FC<Props> = ({
               {initialData ? 'Editar Venda' : 'Lançar Nova Venda'}
             </h2>
           </div>
-          <button onClose={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full text-gray-400 transition-colors">
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-full text-gray-400 transition-colors">
             <X size={20} />
           </button>
         </div>
 
-        {/* Formulário - Scrollável */}
         <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8 custom-scrollbar">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            
-            {/* Coluna 1 */}
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Cliente</label>
@@ -183,7 +185,6 @@ const SalesForm: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* Coluna 2 */}
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -191,7 +192,6 @@ const SalesForm: React.FC<Props> = ({
                   <input
                     type="number"
                     className={inputClasses}
-                    placeholder="1"
                     value={quantity}
                     onChange={e => setQuantity(Number(e.target.value))}
                   />
@@ -201,7 +201,6 @@ const SalesForm: React.FC<Props> = ({
                   <input
                     type="number"
                     className={inputClasses}
-                    placeholder="0"
                     value={margin}
                     onChange={e => setMargin(Number(e.target.value))}
                   />
@@ -212,7 +211,6 @@ const SalesForm: React.FC<Props> = ({
                 <input
                   type="number"
                   className={inputClasses}
-                  placeholder="0,00"
                   value={valueProposed}
                   onChange={e => setValueProposed(Number(e.target.value))}
                 />
@@ -224,7 +222,6 @@ const SalesForm: React.FC<Props> = ({
                    <input
                     type="number"
                     className={`${inputClasses} pl-10 border-indigo-200 dark:border-indigo-900/30`}
-                    placeholder="0,00"
                     value={valueSold}
                     onChange={e => setValueSold(Number(e.target.value))}
                   />
@@ -232,7 +229,6 @@ const SalesForm: React.FC<Props> = ({
               </div>
             </div>
 
-            {/* Coluna 3 */}
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Data de Faturamento</label>
@@ -244,15 +240,12 @@ const SalesForm: React.FC<Props> = ({
                   required
                 />
               </div>
-              
-              {productType === ProductType.BASICA && (
-                <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30 rounded-xl flex items-start gap-3 animate-in fade-in duration-300">
+              <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30 rounded-xl flex items-start gap-3">
                   <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={16} />
                   <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed font-medium">
-                    A data de faturamento define em qual mês esta comissão será considerada nos relatórios de faturamento.
+                    Esta data define o mês em que a comissão será contabilizada no seu dashboard.
                   </p>
-                </div>
-              )}
+              </div>
             </div>
           </div>
 
@@ -267,7 +260,6 @@ const SalesForm: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Footer - Fixo */}
         <div className="p-6 border-t border-gray-100 dark:border-slate-800 flex flex-col md:flex-row justify-between items-center gap-6 bg-gray-50 dark:bg-slate-950 shrink-0">
           <div className="flex items-center gap-4">
             <div className="text-center md:text-left">
