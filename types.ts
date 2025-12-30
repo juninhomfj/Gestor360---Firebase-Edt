@@ -206,6 +206,7 @@ export interface TransactionCategory {
     monthlyBudget?: number;
     isActive: boolean;
     deleted: boolean;
+    userId: string; // FIX: Obrigatório para conformidade com RLS Firestore
     isSeed?: boolean;
 }
 

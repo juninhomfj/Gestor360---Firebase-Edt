@@ -2,6 +2,8 @@
 import React, { useState, useMemo } from 'react';
 import { TransactionCategory, PersonType } from '../types';
 import { Tag, Plus, Trash2, Check, X, Search, User, Building2, Target } from 'lucide-react';
+// Added auth import to get the current user ID
+import { auth } from '../services/firebase';
 
 interface FinanceCategoriesProps {
   categories: TransactionCategory[];
@@ -22,7 +24,7 @@ const FinanceCategories: React.FC<FinanceCategoriesProps> = ({ categories, onUpd
 
   const handleAdd = () => {
       if (newCatName) {
-          // Fix: Included missing required properties for TransactionCategory
+          // Fix: Included missing required property userId for TransactionCategory
           const newCat: TransactionCategory = {
               id: crypto.randomUUID(),
               name: newCatName,
@@ -31,7 +33,8 @@ const FinanceCategories: React.FC<FinanceCategoriesProps> = ({ categories, onUpd
               subcategories: [],
               monthlyBudget: 0,
               isActive: true,
-              deleted: false
+              deleted: false,
+              userId: auth.currentUser?.uid || ''
           };
           onUpdate([...categories, newCat]);
           setNewCatName('');

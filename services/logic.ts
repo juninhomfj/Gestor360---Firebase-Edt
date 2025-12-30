@@ -1,3 +1,4 @@
+
 import {
   collection,
   query,
@@ -235,7 +236,8 @@ export const getFinanceData = async () => {
         getDocs(query(collection(db, "accounts"), where("userId", "==", uid), where("deleted", "==", false))),
         getDocs(query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", false))),
         getDocs(query(collection(db, "cards"), where("userId", "==", uid), where("deleted", "==", false))),
-        getDocs(query(collection(db, "categories"), where("deleted", "==", false))),
+        // FIX: Adicionado filtro de userId para conformidade com regras Firestore (RLS)
+        getDocs(query(collection(db, "categories"), where("userId", "==", uid), where("deleted", "==", false))),
         getDocs(query(collection(db, "goals"), where("userId", "==", uid), where("deleted", "==", false))),
         getDocs(query(collection(db, "challenges"), where("userId", "==", uid), where("deleted", "==", false))),
         getDocs(query(collection(db, "challenge_cells"), where("userId", "==", uid), where("deleted", "==", false))),
@@ -321,6 +323,11 @@ export const saveFinanceData = async (accounts: FinanceAccount[], cards: CreditC
     
     accounts.forEach(acc => {
         batch.set(doc(db, "accounts", acc.id), sanitizeForFirestore({ ...acc, userId: uid, updatedAt: serverTimestamp() }), { merge: true });
+    });
+
+    // FIX: Categorias agora são salvas no Firestore vinculadas ao usuário
+    categories.forEach(cat => {
+        batch.set(doc(db, "categories", cat.id), sanitizeForFirestore({ ...cat, userId: uid, updatedAt: serverTimestamp() }), { merge: true });
     });
     
     const recentTx = transactions.slice(-100); 
