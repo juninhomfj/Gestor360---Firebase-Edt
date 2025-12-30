@@ -70,11 +70,16 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
       if (!hardResetModal.targetUser) return;
       if (selectedTables.length === 0) return alert("Selecione pelo menos uma tabela para limpar.");
       
+      // Validação de Segurança Firestore (RLS)
+      if (hardResetModal.targetUser.id !== currentUser.id) {
+          alert("Limitação de Segurança: Regras nativas do Firestore impedem que o Client SDK apague dados de outros usuários. Esta ação só funcionará se você estiver limpando sua própria conta.");
+      }
+
       setIsResetting(true);
       try {
           await atomicClearUserTables(hardResetModal.targetUser.id, selectedTables);
           
-          alert(`Limpeza concluída! As tabelas [${selectedTables.join(', ')}] foram resetadas.`);
+          alert(`Tentativa de limpeza concluída! Se você possui permissões de escrita nos documentos, os dados foram resetados.`);
           
           setHardResetModal({ isOpen: false, targetUser: null });
           setResetPassword('');
@@ -84,7 +89,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
               window.location.reload();
           }
       } catch (e: any) {
-          alert("Erro crítico no reset: " + e.message);
+          alert("Erro no reset: " + e.message);
       } finally {
           setIsResetting(false);
       }
@@ -276,22 +281,27 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
             </div>
         </div>
 
-        {/* MODAL RESET SELETIVO (A BOMBA) */}
+        {/* MODAL RESET SELETIVO - RESTAURADA RESPONSIVIDADE */}
         {hardResetModal.isOpen && (
-            <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/95 backdrop-blur-md p-4">
-                <div className="bg-slate-900 border-2 border-red-500 w-full max-w-lg rounded-[2.5rem] p-10 shadow-[0_0_50px_rgba(239,68,68,0.3)] animate-in zoom-in-95">
+            <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/95 backdrop-blur-md p-2 md:p-4">
+                <div className="bg-slate-900 border-2 border-red-500 w-full max-w-lg rounded-[2.5rem] p-6 md:p-10 shadow-[0_0_50px_rgba(239,68,68,0.3)] animate-in zoom-in-95 max-h-[95vh] overflow-y-auto custom-scrollbar">
                     <div className="text-center mb-8">
                         <div className="w-20 h-20 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-red-500 shadow-lg shadow-red-500/20">
                             <Bomb size={40} className="animate-pulse" />
                         </div>
-                        <h3 className="text-3xl font-black text-white mb-2 uppercase tracking-tighter">Limpeza Atômica</h3>
+                        <h3 className="text-2xl md:text-3xl font-black text-white mb-2 uppercase tracking-tighter">Limpeza Atômica</h3>
                         <p className="text-slate-400 text-sm leading-relaxed">
-                            Você está prestes a apagar dados de <span className="text-white font-bold">{hardResetModal.targetUser?.name}</span> permanentemente no Firestore e Cache Local.
+                            Resetando dados de <span className="text-white font-bold">{hardResetModal.targetUser?.name}</span>.
                         </p>
+                        {hardResetModal.targetUser?.id !== currentUser.id && (
+                             <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400 text-[10px] font-bold uppercase leading-tight">
+                                <Shield size={12} className="inline mr-1"/> Regras de Segurança Cloud impedem a limpeza de terceiros via Web Client.
+                             </div>
+                        )}
                     </div>
 
                     <div className="space-y-3 mb-8">
-                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Selecione o que apagar:</p>
+                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Tabelas Alvo:</p>
                         <div className="grid grid-cols-1 gap-2">
                             {RESETTABLE_TABLES.map(table => (
                                 <button 
@@ -316,7 +326,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                             <Lock className="absolute left-4 top-3.5 text-slate-500" size={18}/>
                             <input 
                                 type="password" 
-                                placeholder="Sua Senha de Admin"
+                                placeholder="Senha de Admin"
                                 className="w-full bg-black/60 border-2 border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-white outline-none focus:border-red-500 transition-all font-mono"
                                 value={resetPassword}
                                 onChange={e => setResetPassword(e.target.value)}

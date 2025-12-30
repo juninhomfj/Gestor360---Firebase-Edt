@@ -35,7 +35,7 @@ const SalesList: React.FC<SalesListProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
-  const [itemsPerPage, setItemsPerPage] = useState<number>(25);
+  const [itemsPerPage, setItemsPerPage] = useState<number | 'ALL'>(25);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Sale | 'status', direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
   
@@ -79,16 +79,16 @@ const SalesList: React.FC<SalesListProps> = ({
     return result;
   }, [sales, searchTerm, filterType, filterStatus, dateFrom, dateTo, sortConfig]);
 
-  const totalPages = Math.ceil(processedSales.length / itemsPerPage);
-  const paginatedSales = processedSales.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = itemsPerPage === 'ALL' ? 1 : Math.ceil(processedSales.length / itemsPerPage);
+  const paginatedSales = itemsPerPage === 'ALL' ? processedSales : processedSales.slice((currentPage - 1) * itemsPerPage, currentPage * (itemsPerPage as number));
 
   const handleSelectVisible = (checked: boolean) => {
       if (checked) {
-          const visibleIds = paginatedSales.map(s => s.id);
-          setSelectedIds(prev => Array.from(new Set([...prev, ...visibleIds])));
+          // Restaurado: Seleciona todos os itens filtrados (global), não apenas os da página
+          const allFilteredIds = processedSales.map(s => s.id);
+          setSelectedIds(allFilteredIds);
       } else {
-          const visibleIds = paginatedSales.map(s => s.id);
-          setSelectedIds(prev => prev.filter(id => !visibleIds.includes(id)));
+          setSelectedIds([]);
       }
   };
 
@@ -142,7 +142,6 @@ const SalesList: React.FC<SalesListProps> = ({
           </div>
       )}
 
-      {/* HEADER RESTAURADO */}
       <div className="flex flex-col md:flex-row justify-between items-end gap-4">
           <div>
             <h1 className={`text-2xl font-black ${darkMode ? 'text-white' : 'text-gray-900'}`}>Gestão de Vendas</h1>
@@ -159,13 +158,12 @@ const SalesList: React.FC<SalesListProps> = ({
               <button onClick={onClearAll} className="p-3 bg-gray-100 dark:bg-slate-800 rounded-xl text-amber-500 hover:shadow-lg transition-all" title="Limpar Cache/Configurações">
                   <RefreshCw size={20}/>
               </button>
-              <button onClick={onNew} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg flex items-center gap-2 transition-all active:scale-95">
+              <button onClick={onNew} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95">
                   <Plus size={18}/> Nova Venda
               </button>
           </div>
       </div>
 
-      {/* FILTROS AVANÇADOS RESTAURADOS */}
       <div className={`p-6 rounded-3xl border ${containerClass} grid grid-cols-1 md:grid-cols-12 gap-4 items-end`}>
           <div className="md:col-span-3">
               <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">Pesquisar</label>
@@ -210,7 +208,6 @@ const SalesList: React.FC<SalesListProps> = ({
           </div>
       </div>
 
-      {/* TABELA COM COLUNA RASTREIO */}
       <div className={`rounded-3xl border overflow-hidden ${containerClass}`}>
           <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
@@ -220,7 +217,7 @@ const SalesList: React.FC<SalesListProps> = ({
                               <input 
                                 type="checkbox" 
                                 className="rounded" 
-                                checked={paginatedSales.every(s => selectedIds.includes(s.id)) && paginatedSales.length > 0} 
+                                checked={processedSales.length > 0 && selectedIds.length === processedSales.length} 
                                 onChange={e => handleSelectVisible(e.target.checked)} 
                               />
                           </th>
@@ -260,9 +257,32 @@ const SalesList: React.FC<SalesListProps> = ({
                   </tbody>
               </table>
           </div>
+          
+          <div className={`p-4 border-t flex flex-col md:flex-row justify-between items-center gap-4 ${darkMode ? 'bg-slate-800/50' : 'bg-gray-50'}`}>
+              <div className="flex items-center gap-4">
+                  <select 
+                      value={itemsPerPage} 
+                      onChange={e => { setItemsPerPage(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value)); setCurrentPage(1); }}
+                      className={`p-2 rounded-lg border text-xs font-bold ${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'}`}
+                  >
+                      <option value={25}>25 por página</option>
+                      <option value={50}>50 por página</option>
+                      <option value={100}>100 por página</option>
+                      <option value="ALL">Ver Todos</option>
+                  </select>
+                  <span className="text-xs text-gray-500 font-bold uppercase tracking-wider">Total: {processedSales.length} registros</span>
+              </div>
+
+              {itemsPerPage !== 'ALL' && totalPages > 1 && (
+                  <div className="flex items-center gap-2">
+                      <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="p-2 rounded-lg border hover:bg-gray-100 dark:hover:bg-slate-800 disabled:opacity-30"><ChevronLeft size={16}/></button>
+                      <span className="text-xs font-bold px-4">Página {currentPage} de {totalPages}</span>
+                      <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="p-2 rounded-lg border hover:bg-gray-100 dark:hover:bg-slate-800 disabled:opacity-30"><ChevronRight size={16}/></button>
+                  </div>
+              )}
+          </div>
       </div>
 
-      {/* MODAL DE FATURAMENTO RESTAURADO */}
       {billingModal.isOpen && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
               <div className={`p-8 rounded-3xl shadow-2xl w-full max-w-sm ${darkMode ? 'bg-slate-900 border border-slate-700 text-white' : 'bg-white'}`}>
