@@ -104,6 +104,7 @@ const FinanceManager: React.FC<FinanceManagerProps> = ({
               personType: newAccPersonType,
               isActive: true,
               deleted: false,
+              createdAt: new Date().toISOString(),
               userId: auth.currentUser?.uid || ''
           };
           onUpdate([...accounts, newAcc], transactions, cards);

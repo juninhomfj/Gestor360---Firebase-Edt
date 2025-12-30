@@ -1,8 +1,8 @@
-
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, Auth, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { getFirestore, Firestore, enableIndexedDbPersistence } from "firebase/firestore";
 import { getMessaging, Messaging, isSupported } from "firebase/messaging";
+import { getFunctions, Functions } from "firebase/functions";
 
 const getEnv = (key: string): string => {
   return (import.meta as any).env?.[key] || (process as any).env?.[key] || "";
@@ -24,6 +24,7 @@ const app: FirebaseApp = getApps().length === 0
 
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
+export const functions: Functions = getFunctions(app, 'us-central1'); // Ajuste a região se necessário
 
 // Configura persistência robusta para evitar deslogues repentinos
 setPersistence(auth, browserLocalPersistence);

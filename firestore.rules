@@ -2,24 +2,13 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ==========================================
-    // FUNÇÕES AUXILIARES (SISTEMA)
-    // ==========================================
-
+    // 1. Mandatory Support Functions
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
-      return request.auth.uid == userId;
-    }
-
-    function dataUserId() {
-      return resource.data.userId;
-    }
-
-    function incomingDataUserId() {
-      return request.resource.data.userId;
+    function isOwner(res) {
+      return isSignedIn() && res.data.userId == request.auth.uid;
     }
 
     function isAdmin() {
@@ -27,85 +16,102 @@ service cloud.firestore {
         get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role in ['ADMIN', 'DEV'];
     }
 
-    function isBroadcastMessage() {
-      return resource.data.recipientId == "BROADCAST";
+    // 2. Financial & Private Data (Strict RLS)
+    // collections: transactions, cards, goals, challenges, challenge_cells, receivables
+    function validatePrivateWrite() {
+      return isSignedIn() && request.resource.data.userId == request.auth.uid;
     }
 
-    // ==========================================
-    // COLEÇÃO: PROFILES
-    // ==========================================
-    match /profiles/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && (isOwner(userId) || isAdmin());
+    function validatePrivateRead(res) {
+      return isSignedIn() && (res.data.userId == request.auth.uid || res.data.isTemplate == true);
     }
 
-    // ==========================================
-    // COLEÇÕES FINANCEIRAS (RLS ESTRITO)
-    // ==========================================
-    // cards, goals, challenges, challenge_cells, transactions, categories, receivables
-    match /cards/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
-    match /goals/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
-    match /challenges/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
-    match /challenge_cells/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
-    match /transactions/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
-    match /categories/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
-    match /receivables/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
-    match /sales/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
-    match /clients/{docId} { allow read, write: if isSignedIn() && (resource == null || dataUserId() == request.auth.uid) && (request.resource == null || incomingDataUserId() == request.auth.uid); }
-
-    // ==========================================
-    // COLEÇÃO: INTERNAL MESSAGES (CHAT/TICKETS)
-    // ==========================================
-    match /internal_messages/{msgId} {
-      allow read: if isSignedIn() && (
-        resource.data.recipientId == request.auth.uid || 
-        resource.data.recipientId == "BROADCAST" || 
-        resource.data.senderId == request.auth.uid ||
-        (isAdmin() && resource.data.recipientId == "ADMIN")
-      );
-      
-      allow create: if isSignedIn() && 
-        incomingDataUserId() == request.auth.uid;
-      
-      allow update: if isSignedIn() && 
-        dataUserId() == request.auth.uid && 
-        !isBroadcastMessage();
-        
-      allow delete: if isAdmin();
+    match /transactions/{id} {
+      allow read: if validatePrivateRead(resource);
+      allow write: if validatePrivateWrite();
+    }
+    match /cards/{id} {
+      allow read: if validatePrivateRead(resource);
+      allow write: if validatePrivateWrite();
+    }
+    match /goals/{id} {
+      allow read: if validatePrivateRead(resource);
+      allow write: if validatePrivateWrite();
+    }
+    match /challenges/{id} {
+      allow read: if validatePrivateRead(resource);
+      allow write: if validatePrivateWrite();
+    }
+    match /challenge_cells/{id} {
+      allow read: if validatePrivateRead(resource);
+      allow write: if validatePrivateWrite();
+    }
+    match /receivables/{id} {
+      allow read: if validatePrivateRead(resource);
+      allow write: if validatePrivateWrite();
     }
 
-    // ==========================================
-    // COLEÇÃO: CONFIG (SISTEMA E USUÁRIO)
-    // ==========================================
-    match /config/system {
+    // 3. Commissions (Global Controlled)
+    match /commissions/default {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
+    // 4. Internal Messages
+    match /internal_messages/{msgId} {
+      allow read: if isSignedIn() && (
+        resource.data.recipientId == request.auth.uid || 
+        resource.data.recipientId == "BROADCAST" || 
+        isAdmin()
+      );
+      
+      // Only owner can create. BROADCAST messages restricted to admins.
+      allow create: if isSignedIn() && 
+                    request.resource.data.userId == request.auth.uid && 
+                    (request.resource.data.recipientId != "BROADCAST" || isAdmin());
+      
+      // Only owner can update/delete. BROADCAST restricted to admins.
+      allow update, delete: if isAdmin() || (isOwner(resource) && resource.data.recipientId != "BROADCAST");
+    }
+
+    // 5. Config/System
+    match /config/system {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    
     match /config/{configId} {
-      // system_{uid} e report_{uid}
       allow read, write: if isSignedIn() && (
         configId == "system_" + request.auth.uid || 
-        configId == "report_" + request.auth.uid
+        configId == "report_" + request.auth.uid || 
+        isAdmin()
       );
     }
 
-    // ==========================================
-    // COLEÇÃO: AUDIT LOG (AUDITORIA)
-    // ==========================================
+    // 6. User Data (Other Collections)
+    match /categories/{id} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.isTemplate == true);
+      allow write: if validatePrivateWrite();
+    }
+
+    match /sales/{id} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if validatePrivateWrite();
+    }
+
+    match /clients/{id} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if validatePrivateWrite();
+    }
+
+    match /profiles/{uid} {
+      allow read: if isSignedIn();
+      allow write: if (isSignedIn() && request.auth.uid == uid) || isAdmin();
+    }
+
     match /audit_log/{logId} {
       allow create: if isSignedIn();
       allow read: if isAdmin();
-    }
-
-    // ==========================================
-    // BLOQUEIOS EXPLÍCITOS
-    // ==========================================
-    match /{allPaths=**} {
-      // Bloqueia qualquer documento que tente usar o ID reservado "system" como dono
-      allow write: if request.resource.data.userId != "system";
-      // Bloqueia leituras que não passem pelos filtros específicos acima
-      allow read: if false;
     }
   }
 }

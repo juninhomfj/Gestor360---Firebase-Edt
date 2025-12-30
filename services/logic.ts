@@ -1,4 +1,3 @@
-
 import {
   collection,
   query,
@@ -15,7 +14,8 @@ import {
   orderBy,
   limit
 } from "firebase/firestore";
-import { db, auth } from "./firebase";
+import { httpsCallable } from "firebase/functions";
+import { db, auth, functions } from "./firebase";
 import { dbPut, dbBulkPut, dbGetAll, initDB, dbDelete, dbGet } from '../storage/db';
 import { encryptData, decryptData } from '../utils/encryption';
 import { 
@@ -23,7 +23,7 @@ import {
     Receivable, ReportConfig, SystemConfig, ProductType, CommissionRule, 
     CreditCard, ChallengeCell, FinancialPacing, Client, 
     ProductivityMetrics, Challenge, FinanceGoal, ImportMapping, UserPreferences,
-    User, DuplicateGroup
+    User, DuplicateGroup, NtfyPayload
 } from '../types';
 
 export const SessionTraffic = {
@@ -41,7 +41,23 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     includeNonAccountingInTotal: false
 };
 
-// Carrega configuração mesclada: Global + Específica do Usuário
+// Side effect: Disparo para ntfy.sh
+export const triggerNtfyPush = async (payload: Omit<NtfyPayload, 'topic'>) => {
+    try {
+        const sysConfig = await getSystemConfig();
+        if (!sysConfig.ntfyTopic) return;
+
+        const sendNtfy = httpsCallable(functions, 'sendNtfyNotification');
+        await sendNtfy({
+            ...payload,
+            topic: sysConfig.ntfyTopic
+        });
+    } catch (e) {
+        // Push é descartável e não bloqueia o fluxo do app
+        console.warn("[NTFY_PUSH_FAILED]", e);
+    }
+};
+
 export const getSystemConfig = async (): Promise<SystemConfig & UserPreferences> => {
     const globalSnap = await getDoc(doc(db, "config", "system"));
     const globalConfig = globalSnap.exists() ? globalSnap.data() as SystemConfig : DEFAULT_SYSTEM_CONFIG;
@@ -56,7 +72,6 @@ export const getSystemConfig = async (): Promise<SystemConfig & UserPreferences>
     return globalConfig;
 };
 
-// Salva apenas preferências do usuário. Configuração global é preservada.
 export const saveSystemConfig = async (config: any) => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
@@ -71,10 +86,11 @@ export const saveSystemConfig = async (config: any) => {
 
     await setDoc(doc(db, "config", `system_${uid}`), userPrefs, { merge: true });
 
-    if (config.notificationSounds || config.fcmServerKey) {
+    if (config.notificationSounds || config.fcmServerKey || config.ntfyTopic) {
         const globalConfig: any = {};
         if (config.notificationSounds) globalConfig.notificationSounds = config.notificationSounds;
         if (config.fcmServerKey) globalConfig.fcmServerKey = config.fcmServerKey;
+        if (config.ntfyTopic) globalConfig.ntfyTopic = config.ntfyTopic;
         await setDoc(doc(db, "config", "system"), globalConfig, { merge: true });
     }
 };
@@ -119,6 +135,52 @@ async function getAuthenticatedUid(): Promise<string> {
     });
 }
 
+// --- COMISSÕES (GLOBAL MODEL) ---
+
+export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
+    const docRef = doc(db, "commissions", "default");
+    const snap = await getDoc(docRef);
+    
+    if (!snap.exists()) {
+        throw new Error("Tabela de comissões globais não encontrada.");
+    }
+
+    const data = snap.data();
+    const rulesObj = data.rules || {};
+    
+    return [
+        { id: 'sales', minPercent: 0, maxPercent: null, commissionRate: rulesObj.sales || 0, isActive: true },
+        { id: 'upsell', minPercent: 0, maxPercent: null, commissionRate: rulesObj.upsell || 0, isActive: true },
+        { id: 'recurring', minPercent: 0, maxPercent: null, commissionRate: rulesObj.recurring || 0, isActive: true }
+    ];
+};
+
+export const computeCommissionValues = (quantity: number, unitValue: number, margin: number, rules: CommissionRule[]) => {
+    const commissionBase = quantity * unitValue;
+    let rate = 0;
+    const salesRule = rules.find(r => r.id === 'sales');
+    const upsellRule = rules.find(r => r.id === 'upsell');
+    rate = margin > 15 ? (upsellRule?.commissionRate || 0) : (salesRule?.commissionRate || 0);
+    return { commissionBase, commissionValue: commissionBase * rate, rateUsed: rate };
+};
+
+export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
+    const docRef = doc(db, "commissions", "default");
+    const payload = {
+        id: "default",
+        scope: "GLOBAL",
+        active: true,
+        rules: {
+            sales: rules.find(r => r.id === 'sales')?.commissionRate || 0,
+            upsell: rules.find(r => r.id === 'upsell')?.commissionRate || 0,
+            recurring: rules.find(r => r.id === 'recurring')?.commissionRate || 0
+        },
+        updatedAt: serverTimestamp()
+    };
+    await setDoc(docRef, payload, { merge: true });
+    SessionTraffic.trackWrite();
+};
+
 // --- SALES ---
 
 export const getStoredSales = async (): Promise<Sale[]> => {
@@ -148,12 +210,23 @@ export const saveSingleSale = async (payload: any) => {
   const uid = await getAuthenticatedUid();
   const saleId = payload.id || crypto.randomUUID();
   const saleData = sanitizeForFirestore({ ...payload, id: saleId, userId: uid, updatedAt: serverTimestamp() });
+  
   await dbPut('sales', saleData);
   await setDoc(doc(db, "sales", saleId), saleData, { merge: true });
   SessionTraffic.trackWrite();
+
+  // SIDE EFFECT: Push NTfy para vendas acima de 5000
+  if (saleData.valueSold > 5000) {
+      await triggerNtfyPush({
+          title: "💰 Venda de Alto Valor!",
+          message: `Nova venda registrada: ${saleData.client} - R$ ${saleData.valueSold.toFixed(2)}`,
+          priority: 'high',
+          tags: ['moneybag', 'rocket']
+      });
+  }
 };
 
-// --- FINANCE ---
+// --- FINANCE (AUDITADO E RESTAURADO) ---
 
 export const getFinanceData = async () => {
     const uid = await getAuthenticatedUid();
@@ -168,9 +241,14 @@ export const getFinanceData = async () => {
         fetchSafe("goals"), fetchSafe("challenges"), fetchSafe("challenge_cells"), fetchSafe("receivables")
     ]);
     return {
-        accounts: acc as FinanceAccount[], transactions: tx as Transaction[], cards: crd as CreditCard[],
-        categories: cat as TransactionCategory[], goals: gl as FinanceGoal[], 
-        challenges: chal as Challenge[], cells: cell as ChallengeCell[], receivables: rec as Receivable[]
+        accounts: acc as FinanceAccount[], 
+        transactions: tx as Transaction[], 
+        cards: crd as CreditCard[],
+        categories: cat as TransactionCategory[], 
+        goals: gl as FinanceGoal[], 
+        challenges: chal as Challenge[], 
+        cells: cell as ChallengeCell[], 
+        receivables: rec as Receivable[]
     };
 };
 
@@ -178,28 +256,37 @@ export const saveFinanceData = async (acc: FinanceAccount[], crd: CreditCard[], 
     const uid = await getAuthenticatedUid();
     const batch = writeBatch(db);
     const prep = (item: any) => sanitizeForFirestore({ ...item, userId: uid, updatedAt: serverTimestamp() });
+    
     acc.forEach(i => batch.set(doc(db, "accounts", i.id), prep(i), { merge: true }));
     crd.forEach(i => batch.set(doc(db, "cards", i.id), prep(i), { merge: true }));
     cat.forEach(i => batch.set(doc(db, "categories", i.id), prep(i), { merge: true }));
     gl.forEach(i => batch.set(doc(db, "goals", i.id), prep(i), { merge: true }));
     chal.forEach(i => batch.set(doc(db, "challenges", i.id), prep(i), { merge: true }));
     rec.forEach(i => batch.set(doc(db, "receivables", i.id), prep(i), { merge: true }));
-    // Limit batch for transactions
+    
     tx.slice(-500).forEach(i => batch.set(doc(db, "transactions", i.id), prep(i), { merge: true }));
-    await batch.commit();
-    SessionTraffic.trackWrite(acc.length + crd.length + cat.length + gl.length + chal.length + rec.length + Math.min(tx.length, 500));
+    
+    try {
+        await batch.commit();
+        SessionTraffic.trackWrite(acc.length + crd.length + cat.length + gl.length + chal.length + rec.length + Math.min(tx.length, 500));
+    } catch (e) {
+        // SIDE EFFECT: Erro financeiro crítico
+        await triggerNtfyPush({
+            title: "🛑 Erro de Sincronia Financeira",
+            message: `Falha ao persistir lote financeiro para UID: ${uid}`,
+            priority: 'urgent',
+            tags: ['x', 'warning']
+        });
+        throw e;
+    }
 };
 
-// --- FIX: Implementation of missing members required by various components ---
-
-// 1. canAccess
 export const canAccess = (user: User | null, feature: string): boolean => {
     if (!user || !user.isActive) return false;
     if (user.role === 'DEV') return true;
     return !!(user.permissions as any)[feature];
 };
 
-// 2. analyzeClients
 export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
     const clientMap = new Map<string, { name: string, lastDate: string, totalSpent: number, orders: number }>();
     sales.forEach(s => {
@@ -232,7 +319,6 @@ export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
     });
 };
 
-// 3. analyzeMonthlyVolume
 export const analyzeMonthlyVolume = (sales: Sale[], monthsCount: number) => {
     const data = [];
     const now = new Date();
@@ -250,7 +336,6 @@ export const analyzeMonthlyVolume = (sales: Sale[], monthsCount: number) => {
     return data;
 };
 
-// 4. exportReportToCSV
 export const exportReportToCSV = (data: any[], fileName: string) => {
     if (data.length === 0) return;
     const headers = Object.keys(data[0]);
@@ -270,7 +355,6 @@ export const exportReportToCSV = (data: any[], fileName: string) => {
     document.body.removeChild(link);
 };
 
-// 5. calculateProductivityMetrics
 export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
     const sales = await getStoredSales();
     const config = await getReportConfig();
@@ -294,7 +378,6 @@ export const calculateProductivityMetrics = async (userId: string): Promise<Prod
     };
 };
 
-// 6. calculateFinancialPacing
 export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]): FinancialPacing => {
     const now = new Date();
     const today = now.getDate();
@@ -313,7 +396,6 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
     };
 };
 
-// 7. getInvoiceMonth
 export const getInvoiceMonth = (dateStr: string, closingDay: number): string => {
     const d = new Date(dateStr);
     const day = d.getDate();
@@ -323,7 +405,6 @@ export const getInvoiceMonth = (dateStr: string, closingDay: number): string => 
     return d.toISOString().substring(0, 7);
 };
 
-// 8. exportEncryptedBackup
 export const exportEncryptedBackup = async (passphrase: string) => {
     const data = {
         sales: await dbGetAll('sales'),
@@ -339,8 +420,7 @@ export const exportEncryptedBackup = async (passphrase: string) => {
         exportedAt: new Date().toISOString()
     };
     const json = JSON.stringify(data);
-    const encrypted = encryptData(json); // This usually uses a global salt, BackupModal might want specific pass.
-    // For specific passphrase, one would use CryptoJS directly or modify encryptData.
+    const encrypted = encryptData(json);
     const blob = new Blob([encrypted], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -349,7 +429,6 @@ export const exportEncryptedBackup = async (passphrase: string) => {
     a.click();
 };
 
-// 9. importEncryptedBackup
 export const importEncryptedBackup = async (file: File, passphrase: string) => {
     const text = await file.text();
     const decrypted = decryptData(text);
@@ -366,7 +445,6 @@ export const importEncryptedBackup = async (file: File, passphrase: string) => {
     }
 };
 
-// 10. clearAllSales
 export const clearAllSales = async () => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
@@ -379,7 +457,6 @@ export const clearAllSales = async () => {
     await dbInst.clear('sales');
 };
 
-// 11. generateChallengeCells
 export const generateChallengeCells = (challengeId: string, target: number, count: number, model: 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM'): ChallengeCell[] => {
     const cells: ChallengeCell[] = [];
     const uid = auth.currentUser?.uid || '';
@@ -402,7 +479,6 @@ export const generateChallengeCells = (challengeId: string, target: number, coun
     return cells;
 };
 
-// 12. processFinanceImport
 export const processFinanceImport = (data: any[][], mapping: ImportMapping): Partial<Transaction>[] => {
     const rows = data.slice(1);
     const uid = auth.currentUser?.uid || '';
@@ -417,6 +493,8 @@ export const processFinanceImport = (data: any[][], mapping: ImportMapping): Par
             date: row[mapping.date] ? new Date(row[mapping.date]).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
             categoryId: mapping.category !== -1 ? String(row[mapping.category]) : 'uncategorized',
             isPaid: true,
+            provisioned: false,
+            isRecurring: false,
             userId: uid,
             deleted: false,
             createdAt: new Date().toISOString()
@@ -424,7 +502,6 @@ export const processFinanceImport = (data: any[][], mapping: ImportMapping): Par
     });
 };
 
-// 13. readExcelFile
 export const readExcelFile = async (file: File): Promise<any[][]> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -438,7 +515,6 @@ export const readExcelFile = async (file: File): Promise<any[][]> => {
     });
 };
 
-// 14. atomicClearUserTables
 export const atomicClearUserTables = async (userId: string, tables: string[]) => {
     for (const t of tables) {
         const q = query(collection(db, t), where("userId", "==", userId));
@@ -451,32 +527,6 @@ export const atomicClearUserTables = async (userId: string, tables: string[]) =>
     }
 };
 
-// 15. getStoredTable
-export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
-    const store = type === ProductType.BASICA ? 'commission_basic' : (type === ProductType.NATAL ? 'commission_natal' : 'commission_custom');
-    const local = await dbGetAll(store);
-    if (local.length > 0) return local;
-    
-    const q = query(collection(db, store), where("isActive", "==", true));
-    const snap = await getDocs(q);
-    const rules = snap.docs.map(d => ({ ...d.data(), id: d.id } as CommissionRule));
-    await dbBulkPut(store, rules);
-    return rules;
-};
-
-// 16. computeCommissionValues
-export const computeCommissionValues = (quantity: number, unitValue: number, margin: number, rules: CommissionRule[]) => {
-    const commissionBase = quantity * unitValue;
-    const rule = rules.sort((a, b) => b.minPercent - a.minPercent).find(r => margin >= r.minPercent);
-    const rateUsed = rule ? rule.commissionRate : 0;
-    return {
-        commissionBase,
-        commissionValue: commissionBase * rateUsed,
-        rateUsed
-    };
-};
-
-// 17. getClients
 export const getClients = async (): Promise<Client[]> => {
     const uid = await getAuthenticatedUid();
     const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", false));
@@ -486,7 +536,6 @@ export const getClients = async (): Promise<Client[]> => {
     return data;
 };
 
-// 18. getReportConfig
 export const getReportConfig = async (): Promise<ReportConfig> => {
     const uid = await getAuthenticatedUid();
     const snap = await getDoc(doc(db, "config", `report_${uid}`));
@@ -494,30 +543,34 @@ export const getReportConfig = async (): Promise<ReportConfig> => {
     return { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 };
 };
 
-// 19. saveCommissionRules
-export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
-    const store = type === ProductType.BASICA ? 'commission_basic' : (type === ProductType.NATAL ? 'commission_natal' : 'commission_custom');
-    await dbBulkPut(store, rules);
-    const batch = writeBatch(db);
-    rules.forEach(r => batch.set(doc(db, store, r.id), r));
-    await batch.commit();
-};
-
-// 20. bootstrapProductionData
 export const bootstrapProductionData = async () => {
     const config = await getSystemConfig();
     if (config.bootstrapVersion && config.bootstrapVersion >= 1) return;
-    // Perform initial data setup here if needed
+    
+    const commRef = doc(db, "commissions", "default");
+    const commSnap = await getDoc(commRef);
+    if (!commSnap.exists()) {
+        await setDoc(commRef, {
+            id: "default",
+            scope: "GLOBAL",
+            active: true,
+            rules: {
+                sales: 0.05,
+                upsell: 0.08,
+                recurring: 0.10
+            },
+            updatedAt: serverTimestamp()
+        });
+    }
+
     await saveSystemConfig({ bootstrapVersion: 1 });
 };
 
-// 21. saveReportConfig
 export const saveReportConfig = async (config: ReportConfig) => {
     const uid = await getAuthenticatedUid();
     await setDoc(doc(db, "config", `report_${uid}`), config, { merge: true });
 };
 
-// 22. clearLocalCache
 export const clearLocalCache = async () => {
     const dbInst = await initDB();
     const stores = ['sales', 'accounts', 'transactions', 'categories', 'cards', 'receivables', 'goals', 'challenges', 'challenge_cells', 'clients'];
@@ -526,7 +579,6 @@ export const clearLocalCache = async () => {
     }
 };
 
-// 23. findPotentialDuplicates
 export const findPotentialDuplicates = (sales: Sale[]) => {
     const names = Array.from(new Set(sales.map(s => s.client)));
     const duplicates: { master: string, similar: string[] }[] = [];
@@ -546,7 +598,6 @@ export const findPotentialDuplicates = (sales: Sale[]) => {
     return duplicates;
 };
 
-// 24. smartMergeSales
 export const smartMergeSales = (sales: Sale[]): Sale => {
     return sales.reduce((acc, curr) => ({
         ...acc,
@@ -558,7 +609,6 @@ export const smartMergeSales = (sales: Sale[]): Sale => {
     }));
 };
 
-// 25. getTrashItems
 export const getTrashItems = async () => {
     const uid = await getAuthenticatedUid();
     const qS = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", true));
@@ -570,7 +620,6 @@ export const getTrashItems = async () => {
     };
 };
 
-// 26. restoreItem
 export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
     const col = type === 'SALE' ? 'sales' : 'transactions';
     const updated = { ...item, deleted: false, updatedAt: serverTimestamp() };
@@ -578,14 +627,12 @@ export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
     await dbPut(col as any, updated);
 };
 
-// 27. permanentlyDeleteItem
 export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
     const col = type === 'SALE' ? 'sales' : 'transactions';
     await deleteDoc(doc(db, col, id));
     await dbDelete(col as any, id);
 };
 
-// 28. getDeletedClients
 export const getDeletedClients = async (): Promise<Client[]> => {
     const uid = await getAuthenticatedUid();
     const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", true));
@@ -593,7 +640,6 @@ export const getDeletedClients = async (): Promise<Client[]> => {
     return snap.docs.map(d => ({ ...d.data(), id: d.id } as Client));
 };
 
-// 29. restoreClient
 export const restoreClient = async (id: string) => {
     const client = await dbGet('clients', id);
     if (client) {
@@ -603,7 +649,6 @@ export const restoreClient = async (id: string) => {
     }
 };
 
-// 30. permanentlyDeleteClient
 export const permanentlyDeleteClient = async (id: string) => {
     await deleteDoc(doc(db, "clients", id));
     await dbDelete('clients', id);
