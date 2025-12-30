@@ -72,6 +72,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
       // Validação de Segurança Firestore (RLS)
       if (hardResetModal.targetUser.id !== currentUser.id) {
           alert("Limitação de Segurança: Regras nativas do Firestore impedem que o Client SDK apague dados de outros usuários. Esta ação só funcionará se você estiver limpando sua própria conta.");
+          return;
       }
 
       setIsResetting(true);

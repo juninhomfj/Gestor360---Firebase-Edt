@@ -41,7 +41,8 @@
     "node-fetch": "^3.3.2",
     "@google-cloud/tasks": "^6.2.1",
     "ioredis": "^5.8.2",
-    "bullmq": "^5.66.2"
+    "bullmq": "^5.66.2",
+    "firebase-functions": "^7.0.2"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

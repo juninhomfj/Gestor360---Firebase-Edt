@@ -1,4 +1,3 @@
-
 import {
   collection,
   query,
@@ -51,7 +50,9 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 export const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
 /**
- * MOTOR DE NORMALIZAÇÃO NUMÉRICA ROBUSTO (PADRÃO BRASILEIRO)
+ * REFATORAÇÃO: MOTOR DE NORMALIZAÇÃO NUMÉRICA (READ-ONLY LAYER)
+ * Processa strings "1.234,56", "1234,56" ou números puros.
+ * Aplicado apenas na leitura para preservar dados legados sem migração.
  */
 export function ensureNumber(value: any, fallback = 0): number {
   if (value === undefined || value === null || value === '') return fallback;
@@ -59,13 +60,18 @@ export function ensureNumber(value: any, fallback = 0): number {
   
   try {
     let str = String(value).trim();
-    str = str.replace(/[R$\s%]/g, '');
+    str = str.replace(/\s/g, ''); // Remove espaços
 
     if (str.includes(',') && str.includes('.')) {
+        // Padrão BR: 1.234,56 -> 1234.56
         str = str.replace(/\./g, '').replace(',', '.');
     } else if (str.includes(',')) {
+        // Padrão BR simples: 1234,56 -> 1234.56
         str = str.replace(',', '.');
     }
+    
+    // Remove caracteres não numéricos exceto ponto e sinal negativo
+    str = str.replace(/[^\d.-]/g, '');
     
     const num = parseFloat(str);
     return isNaN(num) ? fallback : num;
@@ -74,9 +80,6 @@ export function ensureNumber(value: any, fallback = 0): number {
   }
 }
 
-/**
- * FIRESTORE GUARD: Limpa objetos recursivamente para evitar erros de 'undefined' no Firebase.
- */
 function sanitizeForFirestore(obj: any): any {
     if (obj === null || typeof obj !== 'object') return obj;
     if (obj instanceof Timestamp) return obj;
@@ -87,21 +90,11 @@ function sanitizeForFirestore(obj: any): any {
     Object.keys(obj).forEach(key => {
         let val = obj[key];
         if (val === undefined) return;
-        
-        // Proteção especial para chaves numéricas críticas
-        const numericKeys = ['valueSold', 'valueProposed', 'marginPercent', 'quantity', 'amount', 'balance'];
-        if (numericKeys.includes(key)) {
-            val = ensureNumber(val);
-        }
-
         cleaned[key] = sanitizeForFirestore(val);
     });
     return cleaned;
 }
 
-/**
- * Garantia de Autenticação para Firestore (Versão Blindada v2.5.3)
- */
 async function getAuthenticatedUid(): Promise<string> {
     const user = auth.currentUser;
     if (user) return user.uid;
@@ -131,7 +124,23 @@ export const getStoredSales = async (): Promise<Sale[]> => {
     const q = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", false));
     const snap = await getDocs(q);
     SessionTraffic.trackRead(snap.size);
-    const sales = snap.docs.map(d => ({ id: d.id, ...d.data() } as Sale));
+    
+    const sales = snap.docs.map(d => {
+        const data = d.data();
+        return { 
+            ...data,
+            id: d.id,
+            // Aplicação do Parsing na Leitura
+            quantity: ensureNumber(data.quantity, 1),
+            valueProposed: ensureNumber(data.valueProposed),
+            valueSold: ensureNumber(data.valueSold),
+            marginPercent: ensureNumber(data.marginPercent),
+            commissionBaseTotal: ensureNumber(data.commissionBaseTotal),
+            commissionValueTotal: ensureNumber(data.commissionValueTotal),
+            commissionRateUsed: ensureNumber(data.commissionRateUsed)
+        } as Sale;
+    });
+
     if (sales.length > 0) await dbBulkPut('sales', sales);
     return sales;
   } catch (e) {
@@ -169,11 +178,20 @@ export const saveSingleSale = async (payload: any) => {
   SessionTraffic.trackWrite();
 };
 
+/**
+ * AUDITORIA TÉCNICA - FUNÇÃO LEGADA / BLOQUEADA
+ * 
+ * NOTA: Esta função utiliza o Firebase Client SDK. Devido às Security Rules de Row Level Security (RLS),
+ * o Client SDK é tecnicamente incapaz de ignorar as regras do servidor. Mesmo usuários com flag 'DEV' 
+ * no frontend são bloqueados ao tentar acessar ou deletar documentos onde 'userId != auth.uid'.
+ * 
+ * STATUS: LEGADA. Para resets reais de dados de terceiros, utilize a Cloud Function 'adminHardResetUserData'.
+ */
 export const atomicClearUserTables = async (targetUserId: string, tableIds: string[]) => {
     const currentUid = await getAuthenticatedUid();
     const batch = writeBatch(db);
     
-    Logger.warn(`LIMPEZA ATÔMICA: UID ${targetUserId}`);
+    Logger.warn(`LIMPEZA ATÔMICA (LEGACY CLIENT): UID ${targetUserId}`);
 
     for (const tableId of tableIds) {
         const q = query(collection(db, tableId), where("userId", "==", targetUserId));
@@ -225,14 +243,35 @@ export const getFinanceData = async () => {
     ]);
 
     return {
-        accounts: results[0].docs.map(d => ({ id: d.id, ...d.data() } as FinanceAccount)),
-        transactions: results[1].docs.map(d => ({ id: d.id, ...d.data() } as Transaction)),
-        cards: results[2].docs.map(d => ({ id: d.id, ...d.data() } as CreditCard)),
+        accounts: results[0].docs.map(d => {
+            const data = d.data();
+            return { id: d.id, ...data, balance: ensureNumber(data.balance) } as FinanceAccount;
+        }),
+        transactions: results[1].docs.map(d => {
+            const data = d.data();
+            return { id: d.id, ...data, amount: ensureNumber(data.amount) } as Transaction;
+        }),
+        cards: results[2].docs.map(d => {
+            const data = d.data();
+            return { id: d.id, ...data, limit: ensureNumber(data.limit), currentInvoice: ensureNumber(data.currentInvoice) } as CreditCard;
+        }),
         categories: results[3].docs.map(d => ({ id: d.id, ...d.data() } as TransactionCategory)),
-        goals: results[4].docs.map(d => ({ id: d.id, ...d.data() } as FinanceGoal)),
-        challenges: results[5].docs.map(d => ({ id: d.id, ...d.data() } as Challenge)),
-        cells: results[6].docs.map(d => ({ id: d.id, ...d.data() } as ChallengeCell)),
-        receivables: results[7].docs.map(d => ({ id: d.id, ...d.data() } as Receivable)),
+        goals: results[4].docs.map(d => {
+            const data = d.data();
+            return { id: d.id, ...data, targetValue: ensureNumber(data.targetValue), currentValue: ensureNumber(data.currentValue) } as FinanceGoal;
+        }),
+        challenges: results[5].docs.map(d => {
+            const data = d.data();
+            return { id: d.id, ...data, targetValue: ensureNumber(data.targetValue) } as Challenge;
+        }),
+        cells: results[6].docs.map(d => {
+            const data = d.data();
+            return { id: d.id, ...data, value: ensureNumber(data.value) } as ChallengeCell;
+        }),
+        receivables: results[7].docs.map(d => {
+            const data = d.data();
+            return { id: d.id, ...data, value: ensureNumber(data.value) } as Receivable;
+        }),
     };
 };
 
@@ -252,9 +291,6 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
   };
 };
 
-/**
- * FIX: Adicionado filtro de userId e deleted para cumprir as Security Rules do Firestore.
- */
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
     try {
         const uid = await getAuthenticatedUid();
@@ -264,7 +300,6 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
             [ProductType.CUSTOM]: 'commission_custom' 
         };
         
-        // As regras de segurança do Firestore exigem o filtro de userId para permitir a leitura.
         const q = query(
             collection(db, colMap[type]),
             where("userId", "==", uid),
@@ -542,10 +577,6 @@ export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: st
     await dbDelete(col as any, id);
 };
 
-// Fix: Added missing clearLocalCache function to resolve the import error in App.tsx
-/**
- * Limpa todo o cache local (IndexedDB e Storages)
- */
 export const clearLocalCache = async () => {
     try {
         const dbInstance = await initDB();

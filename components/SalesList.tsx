@@ -83,7 +83,6 @@ const SalesList: React.FC<SalesListProps> = ({
 
   const handleSelectVisible = (checked: boolean) => {
       if (checked) {
-          // Restaurado: Seleciona todos os itens filtrados (global), não apenas os da página
           const allFilteredIds = processedSales.map(s => s.id);
           setSelectedIds(allFilteredIds);
       } else {
