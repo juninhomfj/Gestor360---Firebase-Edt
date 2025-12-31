@@ -1,6 +1,5 @@
-
 import React, { useState, useRef } from 'react';
-import { User, UserStatus } from '../types';
+import { User, UserStatus, UserPermissions } from '../types';
 import { logout, updateUser, deactivateUser } from '../services/auth';
 import { requestAndSaveToken } from '../services/pushService';
 import { 
@@ -23,7 +22,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
   const [profilePhoto, setProfilePhoto] = useState(currentUser.profilePhoto || '');
   const [contactVisibility, setContactVisibility] = useState(currentUser.contactVisibility || 'PUBLIC');
   
-  const [modules, setModules] = useState(currentUser.permissions || {});
+  // Fix: Explicitly typed modules state as UserPermissions and removed incompatible empty object fallback (Line 20)
+  const [modules, setModules] = useState<UserPermissions>(currentUser.permissions);
   
   const [isSaving, setIsSaving] = useState(false);
   const [isRegisteringPush, setIsRegisteringPush] = useState(false);
@@ -209,7 +209,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                 <button 
                     onClick={handleSave} 
                     disabled={isSaving} 
-                    className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 px-12 rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-indigo-900/20 active:scale-95 disabled:opacity-50 transition-all uppercase text-xs tracking-widest"
+                    className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 px-12 rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-indigo-900/20 active:scale-[0.98] disabled:opacity-50 transition-all uppercase text-xs tracking-widest"
                 >
                     {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
                     {isSaving ? 'Salvando...' : 'Gravar Alterações'}

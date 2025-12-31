@@ -27,6 +27,7 @@ import {
     User, DuplicateGroup, NtfyPayload, ChallengeModel
 } from '../types';
 import { Logger } from './logger';
+import { sendMessage } from './internalChat';
 
 export const SessionTraffic = {
     reads: 0,
@@ -105,10 +106,6 @@ export function ensureNumber(value: any, fallback = 0): number {
   } catch (e) { return fallback; }
 }
 
-/**
- * Sanitiza objetos para o Firestore, removendo undefined e convertendo para null.
- * Crucial para evitar erros de 'permission-denied' ou 'invalid data' no SDK.
- */
 export function sanitizeForFirestore(obj: any): any {
     if (obj === undefined) return null;
     if (obj === null || typeof obj !== 'object') return obj;
@@ -134,55 +131,96 @@ async function getAuthenticatedUid(): Promise<string> {
     });
 }
 
-// --- COMISSÕES ---
+// --- COMISSÕES GLOBAIS (SINCRONIZAÇÃO MANDATÓRIA) ---
 
-const getCommissionDocId = (type: ProductType): string => {
-    if (type === ProductType.BASICA) return 'basic';
-    if (type === ProductType.NATAL) return 'natal';
-    return type.toLowerCase();
+const getColName = (type: ProductType): string => {
+    return type === ProductType.NATAL ? 'commissions_natal' : 'commissions_basic';
+};
+
+const getLocalStoreName = (type: ProductType): string => {
+    return type === ProductType.NATAL ? 'commission_natal' : 'commission_basic';
 };
 
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
-    const storeName = type === ProductType.NATAL ? 'commission_natal' : 'commission_basic';
-    const docId = getCommissionDocId(type);
+    const colName = getColName(type);
+    const storeName = getLocalStoreName(type);
 
     try {
-        const docRef = doc(db, "commissions", docId);
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-            const rules = (snap.data().rules || []) as CommissionRule[];
-            await dbBulkPut(storeName as any, rules);
-            SessionTraffic.trackRead();
-            return rules;
+        // Sincronização automática: Buscar apenas documentos ativos do backend (fonte de verdade)
+        const q = query(collection(db, colName), where("active", "==", true));
+        const snap = await getDocs(q);
+        SessionTraffic.trackRead(snap.size);
+
+        if (!snap.empty) {
+            const remoteRules = snap.docs.map(d => {
+                const data = d.data();
+                return {
+                    id: d.id,
+                    minPercent: data.minPercent,
+                    maxPercent: data.maxPercent,
+                    commissionRate: data.commissionRate,
+                    isActive: data.isActive
+                } as CommissionRule;
+            });
+
+            // Substituição integral do cache local
+            const dbInst = await initDB();
+            await dbInst.clear(storeName as any);
+            await dbBulkPut(storeName as any, remoteRules);
+            
+            return remoteRules.sort((a, b) => a.minPercent - b.minPercent);
         }
     } catch (e) {
-        console.error(`[Firebase] Erro ao baixar tabela de comissão [${docId}]:`, e);
+        console.error(`[Sync] Falha na sincronização global [${colName}]:`, e);
     }
     
+    // Fallback para cache local se offline, mas o backend sempre prevalece se acessível
     const cached = await dbGetAll(storeName as any);
-    return cached || [];
+    return (cached || []).sort((a: any, b: any) => a.minPercent - b.minPercent);
 };
 
 export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
-    const storeName = type === ProductType.NATAL ? 'commission_natal' : 'commission_basic';
-    const docId = getCommissionDocId(type);
+    const colName = getColName(type);
+    const storeName = getLocalStoreName(type);
+    const version = Date.now();
+
+    // 1. Identificar documentos ativos anteriores para inativação total
+    const q = query(collection(db, colName), where("active", "==", true));
+    const snap = await getDocs(q);
+    const batch = writeBatch(db);
+
+    // 2. Inativação TOTAL (Garantia de que versões antigas não se misturam)
+    snap.docs.forEach(d => {
+        batch.update(d.ref, { active: false, inactivatedAt: serverTimestamp() });
+    });
+
+    // 3. Gravação integral da nova versão (idempotente por versão)
+    rules.forEach(rule => {
+        const newDocRef = doc(collection(db, colName));
+        batch.set(newDocRef, sanitizeForFirestore({
+            ...rule,
+            type,
+            version,
+            active: true,
+            createdAt: serverTimestamp()
+        }));
+    });
+
+    await batch.commit();
+    SessionTraffic.trackWrite();
     
-    try {
-        const dbInst = await initDB();
-        await dbInst.clear(storeName as any);
-        await dbBulkPut(storeName as any, rules);
-        
-        await setDoc(doc(db, "commissions", docId), { 
-            id: docId,
-            rules: sanitizeForFirestore(rules), 
-            updatedAt: serverTimestamp() 
-        }, { merge: true });
-        
-        SessionTraffic.trackWrite();
-    } catch (e) {
-        throw e;
-    }
+    // Atualiza cache local imediatamente após escrita com sucesso no servidor
+    const dbInst = await initDB();
+    await dbInst.clear(storeName as any);
+    await dbBulkPut(storeName as any, rules);
 };
+
+export const reportCommissionError = async (type: ProductType, message: string, currentUser: User) => {
+    const content = `[REPORTE ERRO COMISSÃO - ${type}]\nUsuário: ${currentUser.name}\nMotivo: ${message}`;
+    await sendMessage(currentUser, content, 'SYSTEM', 'ADMIN');
+};
+
+// --- VENDAS ---
 
 export const getStoredSales = async (): Promise<Sale[]> => {
     const uid = await getAuthenticatedUid();
@@ -224,6 +262,8 @@ export const saveSingleSale = async (payload: any) => {
       throw e;
   }
 };
+
+// --- FINANCEIRO ---
 
 export const getFinanceData = async () => {
     const uid = await getAuthenticatedUid();
@@ -371,7 +411,6 @@ export const generateChallengeCells = (challengeId: string, target: number, coun
     const uid = auth.currentUser?.uid || '';
     const factor = model === 'LINEAR' ? target / ((count * (count + 1)) / 2) : target / count;
     for (let i = 1; i <= count; i++) {
-      /* Fix: Changed ChallengeCell structure to match types.ts and ensure status consistency */
         cells.push({
             id: crypto.randomUUID(), challengeId, number: i, 
             value: model === 'LINEAR' ? i * factor : (model === 'PROPORTIONAL' ? factor : 0),
@@ -384,24 +423,26 @@ export const generateChallengeCells = (challengeId: string, target: number, coun
 export const bootstrapProductionData = async () => {
     const config = await getSystemConfig();
     if (config.bootstrapVersion >= 1) return;
-    const basicRef = doc(db, "commissions", "basic");
-    if (!(await getDoc(basicRef)).exists()) {
-        await setDoc(basicRef, {
-            id: "basic",
-            rules: [
+    
+    // Inicialização segura de tabelas globais (Apenas se vazias)
+    const tables = [ProductType.BASICA, ProductType.NATAL];
+    for (const t of tables) {
+        const rules = await getStoredTable(t);
+        if (rules.length === 0 && t === ProductType.BASICA) {
+            await saveCommissionRules(t, [
                 { id: crypto.randomUUID(), minPercent: 0, maxPercent: 10, commissionRate: 0.04, isActive: true },
                 { id: crypto.randomUUID(), minPercent: 10, maxPercent: 20, commissionRate: 0.05, isActive: true },
                 { id: crypto.randomUUID(), minPercent: 20, maxPercent: null, commissionRate: 0.06, isActive: true }
-            ],
-            updatedAt: serverTimestamp()
-        });
+            ]);
+        }
     }
+    
     await saveSystemConfig({ bootstrapVersion: 1 });
 };
 
 export const clearLocalCache = async () => {
     const dbInst = await initDB();
-    const stores = ['sales', 'accounts', 'transactions', 'categories', 'cards', 'receivables', 'goals', 'challenges', 'challenge_cells', 'clients'];
+    const stores = ['sales', 'accounts', 'transactions', 'categories', 'cards', 'receivables', 'goals', 'challenges', 'challenge_cells', 'clients', 'commission_basic', 'commission_natal'];
     for (const s of stores) await dbInst.clear(s as any);
 };
 

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Transaction, TransactionCategory, FinanceAccount, ImportMapping } from '../types';
 import { Filter, Trash2, CheckCircle2, Clock, PlayCircle, TrendingUp, TrendingDown, ArrowLeftRight, Paperclip, X, FileText, Image as ImageIcon, ChevronLeft, ChevronRight, Upload, Download, Loader2 } from 'lucide-react';
@@ -189,7 +188,8 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
           <div className={`p-4 rounded-xl border flex flex-col md:flex-row gap-4 ${cardBg}`}>
               <div className="flex-1">
                   <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Tipo</label>
-                  <select value={filterType} onChange={e => setFilterType(target => target.value)} className={`w-full p-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300'}`}>
+                  {/* Fix: Corrected event handler in select to use e.target.value instead of treating previous state as an event target (Line 192) */}
+                  <select value={filterType} onChange={e => setFilterType(e.target.value)} className={`w-full p-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300'}`}>
                       <option value="ALL">Todos</option>
                       <option value="INCOME">Receitas</option>
                       <option value="EXPENSE">Despesas</option>
@@ -198,7 +198,8 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
               </div>
               <div className="flex-1">
                   <label className="block text-[10px] font-black uppercase text-gray-400 mb-1">Mês</label>
-                  <input type="month" value={filterMonth} onChange={e => setFilterMonth(target => target.value)} className={`w-full p-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300'}`}/>
+                  {/* Fix: Corrected event handler in input to use e.target.value instead of treating previous state as an event target (Line 201) */}
+                  <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className={`w-full p-2 rounded-lg border text-sm ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-300'}`}/>
               </div>
           </div>
 
