@@ -2,59 +2,46 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // 1. FUNÇÕES DE SUPORTE
     function isSignedIn() {
       return request.auth != null;
     }
 
-    function isOwner() {
-      return resource.data.userId == request.auth.uid;
-    }
-
-    // isAdmin deve ser usado apenas para validação de escrita ou leitura de logs
-    // Não deve ser usado em queries de lista de coleções privadas
     function isAdmin() {
       return isSignedIn() && 
         get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role in ['ADMIN', 'DEV'];
     }
 
-    // 2. PROFILES
+    function isOwner() {
+      return resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid;
+    }
+
     match /profiles/{uid} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn();
       allow update: if isSignedIn() && (request.auth.uid == uid || isAdmin());
     }
 
-    // 3. COLEÇÕES PRIVADAS (Operacionais)
-    // Regras determinísticas: Listagem baseada exclusivamente no campo userId do documento
-    match /sales/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /transactions/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /accounts/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /cards/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /categories/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /goals/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /challenges/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /challenge_cells/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /receivables/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /clients/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /wa_contacts/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /wa_campaigns/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /wa_queue/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
-    match /client_transfer_requests/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
+    match /sales/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && isOwner(); }
+    match /transactions/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && isOwner(); }
+    match /accounts/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && isOwner(); }
+    match /cards/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && isOwner(); }
+    match /categories/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && isOwner(); }
+    match /goals/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && isOwner(); }
+    match /receivables/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && isOwner(); }
+    match /clients/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && isOwner(); }
 
-    // Mensageria Interna
     match /internal_messages/{msgId} {
+      // Todos podem criar tickets e ler mensagens onde são destinatários ou se for broadcast
+      allow create: if isSignedIn();
       allow read: if isSignedIn() && (
         resource.data.recipientId == request.auth.uid || 
         resource.data.senderId == request.auth.uid ||
-        resource.data.recipientId == "BROADCAST"
+        resource.data.recipientId == "BROADCAST" ||
+        isAdmin()
       );
-      allow create, update: if isSignedIn();
+      allow update: if isSignedIn() && (isOwner() || isAdmin());
     }
 
-    // 4. COLEÇÕES GLOBAIS
-    // Leitura permitida para todos autenticados (determinística para listagem)
-    // Escrita exclusiva para ADMIN ou DEV
     match /commissions_basic/{docId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
