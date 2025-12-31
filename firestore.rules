@@ -11,6 +11,8 @@ service cloud.firestore {
       return resource.data.userId == request.auth.uid;
     }
 
+    // isAdmin deve ser usado apenas para validação de escrita ou leitura de logs
+    // Não deve ser usado em queries de lista de coleções privadas
     function isAdmin() {
       return isSignedIn() && 
         get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role in ['ADMIN', 'DEV'];
@@ -24,9 +26,7 @@ service cloud.firestore {
     }
 
     // 3. COLEÇÕES PRIVADAS (Operacionais)
-    // Regra única: Leitura restrita ao dono (baseado no campo userId do documento)
-    // Escrita permitida apenas se o userId enviado for o do autor da requisição
-    // Abrange: sales, transactions, accounts, cards, categories, goals, challenges, challenge_cells, receivables, clients, wa_contacts, wa_campaigns, wa_queue
+    // Regras determinísticas: Listagem baseada exclusivamente no campo userId do documento
     match /sales/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
     match /transactions/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
     match /accounts/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
@@ -42,7 +42,7 @@ service cloud.firestore {
     match /wa_queue/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
     match /client_transfer_requests/{id} { allow read: if isSignedIn() && isOwner(); allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid; }
 
-    // Mensageria Interna: Regra especial de visibilidade sem get()
+    // Mensageria Interna
     match /internal_messages/{msgId} {
       allow read: if isSignedIn() && (
         resource.data.recipientId == request.auth.uid || 
@@ -53,7 +53,14 @@ service cloud.firestore {
     }
 
     // 4. COLEÇÕES GLOBAIS
-    match /commissions/{docId} {
+    // Leitura permitida para todos autenticados (determinística para listagem)
+    // Escrita exclusiva para ADMIN ou DEV
+    match /commissions_basic/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /commissions_natal/{docId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }

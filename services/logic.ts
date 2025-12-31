@@ -29,6 +29,64 @@ import {
 import { Logger } from './logger';
 import { sendMessage } from './internalChat';
 
+// --- SISTEMA DE LOGGING DETERMINÍSTICO (BUFFER CIRCULAR) ---
+const MAX_LOG_BUFFER = 50;
+const executionBuffer: Array<{ timestamp: string; level: 'INFO' | 'WARN' | 'ERROR'; module: string; action: string; details?: any }> = [];
+
+/**
+ * Registra um evento no buffer circular de memória (não persistente).
+ */
+const recordTrace = (level: 'INFO' | 'WARN' | 'ERROR', module: string, action: string, details?: any) => {
+    const entry = {
+        timestamp: new Date().toISOString(),
+        level,
+        module,
+        action,
+        details: details ? JSON.parse(JSON.stringify(details)) : null
+    };
+    executionBuffer.push(entry);
+    if (executionBuffer.length > MAX_LOG_BUFFER) {
+        executionBuffer.shift();
+    }
+    // Espelhamento controlado no console apenas em dev
+    if (process.env.NODE_ENV === 'development') {
+        console.log(`[${level}] [${module}:${action}]`, details || '');
+    }
+};
+
+/**
+ * Reporta o estado atual do buffer de execução para administradores via internal_messages.
+ * Chamado manualmente ou por fluxos de erro crítico.
+ */
+export const reportRuntimeError = async (context?: string) => {
+    const user = auth.currentUser;
+    if (!user) {
+        recordTrace('WARN', 'SYSTEM', 'REPORT_ABORTED', { reason: 'No auth user' });
+        return;
+    }
+
+    recordTrace('INFO', 'SYSTEM', 'REPORT_ERROR_TRIGGERED', { context });
+
+    const reportContent = `🚨 RELATÓRIO DE EXECUÇÃO DETERMINÍSTICO\n` +
+        `Contexto: ${context || 'Manual'}\n` +
+        `Usuário: ${user.email} (UID: ${user.uid})\n` +
+        `Buffer de Logs (Últimos ${executionBuffer.length}):\n` +
+        JSON.stringify(executionBuffer, null, 2);
+
+    try {
+        await sendMessage(
+            { id: user.uid, name: user.displayName || 'Usuário Gestor' } as User,
+            reportContent,
+            'BUG_REPORT',
+            'BROADCAST'
+        );
+        recordTrace('INFO', 'SYSTEM', 'REPORT_ERROR_SUCCESS');
+    } catch (e: any) {
+        recordTrace('ERROR', 'SYSTEM', 'REPORT_ERROR_FAIL', { error: e.message });
+        throw e;
+    }
+};
+
 export const SessionTraffic = {
     reads: 0,
     writes: 0,
@@ -49,6 +107,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 };
 
 export const getSystemConfig = async (): Promise<SystemConfig & UserPreferences> => {
+    recordTrace('INFO', 'CONFIG', 'LOAD_START');
     const globalSnap = await getDoc(doc(db, "config", "system"));
     const globalConfig = globalSnap.exists() ? { ...DEFAULT_SYSTEM_CONFIG, ...globalSnap.data() } as SystemConfig : DEFAULT_SYSTEM_CONFIG;
 
@@ -56,6 +115,7 @@ export const getSystemConfig = async (): Promise<SystemConfig & UserPreferences>
     if (uid) {
         const userSnap = await getDoc(doc(db, "config", `system_${uid}`));
         if (userSnap.exists()) {
+            recordTrace('INFO', 'CONFIG', 'LOAD_USER_PREFS', { uid });
             return { ...globalConfig, ...userSnap.data() as UserPreferences };
         }
     }
@@ -64,8 +124,12 @@ export const getSystemConfig = async (): Promise<SystemConfig & UserPreferences>
 
 export const saveSystemConfig = async (config: any) => {
     const uid = auth.currentUser?.uid;
-    if (!uid) return;
+    if (!uid) {
+        recordTrace('WARN', 'CONFIG', 'SAVE_ABORTED', { reason: 'No UID' });
+        return;
+    }
     
+    recordTrace('INFO', 'CONFIG', 'SAVE_START', { uid });
     const userPrefs: UserPreferences & { userId: string } = { userId: uid };
     if (config.theme) userPrefs.theme = config.theme;
     if (config.hideValues !== undefined) userPrefs.hideValues = config.hideValues;
@@ -88,7 +152,7 @@ export const saveSystemConfig = async (config: any) => {
         await setDoc(doc(db, "config", "system"), globalConfig, { merge: true });
     }
     
-    Logger.info("Auditoria: Configurações de sistema salvas.");
+    recordTrace('INFO', 'CONFIG', 'SAVE_SUCCESS');
 };
 
 export const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -102,8 +166,15 @@ export function ensureNumber(value: any, fallback = 0): number {
     else if (str.includes(',')) str = str.replace(',', '.');
     str = str.replace(/[^\d.-]/g, '');
     const num = parseFloat(str);
-    return isNaN(num) ? fallback : num;
-  } catch (e) { return fallback; }
+    if (isNaN(num)) {
+        recordTrace('WARN', 'PARSER', 'INVALID_NUMBER_FALLBACK', { raw: value, fallback });
+        return fallback;
+    }
+    return num;
+  } catch (e: any) { 
+      recordTrace('ERROR', 'PARSER', 'CRITICAL_PARSING_ERROR', { raw: value, error: e.message });
+      return fallback; 
+  }
 }
 
 export function sanitizeForFirestore(obj: any): any {
@@ -120,18 +191,15 @@ export function sanitizeForFirestore(obj: any): any {
     return cleaned;
 }
 
-async function getAuthenticatedUid(): Promise<string> {
-    const user = auth.currentUser;
-    if (user) return user.uid;
-    return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Auth Timeout")), 8000);
-        const unsub = auth.onAuthStateChanged((u) => {
-            if (u) { clearTimeout(timeout); unsub(); resolve(u.uid); }
-        }, reject);
-    });
-}
+export const canAccess = (user: User | null, feature: string): boolean => {
+    if (!user || !user.isActive) return false;
+    if (user.role === 'DEV') return true; 
+    const result = !!(user.permissions as any)[feature];
+    if (!result) recordTrace('WARN', 'AUTH', 'PERMISSION_DENIED', { feature, user: user.uid });
+    return result;
+};
 
-// --- COMISSÕES GLOBAIS (SINCRONIZAÇÃO MANDATÓRIA) ---
+// --- COMISSÕES GLOBAIS ---
 
 const getColName = (type: ProductType): string => {
     return type === ProductType.NATAL ? 'commissions_natal' : 'commissions_basic';
@@ -144,37 +212,51 @@ const getLocalStoreName = (type: ProductType): string => {
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
     const colName = getColName(type);
     const storeName = getLocalStoreName(type);
+    recordTrace('INFO', 'COMMISSIONS', 'READ_FS_START', { type });
 
     try {
-        // Sincronização automática: Buscar apenas documentos ativos do backend (fonte de verdade)
-        const q = query(collection(db, colName), where("active", "==", true));
+        const q = query(collection(db, colName), where("isActive", "==", true), limit(1));
         const snap = await getDocs(q);
         SessionTraffic.trackRead(snap.size);
 
         if (!snap.empty) {
-            const remoteRules = snap.docs.map(d => {
-                const data = d.data();
-                return {
-                    id: d.id,
-                    minPercent: data.minPercent,
-                    maxPercent: data.maxPercent,
-                    commissionRate: data.commissionRate,
-                    isActive: data.isActive
-                } as CommissionRule;
-            });
+            const docData = snap.docs[0].data();
+            const remoteVersion = docData.version;
+            const localVersion = localStorage.getItem(`v_comm_${type}`);
 
-            // Substituição integral do cache local
+            if (String(remoteVersion) !== localVersion) {
+                recordTrace('INFO', 'COMMISSIONS', 'VERSION_MISMATCH_SYNC', { type, remote: remoteVersion, local: localVersion });
+                const rules: CommissionRule[] = (docData.tiers || []).map((t: any, idx: number) => ({
+                    id: `${remoteVersion}_${idx}`,
+                    minPercent: t.min,
+                    maxPercent: t.max,
+                    commissionRate: t.rate,
+                    isActive: true
+                }));
+
+                const dbInst = await initDB();
+                await dbInst.clear(storeName as any);
+                await dbBulkPut(storeName as any, rules);
+                localStorage.setItem(`v_comm_${type}`, String(remoteVersion));
+                recordTrace('INFO', 'COMMISSIONS', 'SYNC_COMPLETE', { type, count: rules.length });
+                
+                return rules.sort((a, b) => a.minPercent - b.minPercent);
+            }
+        } else {
+            recordTrace('WARN', 'COMMISSIONS', 'REMOTE_TABLE_EMPTY', { type });
             const dbInst = await initDB();
             await dbInst.clear(storeName as any);
-            await dbBulkPut(storeName as any, remoteRules);
-            
-            return remoteRules.sort((a, b) => a.minPercent - b.minPercent);
+            localStorage.removeItem(`v_comm_${type}`);
+            return [];
         }
-    } catch (e) {
-        console.error(`[Sync] Falha na sincronização global [${colName}]:`, e);
+    } catch (e: any) {
+        recordTrace('ERROR', 'COMMISSIONS', 'SYNC_FAIL', { type, error: e.message });
+        const localVersion = localStorage.getItem(`v_comm_${type}`);
+        if (!localVersion) {
+            throw new Error(`Módulo de Comissão [${type}] indisponível por falha crítica de leitura no Firestore.`);
+        }
     }
     
-    // Fallback para cache local se offline, mas o backend sempre prevalece se acessível
     const cached = await dbGetAll(storeName as any);
     return (cached || []).sort((a: any, b: any) => a.minPercent - b.minPercent);
 };
@@ -183,491 +265,466 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
     const colName = getColName(type);
     const storeName = getLocalStoreName(type);
     const version = Date.now();
+    recordTrace('INFO', 'COMMISSIONS', 'WRITE_START', { type, count: rules.length });
 
-    // 1. Identificar documentos ativos anteriores para inativação total
-    const q = query(collection(db, colName), where("active", "==", true));
+    const q = query(collection(db, colName), where("isActive", "==", true));
     const snap = await getDocs(q);
     const batch = writeBatch(db);
 
-    // 2. Inativação TOTAL (Garantia de que versões antigas não se misturam)
     snap.docs.forEach(d => {
-        batch.update(d.ref, { active: false, inactivatedAt: serverTimestamp() });
+        batch.update(d.ref, { isActive: false, inactivatedAt: serverTimestamp() });
     });
 
-    // 3. Gravação integral da nova versão (idempotente por versão)
-    rules.forEach(rule => {
-        const newDocRef = doc(collection(db, colName));
-        batch.set(newDocRef, sanitizeForFirestore({
-            ...rule,
-            type,
-            version,
-            active: true,
-            createdAt: serverTimestamp()
-        }));
+    const tiers = rules.map(r => ({
+        min: r.minPercent,
+        max: r.maxPercent,
+        rate: r.commissionRate
+    }));
+
+    const newDocRef = doc(collection(db, colName));
+    batch.set(newDocRef, {
+        type: type === ProductType.NATAL ? "NATAL" : "BASICA",
+        version,
+        isActive: true,
+        createdAt: serverTimestamp(),
+        tiers
     });
 
     await batch.commit();
     SessionTraffic.trackWrite();
     
-    // Atualiza cache local imediatamente após escrita com sucesso no servidor
     const dbInst = await initDB();
     await dbInst.clear(storeName as any);
     await dbBulkPut(storeName as any, rules);
+    localStorage.setItem(`v_comm_${type}`, String(version));
+    recordTrace('INFO', 'COMMISSIONS', 'WRITE_SUCCESS', { type, version });
 };
 
-export const reportCommissionError = async (type: ProductType, message: string, currentUser: User) => {
-    const content = `[REPORTE ERRO COMISSÃO - ${type}]\nUsuário: ${currentUser.name}\nMotivo: ${message}`;
-    await sendMessage(currentUser, content, 'SYSTEM', 'ADMIN');
-};
-
-// --- VENDAS ---
+// --- SALES & CRM ---
 
 export const getStoredSales = async (): Promise<Sale[]> => {
-    const uid = await getAuthenticatedUid();
-    try {
-        const q = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", false));
-        const snap = await getDocs(q);
-        SessionTraffic.trackRead(snap.size);
-        const sales = snap.docs.map(d => ({ ...d.data(), id: d.id } as Sale));
-        await dbBulkPut('sales', sales);
-        return sales;
-    } catch (e) {
-        return await dbGetAll('sales');
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+        recordTrace('WARN', 'SALES', 'READ_ABORTED', { reason: 'No current user' });
+        return [];
     }
+    recordTrace('INFO', 'SALES', 'READ_START', { uid });
+    return await dbGetAll('sales', (s) => s.userId === uid && !s.deleted);
+};
+
+export const saveSingleSale = async (sale: Sale) => {
+    recordTrace('INFO', 'SALES', 'WRITE_FS_START', { id: sale.id, client: sale.client });
+    await dbPut('sales', sale);
+    const syncRef = doc(db, 'sales', sale.id);
+    await setDoc(syncRef, sanitizeForFirestore(sale), { merge: true });
+    SessionTraffic.trackWrite();
+    recordTrace('INFO', 'SALES', 'WRITE_SUCCESS', { id: sale.id });
 };
 
 export const saveSales = async (sales: Sale[]) => {
-    const uid = await getAuthenticatedUid();
-    const sanitized = sales.map(s => sanitizeForFirestore({ ...s, userId: uid, updatedAt: serverTimestamp() }));
-    await dbBulkPut('sales', sanitized);
+    recordTrace('INFO', 'SALES', 'WRITE_BATCH_START', { count: sales.length });
     const batch = writeBatch(db);
-    sanitized.forEach(s => {
-        const { id, ...data } = s;
-        batch.set(doc(db, "sales", id), data, { merge: true });
-        SessionTraffic.trackWrite();
-    });
-    await batch.commit();
-};
-
-export const saveSingleSale = async (payload: any) => {
-  const uid = await getAuthenticatedUid();
-  const saleId = payload.id || crypto.randomUUID();
-  const saleData = sanitizeForFirestore({ ...payload, id: saleId, userId: uid, updatedAt: serverTimestamp() });
-  
-  try {
-      await dbPut('sales', saleData);
-      await setDoc(doc(db, "sales", saleId), saleData, { merge: true });
-      SessionTraffic.trackWrite();
-  } catch (e) {
-      throw e;
-  }
-};
-
-// --- FINANCEIRO ---
-
-export const getFinanceData = async () => {
-    const uid = await getAuthenticatedUid();
-    const fetchSafe = async (col: string) => {
-        const q = query(collection(db, col), where("userId", "==", uid), where("deleted", "==", false));
-        const snap = await getDocs(q);
-        SessionTraffic.trackRead(snap.size);
-        const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        await dbBulkPut(col as any, items);
-        return items;
-    };
-    try {
-        const [acc, tx, crd, cat, gl, chal, cell, rec] = await Promise.all([
-            fetchSafe("accounts"), fetchSafe("transactions"), fetchSafe("cards"), fetchSafe("categories"),
-            fetchSafe("goals"), fetchSafe("challenges"), fetchSafe("challenge_cells"), fetchSafe("receivables")
-        ]);
-        return {
-            accounts: acc as FinanceAccount[], 
-            transactions: tx as Transaction[], 
-            cards: crd as CreditCard[],
-            categories: cat as TransactionCategory[], 
-            goals: gl as FinanceGoal[], 
-            challenges: chal as Challenge[], 
-            cells: cell as ChallengeCell[], 
-            receivables: rec as Receivable[]
-        };
-    } catch (e) {
-        throw e;
+    for (const sale of sales) {
+        await dbPut('sales', sale);
+        const ref = doc(db, 'sales', sale.id);
+        batch.set(ref, sanitizeForFirestore(sale), { merge: true });
     }
-};
-
-export const saveFinanceData = async (acc: FinanceAccount[], crd: CreditCard[], tx: Transaction[], cat: TransactionCategory[], gl: FinanceGoal[] = [], chal: Challenge[] = [], rec: Receivable[] = []) => {
-    const uid = await getAuthenticatedUid();
-    const batch = writeBatch(db);
-    const prep = (item: any) => sanitizeForFirestore({ ...item, userId: uid, updatedAt: serverTimestamp() });
-    
-    acc.forEach(i => batch.set(doc(db, "accounts", i.id), prep(i), { merge: true }));
-    crd.forEach(i => batch.set(doc(db, "cards", i.id), prep(i), { merge: true }));
-    cat.forEach(i => batch.set(doc(db, "categories", i.id), prep(i), { merge: true }));
-    gl.forEach(i => batch.set(doc(db, "goals", i.id), prep(i), { merge: true }));
-    chal.forEach(i => batch.set(doc(db, "challenges", i.id), prep(i), { merge: true }));
-    rec.forEach(i => batch.set(doc(db, "receivables", i.id), prep(i), { merge: true }));
-    tx.slice(-500).forEach(i => batch.set(doc(db, "transactions", i.id), prep(i), { merge: true }));
-    
     await batch.commit();
-    SessionTraffic.trackWrite();
-};
-
-export const canAccess = (user: User | null, feature: string): boolean => {
-    if (!user || !user.isActive) return false;
-    if (user.role === 'DEV') return true;
-    return !!(user.permissions as any)[feature];
-};
-
-export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
-    const clientMap = new Map<string, { name: string, lastDate: string, totalSpent: number, orders: number }>();
-    sales.forEach(s => {
-        if (s.deleted) return;
-        const current = clientMap.get(s.client) || { name: s.client, lastDate: '0', totalSpent: 0, orders: 0 };
-        const saleDate = s.date || s.completionDate || s.createdAt;
-        if (saleDate > current.lastDate) current.lastDate = saleDate;
-        current.totalSpent += s.valueSold;
-        current.orders += 1;
-        clientMap.set(s.client, current);
-    });
-    const now = new Date();
-    return Array.from(clientMap.values()).map(c => {
-        const last = new Date(c.lastDate);
-        const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
-        let status: 'ACTIVE' | 'NEW' | 'INACTIVE' | 'LOST' = 'ACTIVE';
-        if (diffDays <= config.daysForNewClient) status = 'NEW';
-        else if (diffDays >= config.daysForLost) status = 'LOST';
-        else if (diffDays >= config.daysForInactive) status = 'INACTIVE';
-        return { name: c.name, status, totalOrders: c.orders, totalSpent: c.totalSpent, lastPurchaseDate: c.lastDate, daysSinceLastPurchase: diffDays };
-    });
-};
-
-export const analyzeMonthlyVolume = (sales: Sale[], monthsCount: number) => {
-    const data = [];
-    const now = new Date();
-    for (let i = monthsCount - 1; i >= 0; i--) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const label = d.toLocaleDateString('pt-BR', { month: 'short' });
-        const key = d.toISOString().substring(0, 7);
-        const filtered = sales.filter(s => (s.date || '').startsWith(key));
-        data.push({
-            name: label,
-            basica: filtered.filter(s => s.type === ProductType.BASICA).reduce((acc, s) => acc + s.quantity, 0),
-            natal: filtered.filter(s => s.type === ProductType.NATAL).reduce((acc, s) => acc + s.quantity, 0)
-        });
-    }
-    return data;
-};
-
-export const exportReportToCSV = (data: any[], fileName: string) => {
-    if (data.length === 0) return;
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Relatório");
-    XLSX.writeFile(wb, `${fileName}.xlsx`);
-};
-
-export const readExcelFile = async (file: File): Promise<any[][]> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            try {
-                const data = e.target?.result;
-                const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-                resolve(json as any[][]);
-            } catch (err) { reject(err); }
-        };
-        reader.onerror = reject;
-        reader.readAsArrayBuffer(file);
-    });
-};
-
-export const downloadSalesTemplate = () => {
-    const headers = [
-        "Data Faturamento", "Data Pedido", "Tipo (Cesta Básica ou Cesta de Natal)", 
-        "Cliente", "Qtd", "Unitário Proposto", "Valor Total Venda", "Margem %", "Observações"
-    ];
-    const sample = [
-        new Date().toISOString().split('T')[0], new Date().toISOString().split('T')[0],
-        "Cesta Básica", "Exemplo Ltda", "10", "150.00", "1500.00", "15", "Venda de teste"
-    ];
-    const ws = XLSX.utils.aoa_to_sheet([headers, sample]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Modelo");
-    XLSX.writeFile(wb, "modelo_importacao_vendas.xlsx");
+    SessionTraffic.trackWrite(sales.length);
+    recordTrace('INFO', 'SALES', 'WRITE_BATCH_SUCCESS');
 };
 
 export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
     const commissionBase = quantity * valueProposed;
     const rule = rules.find(r => margin >= r.minPercent && (r.maxPercent === null || margin < r.maxPercent));
     const rateUsed = rule ? rule.commissionRate : 0;
-    return { commissionBase, commissionValue: commissionBase * rateUsed, rateUsed };
-};
-
-export const generateChallengeCells = (challengeId: string, target: number, count: number, model: ChallengeModel): ChallengeCell[] => {
-    const cells: ChallengeCell[] = [];
-    const uid = auth.currentUser?.uid || '';
-    const factor = model === 'LINEAR' ? target / ((count * (count + 1)) / 2) : target / count;
-    for (let i = 1; i <= count; i++) {
-        cells.push({
-            id: crypto.randomUUID(), challengeId, number: i, 
-            value: model === 'LINEAR' ? i * factor : (model === 'PROPORTIONAL' ? factor : 0),
-            status: 'PENDING', userId: uid, deleted: false
-        });
-    }
-    return cells;
-};
-
-export const bootstrapProductionData = async () => {
-    const config = await getSystemConfig();
-    if (config.bootstrapVersion >= 1) return;
+    const commissionValue = commissionBase * rateUsed;
     
-    // Inicialização segura de tabelas globais (Apenas se vazias)
-    const tables = [ProductType.BASICA, ProductType.NATAL];
-    for (const t of tables) {
-        const rules = await getStoredTable(t);
-        if (rules.length === 0 && t === ProductType.BASICA) {
-            await saveCommissionRules(t, [
-                { id: crypto.randomUUID(), minPercent: 0, maxPercent: 10, commissionRate: 0.04, isActive: true },
-                { id: crypto.randomUUID(), minPercent: 10, maxPercent: 20, commissionRate: 0.05, isActive: true },
-                { id: crypto.randomUUID(), minPercent: 20, maxPercent: null, commissionRate: 0.06, isActive: true }
-            ]);
+    if (rateUsed === 0) {
+        recordTrace('WARN', 'SALES', 'ZERO_COMMISSION_RULE', { margin, ruleCount: rules.length });
+    }
+    
+    return { commissionBase, commissionValue, rateUsed };
+};
+
+export const findPotentialDuplicates = (sales: Sale[]) => {
+    recordTrace('INFO', 'CRM', 'DUPLICATE_CHECK_START', { count: sales.length });
+    const names = Array.from(new Set(sales.map(s => s.client)));
+    const groups: { master: string, similar: string[] }[] = [];
+    const seen = new Set<string>();
+
+    for (let i = 0; i < names.length; i++) {
+        const nameA = names[i];
+        if (seen.has(nameA)) continue;
+        const group = { master: nameA, similar: [] as string[] };
+        seen.add(nameA);
+
+        for (let j = i + 1; j < names.length; j++) {
+            const nameB = names[j];
+            if (seen.has(nameB)) continue;
+            
+            const normA = nameA.toLowerCase().trim();
+            const normB = nameB.toLowerCase().trim();
+            if (normA === normB || normA.includes(normB) || normB.includes(normA)) {
+                group.similar.push(nameB);
+                seen.add(nameB);
+            }
         }
+        if (group.similar.length > 0) groups.push(group);
     }
-    
-    await saveSystemConfig({ bootstrapVersion: 1 });
+    recordTrace('INFO', 'CRM', 'DUPLICATE_CHECK_END', { found: groups.length });
+    return groups;
 };
 
-export const clearLocalCache = async () => {
-    const dbInst = await initDB();
-    const stores = ['sales', 'accounts', 'transactions', 'categories', 'cards', 'receivables', 'goals', 'challenges', 'challenge_cells', 'clients', 'commission_basic', 'commission_natal'];
-    for (const s of stores) await dbInst.clear(s as any);
+export const smartMergeSales = (duplicates: Sale[]): Sale => {
+    recordTrace('INFO', 'CRM', 'MERGE_START', { count: duplicates.length });
+    return duplicates.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
 };
 
-export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
-    const col = type === 'SALE' ? 'sales' : 'transactions';
-    const updated = { ...item, deleted: false, updatedAt: serverTimestamp() };
-    await setDoc(doc(db, col, item.id), updated, { merge: true });
-    await dbPut(col as any, updated);
+// --- ANALYTICS ---
+
+export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
+    recordTrace('INFO', 'CRM', 'ANALYTICS_START');
+    const clientsMap = new Map<string, any>();
+    const now = new Date().getTime();
+
+    sales.forEach(s => {
+        if (!clientsMap.has(s.client)) {
+            clientsMap.set(s.client, { name: s.client, totalSpent: 0, totalOrders: 0, lastPurchaseDate: s.date || s.completionDate, status: 'ACTIVE' });
+        }
+        const c = clientsMap.get(s.client);
+        const sDate = new Date(s.date || s.completionDate || 0).getTime();
+        c.totalSpent += s.valueSold * s.quantity;
+        c.totalOrders += 1;
+        if (sDate > new Date(c.lastPurchaseDate).getTime()) c.lastPurchaseDate = s.date || s.completionDate;
+    });
+
+    const metrics = Array.from(clientsMap.values());
+    metrics.forEach(m => {
+        const lastDate = new Date(m.lastPurchaseDate).getTime();
+        const days = (now - lastDate) / (1000 * 60 * 60 * 24);
+        m.daysSinceLastPurchase = Math.floor(days);
+        if (days > config.daysForLost) m.status = 'LOST';
+        else if (days > config.daysForInactive) m.status = 'INACTIVE';
+        else if (days <= config.daysForNewClient) m.status = 'NEW';
+        else m.status = 'ACTIVE';
+    });
+
+    return metrics;
 };
 
-export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
-    const col = type === 'SALE' ? 'sales' : 'transactions';
-    await deleteDoc(doc(db, col, id));
-    await dbDelete(col as any, id);
+export const analyzeMonthlyVolume = (sales: Sale[], months: number) => {
+    const data: any[] = [];
+    const now = new Date();
+    for (let i = months - 1; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const name = d.toLocaleDateString('pt-BR', { month: 'short' });
+        data.push({ name, basica: 0, natal: 0, month: d.getMonth(), year: d.getFullYear() });
+    }
+
+    sales.forEach(s => {
+        const d = new Date(s.date || s.completionDate || 0);
+        const bin = data.find(b => b.month === d.getMonth() && b.year === d.getFullYear());
+        if (bin) {
+            if (s.type === ProductType.BASICA) bin.basica += s.quantity;
+            else bin.natal += s.quantity;
+        }
+    });
+    return data;
 };
 
 export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
+    recordTrace('INFO', 'CRM', 'PRODUCTIVITY_CALC_START', { userId });
     const sales = await getStoredSales();
-    const config = await getReportConfig();
-    const clientAnalysis = analyzeClients(sales, config);
-    
-    const activeClients = clientAnalysis.filter(c => c.status === 'ACTIVE' || c.status === 'NEW').length;
+    const metrics = analyzeClients(sales, { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 });
+    const active = metrics.filter(m => m.status === 'ACTIVE' || m.status === 'NEW').length;
     const now = new Date();
-    const monthKey = now.toISOString().substring(0, 7);
-    const convertedThisMonth = sales.filter(s => s.date?.startsWith(monthKey)).length;
-    
-    const rate = activeClients > 0 ? (convertedThisMonth / activeClients) * 100 : 0;
-    
+    const convertedThisMonth = sales.filter(s => {
+        const d = new Date(s.date || s.completionDate || 0);
+        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    }).length;
+
+    const rate = active > 0 ? (convertedThisMonth / active) * 100 : 0;
     let status: 'GREEN' | 'YELLOW' | 'RED' = 'RED';
     if (rate >= 70) status = 'GREEN';
     else if (rate >= 40) status = 'YELLOW';
-    
+
     return {
-        totalClients: clientAnalysis.length,
-        activeClients,
+        totalClients: metrics.length,
+        activeClients: active,
         convertedThisMonth,
         conversionRate: rate,
         productivityStatus: status
     };
 };
 
-export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]): FinancialPacing => {
-    const now = new Date();
-    const currentDay = now.getDate();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
+// --- FINANCE ---
 
-    const nextDay = salaryDays.sort((a, b) => a - b).find(d => d > currentDay) || salaryDays[0];
-    const nextIncomeDate = new Date(currentYear, nextDay > currentDay ? currentMonth : currentMonth + 1, nextDay);
+export const getFinanceData = async () => {
+    recordTrace('INFO', 'FINANCE', 'READ_LOCAL_ALL');
+    const [accounts, cards, transactions, categories, goals, challenges, cells, receivables] = await Promise.all([
+        dbGetAll('accounts'), dbGetAll('cards'), dbGetAll('transactions'), dbGetAll('categories'),
+        dbGetAll('goals'), dbGetAll('challenges'), dbGetAll('challenge_cells'), dbGetAll('receivables')
+    ]);
+    return { accounts, cards, transactions, categories, goals, challenges, cells, receivables };
+};
+
+export const saveFinanceData = async (accounts: FinanceAccount[], cards: CreditCard[], transactions: Transaction[], categories: TransactionCategory[]) => {
+    recordTrace('INFO', 'FINANCE', 'WRITE_BATCH_START', { txCount: transactions.length });
+    await dbBulkPut('accounts', accounts);
+    await dbBulkPut('cards', cards);
+    await dbBulkPut('transactions', transactions);
+    await dbBulkPut('categories', categories);
     
-    const diffTime = nextIncomeDate.getTime() - now.getTime();
-    const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+    const batch = writeBatch(db);
+    accounts.forEach(a => batch.set(doc(db, 'accounts', a.id), sanitizeForFirestore(a), { merge: true }));
+    transactions.forEach(t => batch.set(doc(db, 'transactions', t.id), sanitizeForFirestore(t), { merge: true }));
+    await batch.commit();
+    SessionTraffic.trackWrite(accounts.length + transactions.length);
+    recordTrace('INFO', 'FINANCE', 'WRITE_BATCH_SUCCESS');
+};
 
+export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]): FinancialPacing => {
+    recordTrace('INFO', 'FINANCE', 'CALC_PACING_START', { balance });
+    const now = new Date();
+    const nextSalaryDay = salaryDays.find(d => d > now.getDate()) || salaryDays[0];
+    const nextIncomeDate = new Date(now.getFullYear(), now.getMonth() + (nextSalaryDay <= now.getDate() ? 1 : 0), nextSalaryDay);
+    const daysRemaining = Math.ceil((nextIncomeDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    
     const pendingExpenses = transactions
-        .filter(t => !t.isPaid && t.type === 'EXPENSE')
+        .filter(t => !t.isPaid && t.type === 'EXPENSE' && new Date(t.date) <= nextIncomeDate)
         .reduce((acc, t) => acc + t.amount, 0);
 
-    const safeDailySpend = (balance - pendingExpenses) / daysRemaining;
-
-    return {
-        daysRemaining,
-        safeDailySpend: Math.max(0, safeDailySpend),
-        pendingExpenses,
-        nextIncomeDate
-    };
+    const safeDailySpend = (balance - pendingExpenses) / (daysRemaining || 1);
+    recordTrace('INFO', 'FINANCE', 'CALC_PACING_RESULT', { daysRemaining, safeDaily: safeDailySpend });
+    return { daysRemaining, safeDailySpend, pendingExpenses, nextIncomeDate };
 };
 
 export const getInvoiceMonth = (dateStr: string, closingDay: number): string => {
     const d = new Date(dateStr);
-    const day = d.getDate();
-    let month = d.getMonth();
-    let year = d.getFullYear();
+    if (d.getDate() > closingDay) {
+        d.setMonth(d.getMonth() + 1);
+    }
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+};
 
-    if (day >= closingDay) {
-        month++;
-        if (month > 11) {
-            month = 0;
-            year++;
+// --- DATA IMPORT/EXPORT ---
+
+export const exportReportToCSV = (data: any[], filename: string) => {
+    recordTrace('INFO', 'SYSTEM', 'EXPORT_CSV', { filename, rows: data.length });
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Relatório");
+    XLSX.writeFile(wb, `${filename}.csv`);
+};
+
+export const readExcelFile = async (file: File): Promise<any[][]> => {
+    recordTrace('INFO', 'SYSTEM', 'IMPORT_READ_FILE', { name: file.name });
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const data = e.target?.result;
+            const workbook = XLSX.read(data, { type: 'binary' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+            resolve(rows);
+        };
+        reader.onerror = (e) => {
+            recordTrace('ERROR', 'SYSTEM', 'IMPORT_FILE_FAIL', { error: e.target?.error });
+            reject(e);
+        };
+        reader.readAsBinaryString(file);
+    });
+};
+
+export const processFinanceImport = (data: any[][], mapping: ImportMapping): Partial<Transaction>[] => {
+    recordTrace('INFO', 'FINANCE', 'IMPORT_PROCESS_START', { rows: data.length });
+    const rows = data.slice(1);
+    return rows.map(row => {
+        const tx: any = { id: crypto.randomUUID(), deleted: false, createdAt: new Date().toISOString() };
+        if (mapping.date !== -1) tx.date = new Date(row[mapping.date]).toISOString().split('T')[0];
+        if (mapping.description !== -1) tx.description = String(row[mapping.description]);
+        if (mapping.amount !== -1) {
+            const val = ensureNumber(row[mapping.amount]);
+            tx.amount = Math.abs(val);
+            tx.type = val >= 0 ? 'INCOME' : 'EXPENSE';
         }
-    }
-    
-    return `${year}-${String(month + 1).padStart(2, '0')}`;
-};
-
-export const getClients = async (): Promise<Client[]> => {
-    const uid = await getAuthenticatedUid();
-    try {
-        const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", false));
-        const snap = await getDocs(q);
-        const clients = snap.docs.map(d => ({ ...d.data(), id: d.id } as Client));
-        await dbBulkPut('clients', clients);
-        return clients;
-    } catch (e) {
-        return await dbGetAll('clients');
-    }
-};
-
-export const getReportConfig = async (): Promise<ReportConfig> => {
-    const uid = await getAuthenticatedUid();
-    const docRef = doc(db, "config", `report_${uid}`);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) return snap.data() as ReportConfig;
-    return { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 };
-};
-
-export const saveReportConfig = async (config: ReportConfig) => {
-    const uid = await getAuthenticatedUid();
-    await setDoc(doc(db, "config", `report_${uid}`), config, { merge: true });
-};
-
-export const findPotentialDuplicates = (sales: Sale[]): { master: string, similar: string[] }[] => {
-    const names = Array.from(new Set(sales.filter(s => !s.deleted).map(s => s.client)));
-    const groups: { master: string, similar: string[] }[] = [];
-    const processed = new Set<string>();
-
-    for (let i = 0; i < names.length; i++) {
-        const nameA = names[i];
-        if (processed.has(nameA)) continue;
-
-        const similar = names.slice(i + 1).filter(nameB => {
-            if (processed.has(nameB)) return false;
-            const normA = nameA.toLowerCase().trim();
-            const normB = nameB.toLowerCase().trim();
-            return normA === normB || normA.includes(normB) || normB.includes(normA);
-        });
-
-        if (similar.length > 0) {
-            groups.push({ master: nameA, similar });
-            processed.add(nameA);
-            similar.forEach(n => processed.add(n));
+        if (mapping.type !== -1) {
+            const t = String(row[mapping.type]).toUpperCase();
+            if (t.includes('SAÍDA') || t.includes('EXPENSE')) tx.type = 'EXPENSE';
+            else if (t.includes('ENTRADA') || t.includes('INCOME')) tx.type = 'INCOME';
         }
-    }
-    return groups;
+        tx.isPaid = true;
+        return tx;
+    });
 };
 
-export const smartMergeSales = (sales: Sale[]): Sale => {
-    if (sales.length === 0) throw new Error("No sales to merge");
-    const base = { ...sales[0] };
-    base.observations = sales.map(s => s.observations).filter(Boolean).join(" | ");
-    return base;
+export const downloadSalesTemplate = () => {
+    const data = [{
+        client: "Nome do Cliente",
+        quantity: 10,
+        type: "Cesta Básica",
+        valueProposed: 150.00,
+        valueSold: 1450.00,
+        margin: 12.5,
+        date: "2024-05-15",
+        completionDate: "2024-05-10",
+        obs: "Observação opcional"
+    }];
+    exportReportToCSV(data, "modelo_importacao_vendas");
 };
 
-export const getTrashItems = async () => {
-    const uid = await getAuthenticatedUid();
-    const qSales = query(collection(db, "sales"), where("userId", "==", uid), where("deleted", "==", true));
-    const qTxs = query(collection(db, "transactions"), where("userId", "==", uid), where("deleted", "==", true));
-    
-    const [sSnap, tSnap] = await Promise.all([getDocs(qSales), getDocs(qTxs)]);
-    return {
-        sales: sSnap.docs.map(d => ({ ...d.data(), id: d.id } as Sale)),
-        transactions: tSnap.docs.map(d => ({ ...d.data(), id: d.id } as Transaction))
-    };
-};
-
-export const getDeletedClients = async (): Promise<Client[]> => {
-    const uid = await getAuthenticatedUid();
-    const q = query(collection(db, "clients"), where("userId", "==", uid), where("deleted", "==", true));
-    const snap = await getDocs(q);
-    return snap.docs.map(d => ({ ...d.data(), id: d.id } as Client));
-};
-
-export const restoreClient = async (clientId: string) => {
-    await updateDoc(doc(db, "clients", clientId), { deleted: false, updatedAt: serverTimestamp() });
-};
-
-export const permanentlyDeleteClient = async (clientId: string) => {
-    await deleteDoc(doc(db, "clients", clientId));
-    await dbDelete('clients', clientId);
-};
-
-export const clearAllSales = async () => {
-    const uid = await getAuthenticatedUid();
-    const q = query(collection(db, "sales"), where("userId", "==", uid));
-    const snap = await getDocs(q);
-    const batch = writeBatch(db);
-    snap.docs.forEach(d => batch.delete(d.ref));
-    await batch.commit();
-    await clearLocalCache();
-};
+// --- BACKUP ---
 
 export const exportEncryptedBackup = async (passphrase: string) => {
-    const stores = [
-        'sales', 'accounts', 'transactions', 'clients', 'cards', 
-        'categories', 'goals', 'challenges', 'challenge_cells', 'receivables'
-    ];
+    recordTrace('INFO', 'SYSTEM', 'BACKUP_EXPORT_START');
+    const stores = ['sales', 'accounts', 'transactions', 'cards', 'categories', 'goals', 'challenges', 'challenge_cells', 'receivables', 'config'];
     const data: any = {};
-    for (const store of stores) {
-        data[store] = await dbGetAll(store as any);
+    for (const s of stores) {
+        data[s] = await dbGetAll(s as any);
     }
-    const encrypted = encryptData(JSON.stringify(data));
-    const blob = new Blob([encrypted], { type: 'application/octet-stream' });
+    const json = JSON.stringify(data);
+    const encrypted = encryptData(json);
+    const blob = new Blob([encrypted], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `backup_${new Date().getTime()}.v360`;
+    a.download = `gestor360_backup_${new Date().getTime()}.v360`;
     a.click();
+    recordTrace('INFO', 'SYSTEM', 'BACKUP_EXPORT_COMPLETE');
 };
 
 export const importEncryptedBackup = async (file: File, passphrase: string) => {
+    recordTrace('INFO', 'SYSTEM', 'BACKUP_RESTORE_START', { name: file.name });
     const text = await file.text();
     const decrypted = decryptData(text);
-    if (!decrypted) throw new Error("Invalid decryption");
+    if (!decrypted) {
+        recordTrace('ERROR', 'SYSTEM', 'BACKUP_RESTORE_FAIL', { reason: 'Decryption fail' });
+        throw new Error("Falha na descriptografia. Chave incorreta?");
+    }
     const data = JSON.parse(decrypted);
     for (const store of Object.keys(data)) {
         await dbBulkPut(store as any, data[store]);
     }
+    recordTrace('INFO', 'SYSTEM', 'BACKUP_RESTORE_SUCCESS');
 };
 
-export const processFinanceImport = (data: any[][], mapping: ImportMapping): Partial<Transaction>[] => {
-    return data.slice(1).map(row => {
-        const amount = ensureNumber(row[mapping.amount]);
-        const type = amount >= 0 ? 'INCOME' : 'EXPENSE';
-        return {
-            id: crypto.randomUUID(),
-            description: String(row[mapping.description] || ''),
-            amount: Math.abs(amount),
-            type: type as any,
-            date: row[mapping.date] ? new Date(row[mapping.date]).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-            isPaid: true,
-            deleted: false
-        };
-    });
+export const clearAllSales = async () => {
+    recordTrace('WARN', 'SALES', 'MASS_CLEAR_START');
+    const sales = await getStoredSales();
+    const batch = writeBatch(db);
+    const now = new Date().toISOString();
+    for (const s of sales) {
+        const updated = { ...s, deleted: true, deletedAt: now };
+        await dbPut('sales', updated);
+        batch.update(doc(db, 'sales', s.id), { deleted: true, deletedAt: now });
+    }
+    await batch.commit();
+    recordTrace('INFO', 'SALES', 'MASS_CLEAR_SUCCESS');
 };
 
-export const atomicClearUserTables = async (targetUserId: string, tables: string[]) => {
-    const clearFunc = httpsCallable(functions, 'adminHardResetUserData');
-    await clearFunc({ targetUserId, tables });
+// --- OTHERS ---
+
+export const generateChallengeCells = (challengeId: string, targetValue: number, depositCount: number, model: ChallengeModel): ChallengeCell[] => {
+    recordTrace('INFO', 'FINANCE', 'CHALLENGE_GENERATE', { model, targetValue });
+    const cells: ChallengeCell[] = [];
+    const uid = auth.currentUser?.uid || '';
+    if (model === 'PROPORTIONAL') {
+        const val = targetValue / depositCount;
+        for (let i = 1; i <= depositCount; i++) {
+            cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: val, status: 'PENDING', userId: uid, deleted: false });
+        }
+    } else {
+        const factor = targetValue / ((depositCount * (depositCount + 1)) / 2);
+        for (let i = 1; i <= depositCount; i++) {
+            cells.push({ id: crypto.randomUUID(), challengeId, number: i, value: i * factor, status: 'PENDING', userId: uid, deleted: false });
+        }
+    }
+    return cells;
+};
+
+export const atomicClearUserTables = async (userId: string, tables: string[]) => {
+    recordTrace('WARN', 'ADMIN', 'REMOTE_RESET_START', { target: userId, tables });
+    const fn = httpsCallable(functions, 'adminHardResetUserData');
+    await fn({ targetUserId: userId, tables });
+    recordTrace('INFO', 'ADMIN', 'REMOTE_RESET_SUCCESS');
+};
+
+export const bootstrapProductionData = async () => {
+    recordTrace('INFO', 'SYSTEM', 'BOOTSTRAP_START');
+    const cfg = await getSystemConfig();
+    if (cfg.bootstrapVersion < 1) {
+        await saveSystemConfig({ ...cfg, bootstrapVersion: 1 });
+    }
+};
+
+export const clearLocalCache = async () => {
+    recordTrace('WARN', 'SYSTEM', 'CACHE_CLEAR_START');
+    localStorage.clear();
+    const dbInst = await initDB();
+    const stores = dbInst.objectStoreNames;
+    for (const s of Array.from(stores)) {
+        await dbInst.clear(s as any);
+    }
+    recordTrace('INFO', 'SYSTEM', 'CACHE_CLEAR_COMPLETE');
+};
+
+export const getReportConfig = async (): Promise<ReportConfig> => {
+    const snap = await dbGet('config', 'report_config');
+    return (snap as any) || { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 };
+};
+
+export const saveReportConfig = async (config: ReportConfig) => {
+    recordTrace('INFO', 'CONFIG', 'REPORT_CONFIG_SAVE');
+    await dbPut('config', { id: 'report_config', ...config } as any);
+    await setDoc(doc(db, 'config', 'report_config'), config, { merge: true });
+};
+
+export const getClients = async (): Promise<Client[]> => {
+    return await dbGetAll('clients', c => !c.deleted);
+};
+
+// --- TRASH & RESTORE ---
+
+export const getTrashItems = async () => {
+    const [sales, transactions] = await Promise.all([
+        dbGetAll('sales', s => s.deleted),
+        dbGetAll('transactions', t => t.deleted)
+    ]);
+    return { sales, transactions };
+};
+
+export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
+    recordTrace('INFO', 'SYSTEM', 'RESTORE_ITEM', { type, id: item.id });
+    const updated = { ...item, deleted: false, deletedAt: null };
+    const store = type === 'SALE' ? 'sales' : 'transactions';
+    await dbPut(store as any, updated);
+    await updateDoc(doc(db, store, item.id), { deleted: false, deletedAt: null });
+};
+
+export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
+    recordTrace('WARN', 'SYSTEM', 'PERMANENT_DELETE', { type, id });
+    const store = type === 'SALE' ? 'sales' : 'transactions';
+    await dbDelete(store as any, id);
+    await deleteDoc(doc(db, store, id));
+};
+
+export const getDeletedClients = async (): Promise<Client[]> => {
+    return await dbGetAll('clients', c => c.deleted);
+};
+
+export const restoreClient = async (id: string) => {
+    recordTrace('INFO', 'CRM', 'RESTORE_CLIENT', { id });
+    const client = await dbGet('clients', id);
+    if (client) {
+        const updated = { ...client, deleted: false, deletedAt: null };
+        await dbPut('clients', updated);
+        await updateDoc(doc(db, 'clients', id), { deleted: false, deletedAt: null });
+    }
+};
+
+export const permanentlyDeleteClient = async (id: string) => {
+    recordTrace('WARN', 'CRM', 'PERMANENT_DELETE_CLIENT', { id });
+    await dbDelete('clients', id);
+    await deleteDoc(doc(db, 'clients', id));
 };
