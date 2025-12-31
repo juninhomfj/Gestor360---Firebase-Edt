@@ -29,12 +29,12 @@ import {
 import { Logger } from './logger';
 import { sendMessage } from './internalChat';
 
-// --- SISTEMA DE LOGGING DETERMINÍSTICO (BUFFER CIRCULAR) ---
+// --- SISTEMA DE LOGGING DETERMINÍSTICO (BUFFER CIRCULAR EM MEMÓRIA) ---
 const MAX_LOG_BUFFER = 50;
 const executionBuffer: Array<{ timestamp: string; level: 'INFO' | 'WARN' | 'ERROR'; module: string; action: string; details?: any }> = [];
 
 /**
- * Registra um evento no buffer circular de memória (não persistente).
+ * Registra um evento no buffer de memória para rastreabilidade de erros.
  */
 const recordTrace = (level: 'INFO' | 'WARN' | 'ERROR', module: string, action: string, details?: any) => {
     const entry = {
@@ -48,7 +48,6 @@ const recordTrace = (level: 'INFO' | 'WARN' | 'ERROR', module: string, action: s
     if (executionBuffer.length > MAX_LOG_BUFFER) {
         executionBuffer.shift();
     }
-    // Espelhamento controlado no console apenas em dev
     if (process.env.NODE_ENV === 'development') {
         console.log(`[${level}] [${module}:${action}]`, details || '');
     }
@@ -56,33 +55,43 @@ const recordTrace = (level: 'INFO' | 'WARN' | 'ERROR', module: string, action: s
 
 /**
  * Reporta o estado atual do buffer de execução para administradores via internal_messages.
- * Chamado manualmente ou por fluxos de erro crítico.
+ * Garante que todos os usuários (incluindo DEV/ADMIN) possam emitir reportes.
  */
 export const reportRuntimeError = async (context?: string) => {
     const user = auth.currentUser;
     if (!user) {
-        recordTrace('WARN', 'SYSTEM', 'REPORT_ABORTED', { reason: 'No auth user' });
+        recordTrace('WARN', 'SYSTEM', 'REPORT_ABORTED', { reason: 'Usuário não autenticado' });
         return;
     }
 
-    recordTrace('INFO', 'SYSTEM', 'REPORT_ERROR_TRIGGERED', { context });
+    recordTrace('INFO', 'SYSTEM', 'REPORT_MANUAL_TRIGGER', { context });
+
+    const reportData = {
+        meta: {
+            uid: user.uid,
+            email: user.email,
+            timestamp: new Date().toISOString(),
+            context: context || 'Reporte Manual',
+            userAgent: navigator.userAgent
+        },
+        logs: [...executionBuffer]
+    };
 
     const reportContent = `🚨 RELATÓRIO DE EXECUÇÃO DETERMINÍSTICO\n` +
-        `Contexto: ${context || 'Manual'}\n` +
-        `Usuário: ${user.email} (UID: ${user.uid})\n` +
-        `Buffer de Logs (Últimos ${executionBuffer.length}):\n` +
-        JSON.stringify(executionBuffer, null, 2);
+        `Contexto: ${context || 'N/A'}\n` +
+        `Usuário: ${user.email} (UID: ${user.uid})\n\n` +
+        `Logs Detalhados:\n${JSON.stringify(reportData, null, 2)}`;
 
     try {
         await sendMessage(
-            { id: user.uid, name: user.displayName || 'Usuário Gestor' } as User,
+            { id: user.uid, name: user.displayName || 'Usuário do Sistema' } as User,
             reportContent,
             'BUG_REPORT',
             'BROADCAST'
         );
-        recordTrace('INFO', 'SYSTEM', 'REPORT_ERROR_SUCCESS');
+        recordTrace('INFO', 'SYSTEM', 'REPORT_SUCCESS');
     } catch (e: any) {
-        recordTrace('ERROR', 'SYSTEM', 'REPORT_ERROR_FAIL', { error: e.message });
+        recordTrace('ERROR', 'SYSTEM', 'REPORT_FAILURE', { error: e.message });
         throw e;
     }
 };
@@ -108,51 +117,65 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 
 export const getSystemConfig = async (): Promise<SystemConfig & UserPreferences> => {
     recordTrace('INFO', 'CONFIG', 'LOAD_START');
-    const globalSnap = await getDoc(doc(db, "config", "system"));
-    const globalConfig = globalSnap.exists() ? { ...DEFAULT_SYSTEM_CONFIG, ...globalSnap.data() } as SystemConfig : DEFAULT_SYSTEM_CONFIG;
+    try {
+        const globalSnap = await getDoc(doc(db, "config", "system"));
+        const globalConfig = globalSnap.exists() ? { ...DEFAULT_SYSTEM_CONFIG, ...globalSnap.data() } as SystemConfig : DEFAULT_SYSTEM_CONFIG;
+        SessionTraffic.trackRead();
 
-    const uid = auth.currentUser?.uid;
-    if (uid) {
-        const userSnap = await getDoc(doc(db, "config", `system_${uid}`));
-        if (userSnap.exists()) {
-            recordTrace('INFO', 'CONFIG', 'LOAD_USER_PREFS', { uid });
-            return { ...globalConfig, ...userSnap.data() as UserPreferences };
+        const uid = auth.currentUser?.uid;
+        if (uid) {
+            const userSnap = await getDoc(doc(db, "config", `system_${uid}`));
+            SessionTraffic.trackRead();
+            if (userSnap.exists()) {
+                recordTrace('INFO', 'CONFIG', 'LOAD_USER_SUCCESS', { uid });
+                return { ...globalConfig, ...userSnap.data() as UserPreferences };
+            }
         }
+        recordTrace('INFO', 'CONFIG', 'LOAD_GLOBAL_SUCCESS');
+        return globalConfig;
+    } catch (e: any) {
+        recordTrace('ERROR', 'CONFIG', 'LOAD_FAIL', { error: e.message });
+        throw e;
     }
-    return globalConfig;
 };
 
 export const saveSystemConfig = async (config: any) => {
     const uid = auth.currentUser?.uid;
     if (!uid) {
-        recordTrace('WARN', 'CONFIG', 'SAVE_ABORTED', { reason: 'No UID' });
+        recordTrace('WARN', 'CONFIG', 'SAVE_ABORTED', { reason: 'Sem UID' });
         return;
     }
     
     recordTrace('INFO', 'CONFIG', 'SAVE_START', { uid });
-    const userPrefs: UserPreferences & { userId: string } = { userId: uid };
-    if (config.theme) userPrefs.theme = config.theme;
-    if (config.hideValues !== undefined) userPrefs.hideValues = config.hideValues;
-    if (config.lastMode) userPrefs.lastMode = config.lastMode;
-    if (config.lastTab) userPrefs.lastTab = config.lastTab;
+    try {
+        const userPrefs: UserPreferences & { userId: string } = { userId: uid };
+        if (config.theme) userPrefs.theme = config.theme;
+        if (config.hideValues !== undefined) userPrefs.hideValues = config.hideValues;
+        if (config.lastMode) userPrefs.lastMode = config.lastMode;
+        if (config.lastTab) userPrefs.lastTab = config.lastTab;
 
-    await setDoc(doc(db, "config", `system_${uid}`), userPrefs, { merge: true });
+        await setDoc(doc(db, "config", `system_${uid}`), userPrefs, { merge: true });
+        SessionTraffic.trackWrite();
 
-    const globalFields = [
-        'notificationSounds', 'fcmServerKey', 'ntfyTopic', 
-        'notificationSound', 'alertSound', 'successSound', 'warningSound'
-    ];
+        const globalFields = [
+            'notificationSounds', 'fcmServerKey', 'ntfyTopic', 
+            'notificationSound', 'alertSound', 'successSound', 'warningSound'
+        ];
 
-    const globalConfig: any = {};
-    globalFields.forEach(field => {
-        if (config[field] !== undefined) globalConfig[field] = config[field];
-    });
+        const globalConfig: any = {};
+        globalFields.forEach(field => {
+            if (config[field] !== undefined) globalConfig[field] = config[field];
+        });
 
-    if (Object.keys(globalConfig).length > 0) {
-        await setDoc(doc(db, "config", "system"), globalConfig, { merge: true });
+        if (Object.keys(globalConfig).length > 0) {
+            await setDoc(doc(db, "config", "system"), globalConfig, { merge: true });
+            SessionTraffic.trackWrite();
+        }
+        recordTrace('INFO', 'CONFIG', 'SAVE_SUCCESS');
+    } catch (e: any) {
+        recordTrace('ERROR', 'CONFIG', 'SAVE_FAIL', { error: e.message });
+        throw e;
     }
-    
-    recordTrace('INFO', 'CONFIG', 'SAVE_SUCCESS');
 };
 
 export const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
@@ -167,13 +190,13 @@ export function ensureNumber(value: any, fallback = 0): number {
     str = str.replace(/[^\d.-]/g, '');
     const num = parseFloat(str);
     if (isNaN(num)) {
-        recordTrace('WARN', 'PARSER', 'INVALID_NUMBER_FALLBACK', { raw: value, fallback });
+        recordTrace('WARN', 'PARSER', 'NAN_DETECTED', { input: value, fallback });
         return fallback;
     }
     return num;
   } catch (e: any) { 
-      recordTrace('ERROR', 'PARSER', 'CRITICAL_PARSING_ERROR', { raw: value, error: e.message });
-      return fallback; 
+      recordTrace('ERROR', 'PARSER', 'CRITICAL_ERROR', { input: value, error: e.message });
+      throw e; // Proibido retorno silencioso em erro crítico
   }
 }
 
@@ -194,9 +217,9 @@ export function sanitizeForFirestore(obj: any): any {
 export const canAccess = (user: User | null, feature: string): boolean => {
     if (!user || !user.isActive) return false;
     if (user.role === 'DEV') return true; 
-    const result = !!(user.permissions as any)[feature];
-    if (!result) recordTrace('WARN', 'AUTH', 'PERMISSION_DENIED', { feature, user: user.uid });
-    return result;
+    const allowed = !!(user.permissions as any)[feature];
+    if (!allowed) recordTrace('WARN', 'AUTH', 'PERMISSION_DENIED', { user: user.uid, feature });
+    return allowed;
 };
 
 // --- COMISSÕES GLOBAIS ---
@@ -212,7 +235,7 @@ const getLocalStoreName = (type: ProductType): string => {
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
     const colName = getColName(type);
     const storeName = getLocalStoreName(type);
-    recordTrace('INFO', 'COMMISSIONS', 'READ_FS_START', { type });
+    recordTrace('INFO', 'COMMISSIONS', 'SYNC_START', { type });
 
     try {
         const q = query(collection(db, colName), where("isActive", "==", true), limit(1));
@@ -225,7 +248,7 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
             const localVersion = localStorage.getItem(`v_comm_${type}`);
 
             if (String(remoteVersion) !== localVersion) {
-                recordTrace('INFO', 'COMMISSIONS', 'VERSION_MISMATCH_SYNC', { type, remote: remoteVersion, local: localVersion });
+                recordTrace('INFO', 'COMMISSIONS', 'VERSION_MISMATCH_REPLACE', { remote: remoteVersion, local: localVersion });
                 const rules: CommissionRule[] = (docData.tiers || []).map((t: any, idx: number) => ({
                     id: `${remoteVersion}_${idx}`,
                     minPercent: t.min,
@@ -238,26 +261,26 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
                 await dbInst.clear(storeName as any);
                 await dbBulkPut(storeName as any, rules);
                 localStorage.setItem(`v_comm_${type}`, String(remoteVersion));
-                recordTrace('INFO', 'COMMISSIONS', 'SYNC_COMPLETE', { type, count: rules.length });
-                
+                recordTrace('INFO', 'COMMISSIONS', 'SYNC_SUCCESS', { count: rules.length });
                 return rules.sort((a, b) => a.minPercent - b.minPercent);
             }
         } else {
-            recordTrace('WARN', 'COMMISSIONS', 'REMOTE_TABLE_EMPTY', { type });
+            recordTrace('WARN', 'COMMISSIONS', 'REMOTE_EMPTY', { type });
             const dbInst = await initDB();
             await dbInst.clear(storeName as any);
             localStorage.removeItem(`v_comm_${type}`);
             return [];
         }
     } catch (e: any) {
-        recordTrace('ERROR', 'COMMISSIONS', 'SYNC_FAIL', { type, error: e.message });
+        recordTrace('ERROR', 'COMMISSIONS', 'SYNC_FAIL', { error: e.message });
         const localVersion = localStorage.getItem(`v_comm_${type}`);
         if (!localVersion) {
-            throw new Error(`Módulo de Comissão [${type}] indisponível por falha crítica de leitura no Firestore.`);
+            throw new Error(`Módulo de Comissão [${type}] inacessível. Erro: ${e.message}`);
         }
     }
     
     const cached = await dbGetAll(storeName as any);
+    recordTrace('INFO', 'COMMISSIONS', 'LOAD_FROM_CACHE', { count: cached.length });
     return (cached || []).sort((a: any, b: any) => a.minPercent - b.minPercent);
 };
 
@@ -265,73 +288,91 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
     const colName = getColName(type);
     const storeName = getLocalStoreName(type);
     const version = Date.now();
-    recordTrace('INFO', 'COMMISSIONS', 'WRITE_START', { type, count: rules.length });
+    recordTrace('INFO', 'COMMISSIONS', 'WRITE_FS_START', { type, version });
 
-    const q = query(collection(db, colName), where("isActive", "==", true));
-    const snap = await getDocs(q);
-    const batch = writeBatch(db);
+    try {
+        const q = query(collection(db, colName), where("isActive", "==", true));
+        const snap = await getDocs(q);
+        const batch = writeBatch(db);
 
-    snap.docs.forEach(d => {
-        batch.update(d.ref, { isActive: false, inactivatedAt: serverTimestamp() });
-    });
+        snap.docs.forEach(d => {
+            batch.update(d.ref, { isActive: false, inactivatedAt: serverTimestamp() });
+        });
 
-    const tiers = rules.map(r => ({
-        min: r.minPercent,
-        max: r.maxPercent,
-        rate: r.commissionRate
-    }));
+        const tiers = rules.map(r => ({
+            min: r.minPercent,
+            max: r.maxPercent,
+            rate: r.commissionRate
+        }));
 
-    const newDocRef = doc(collection(db, colName));
-    batch.set(newDocRef, {
-        type: type === ProductType.NATAL ? "NATAL" : "BASICA",
-        version,
-        isActive: true,
-        createdAt: serverTimestamp(),
-        tiers
-    });
+        const newDocRef = doc(collection(db, colName));
+        batch.set(newDocRef, {
+            type: type === ProductType.NATAL ? "NATAL" : "BASICA",
+            version,
+            isActive: true,
+            createdAt: serverTimestamp(),
+            tiers
+        });
 
-    await batch.commit();
-    SessionTraffic.trackWrite();
-    
-    const dbInst = await initDB();
-    await dbInst.clear(storeName as any);
-    await dbBulkPut(storeName as any, rules);
-    localStorage.setItem(`v_comm_${type}`, String(version));
-    recordTrace('INFO', 'COMMISSIONS', 'WRITE_SUCCESS', { type, version });
+        await batch.commit();
+        SessionTraffic.trackWrite();
+        
+        const dbInst = await initDB();
+        await dbInst.clear(storeName as any);
+        await dbBulkPut(storeName as any, rules);
+        localStorage.setItem(`v_comm_${type}`, String(version));
+        recordTrace('INFO', 'COMMISSIONS', 'WRITE_SUCCESS');
+    } catch (e: any) {
+        recordTrace('ERROR', 'COMMISSIONS', 'WRITE_FAIL', { error: e.message, type, code: e.code });
+        throw e; // Garante que a UI trate o erro (ex: permission-denied)
+    }
 };
 
 // --- SALES & CRM ---
 
 export const getStoredSales = async (): Promise<Sale[]> => {
     const uid = auth.currentUser?.uid;
-    if (!uid) {
-        recordTrace('WARN', 'SALES', 'READ_ABORTED', { reason: 'No current user' });
-        return [];
+    if (!uid) return [];
+    recordTrace('INFO', 'SALES', 'LOAD_ALL', { uid });
+    try {
+        const sales = await dbGetAll('sales', (s) => s.userId === uid && !s.deleted);
+        return sales;
+    } catch (e: any) {
+        recordTrace('ERROR', 'SALES', 'LOAD_FAIL', { error: e.message });
+        throw e;
     }
-    recordTrace('INFO', 'SALES', 'READ_START', { uid });
-    return await dbGetAll('sales', (s) => s.userId === uid && !s.deleted);
 };
 
 export const saveSingleSale = async (sale: Sale) => {
-    recordTrace('INFO', 'SALES', 'WRITE_FS_START', { id: sale.id, client: sale.client });
-    await dbPut('sales', sale);
-    const syncRef = doc(db, 'sales', sale.id);
-    await setDoc(syncRef, sanitizeForFirestore(sale), { merge: true });
-    SessionTraffic.trackWrite();
-    recordTrace('INFO', 'SALES', 'WRITE_SUCCESS', { id: sale.id });
+    recordTrace('INFO', 'SALES', 'WRITE_FS_START', { id: sale.id });
+    try {
+        await dbPut('sales', sale);
+        const syncRef = doc(db, 'sales', sale.id);
+        await setDoc(syncRef, sanitizeForFirestore(sale), { merge: true });
+        SessionTraffic.trackWrite();
+        recordTrace('INFO', 'SALES', 'WRITE_SUCCESS');
+    } catch (e: any) {
+        recordTrace('ERROR', 'SALES', 'WRITE_FAIL', { error: e.message, code: e.code });
+        throw e;
+    }
 };
 
 export const saveSales = async (sales: Sale[]) => {
     recordTrace('INFO', 'SALES', 'WRITE_BATCH_START', { count: sales.length });
-    const batch = writeBatch(db);
-    for (const sale of sales) {
-        await dbPut('sales', sale);
-        const ref = doc(db, 'sales', sale.id);
-        batch.set(ref, sanitizeForFirestore(sale), { merge: true });
+    try {
+        const batch = writeBatch(db);
+        for (const sale of sales) {
+            await dbPut('sales', sale);
+            const ref = doc(db, 'sales', sale.id);
+            batch.set(ref, sanitizeForFirestore(sale), { merge: true });
+        }
+        await batch.commit();
+        SessionTraffic.trackWrite(sales.length);
+        recordTrace('INFO', 'SALES', 'WRITE_BATCH_SUCCESS');
+    } catch (e: any) {
+        recordTrace('ERROR', 'SALES', 'WRITE_BATCH_FAIL', { error: e.message, code: e.code });
+        throw e;
     }
-    await batch.commit();
-    SessionTraffic.trackWrite(sales.length);
-    recordTrace('INFO', 'SALES', 'WRITE_BATCH_SUCCESS');
 };
 
 export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
@@ -339,11 +380,7 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
     const rule = rules.find(r => margin >= r.minPercent && (r.maxPercent === null || margin < r.maxPercent));
     const rateUsed = rule ? rule.commissionRate : 0;
     const commissionValue = commissionBase * rateUsed;
-    
-    if (rateUsed === 0) {
-        recordTrace('WARN', 'SALES', 'ZERO_COMMISSION_RULE', { margin, ruleCount: rules.length });
-    }
-    
+    if (!rule) recordTrace('WARN', 'SALES', 'NO_MATCHING_RULE', { margin });
     return { commissionBase, commissionValue, rateUsed };
 };
 
@@ -372,19 +409,18 @@ export const findPotentialDuplicates = (sales: Sale[]) => {
         }
         if (group.similar.length > 0) groups.push(group);
     }
-    recordTrace('INFO', 'CRM', 'DUPLICATE_CHECK_END', { found: groups.length });
     return groups;
 };
 
 export const smartMergeSales = (duplicates: Sale[]): Sale => {
-    recordTrace('INFO', 'CRM', 'MERGE_START', { count: duplicates.length });
+    recordTrace('INFO', 'CRM', 'MERGE_TRIGGERED', { count: duplicates.length });
     return duplicates.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0];
 };
 
 // --- ANALYTICS ---
 
 export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
-    recordTrace('INFO', 'CRM', 'ANALYTICS_START');
+    recordTrace('INFO', 'CRM', 'CLIENT_ANALYTICS_START');
     const clientsMap = new Map<string, any>();
     const now = new Date().getTime();
 
@@ -434,7 +470,7 @@ export const analyzeMonthlyVolume = (sales: Sale[], months: number) => {
 };
 
 export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
-    recordTrace('INFO', 'CRM', 'PRODUCTIVITY_CALC_START', { userId });
+    recordTrace('INFO', 'CRM', 'PRODUCTIVITY_METRICS_START', { userId });
     const sales = await getStoredSales();
     const metrics = analyzeClients(sales, { daysForNewClient: 30, daysForInactive: 60, daysForLost: 180 });
     const active = metrics.filter(m => m.status === 'ACTIVE' || m.status === 'NEW').length;
@@ -461,7 +497,7 @@ export const calculateProductivityMetrics = async (userId: string): Promise<Prod
 // --- FINANCE ---
 
 export const getFinanceData = async () => {
-    recordTrace('INFO', 'FINANCE', 'READ_LOCAL_ALL');
+    recordTrace('INFO', 'FINANCE', 'LOAD_LOCAL_ALL');
     const [accounts, cards, transactions, categories, goals, challenges, cells, receivables] = await Promise.all([
         dbGetAll('accounts'), dbGetAll('cards'), dbGetAll('transactions'), dbGetAll('categories'),
         dbGetAll('goals'), dbGetAll('challenges'), dbGetAll('challenge_cells'), dbGetAll('receivables')
@@ -471,21 +507,26 @@ export const getFinanceData = async () => {
 
 export const saveFinanceData = async (accounts: FinanceAccount[], cards: CreditCard[], transactions: Transaction[], categories: TransactionCategory[]) => {
     recordTrace('INFO', 'FINANCE', 'WRITE_BATCH_START', { txCount: transactions.length });
-    await dbBulkPut('accounts', accounts);
-    await dbBulkPut('cards', cards);
-    await dbBulkPut('transactions', transactions);
-    await dbBulkPut('categories', categories);
-    
-    const batch = writeBatch(db);
-    accounts.forEach(a => batch.set(doc(db, 'accounts', a.id), sanitizeForFirestore(a), { merge: true }));
-    transactions.forEach(t => batch.set(doc(db, 'transactions', t.id), sanitizeForFirestore(t), { merge: true }));
-    await batch.commit();
-    SessionTraffic.trackWrite(accounts.length + transactions.length);
-    recordTrace('INFO', 'FINANCE', 'WRITE_BATCH_SUCCESS');
+    try {
+        await dbBulkPut('accounts', accounts);
+        await dbBulkPut('cards', cards);
+        await dbBulkPut('transactions', transactions);
+        await dbBulkPut('categories', categories);
+        
+        const batch = writeBatch(db);
+        accounts.forEach(a => batch.set(doc(db, 'accounts', a.id), sanitizeForFirestore(a), { merge: true }));
+        transactions.forEach(t => batch.set(doc(db, 'transactions', t.id), sanitizeForFirestore(t), { merge: true }));
+        await batch.commit();
+        SessionTraffic.trackWrite(accounts.length + transactions.length);
+        recordTrace('INFO', 'FINANCE', 'WRITE_BATCH_SUCCESS');
+    } catch (e: any) {
+        recordTrace('ERROR', 'FINANCE', 'WRITE_BATCH_FAIL', { error: e.message, code: e.code });
+        throw e;
+    }
 };
 
 export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]): FinancialPacing => {
-    recordTrace('INFO', 'FINANCE', 'CALC_PACING_START', { balance });
+    recordTrace('INFO', 'FINANCE', 'PACING_CALC_START', { balance });
     const now = new Date();
     const nextSalaryDay = salaryDays.find(d => d > now.getDate()) || salaryDays[0];
     const nextIncomeDate = new Date(now.getFullYear(), now.getMonth() + (nextSalaryDay <= now.getDate() ? 1 : 0), nextSalaryDay);
@@ -496,7 +537,7 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
         .reduce((acc, t) => acc + t.amount, 0);
 
     const safeDailySpend = (balance - pendingExpenses) / (daysRemaining || 1);
-    recordTrace('INFO', 'FINANCE', 'CALC_PACING_RESULT', { daysRemaining, safeDaily: safeDailySpend });
+    recordTrace('INFO', 'FINANCE', 'PACING_CALC_RESULT', { safeDailySpend });
     return { daysRemaining, safeDailySpend, pendingExpenses, nextIncomeDate };
 };
 
@@ -519,7 +560,7 @@ export const exportReportToCSV = (data: any[], filename: string) => {
 };
 
 export const readExcelFile = async (file: File): Promise<any[][]> => {
-    recordTrace('INFO', 'SYSTEM', 'IMPORT_READ_FILE', { name: file.name });
+    recordTrace('INFO', 'SYSTEM', 'READ_EXCEL_START', { name: file.name });
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -527,10 +568,11 @@ export const readExcelFile = async (file: File): Promise<any[][]> => {
             const workbook = XLSX.read(data, { type: 'binary' });
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
             const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+            recordTrace('INFO', 'SYSTEM', 'READ_EXCEL_SUCCESS', { rows: rows.length });
             resolve(rows);
         };
-        reader.onerror = (e) => {
-            recordTrace('ERROR', 'SYSTEM', 'IMPORT_FILE_FAIL', { error: e.target?.error });
+        reader.onerror = (e: any) => {
+            recordTrace('ERROR', 'SYSTEM', 'READ_EXCEL_FAIL', { error: e.message });
             reject(e);
         };
         reader.readAsBinaryString(file);
@@ -578,39 +620,49 @@ export const downloadSalesTemplate = () => {
 
 export const exportEncryptedBackup = async (passphrase: string) => {
     recordTrace('INFO', 'SYSTEM', 'BACKUP_EXPORT_START');
-    const stores = ['sales', 'accounts', 'transactions', 'cards', 'categories', 'goals', 'challenges', 'challenge_cells', 'receivables', 'config'];
-    const data: any = {};
-    for (const s of stores) {
-        data[s] = await dbGetAll(s as any);
+    try {
+        const stores = ['sales', 'accounts', 'transactions', 'cards', 'categories', 'goals', 'challenges', 'challenge_cells', 'receivables', 'config', 'clients'];
+        const data: any = {};
+        for (const s of stores) {
+            data[s] = await dbGetAll(s as any);
+        }
+        const json = JSON.stringify(data);
+        const encrypted = encryptData(json);
+        const blob = new Blob([encrypted], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `gestor360_backup_${new Date().getTime()}.v360`;
+        a.click();
+        recordTrace('INFO', 'SYSTEM', 'BACKUP_EXPORT_SUCCESS');
+    } catch (e: any) {
+        recordTrace('ERROR', 'SYSTEM', 'BACKUP_EXPORT_FAIL', { error: e.message });
+        throw e;
     }
-    const json = JSON.stringify(data);
-    const encrypted = encryptData(json);
-    const blob = new Blob([encrypted], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `gestor360_backup_${new Date().getTime()}.v360`;
-    a.click();
-    recordTrace('INFO', 'SYSTEM', 'BACKUP_EXPORT_COMPLETE');
 };
 
 export const importEncryptedBackup = async (file: File, passphrase: string) => {
-    recordTrace('INFO', 'SYSTEM', 'BACKUP_RESTORE_START', { name: file.name });
-    const text = await file.text();
-    const decrypted = decryptData(text);
-    if (!decrypted) {
-        recordTrace('ERROR', 'SYSTEM', 'BACKUP_RESTORE_FAIL', { reason: 'Decryption fail' });
-        throw new Error("Falha na descriptografia. Chave incorreta?");
+    recordTrace('INFO', 'SYSTEM', 'BACKUP_IMPORT_START', { name: file.name });
+    try {
+        const text = await file.text();
+        const decrypted = decryptData(text);
+        if (!decrypted) {
+            recordTrace('ERROR', 'SYSTEM', 'BACKUP_IMPORT_DECRYPT_FAIL');
+            throw new Error("Falha na descriptografia. Chave incorreta?");
+        }
+        const data = JSON.parse(decrypted);
+        for (const store of Object.keys(data)) {
+            await dbBulkPut(store as any, data[store]);
+        }
+        recordTrace('INFO', 'SYSTEM', 'BACKUP_IMPORT_SUCCESS');
+    } catch (e: any) {
+        recordTrace('ERROR', 'SYSTEM', 'BACKUP_IMPORT_FAIL', { error: e.message });
+        throw e;
     }
-    const data = JSON.parse(decrypted);
-    for (const store of Object.keys(data)) {
-        await dbBulkPut(store as any, data[store]);
-    }
-    recordTrace('INFO', 'SYSTEM', 'BACKUP_RESTORE_SUCCESS');
 };
 
 export const clearAllSales = async () => {
-    recordTrace('WARN', 'SALES', 'MASS_CLEAR_START');
+    recordTrace('WARN', 'SALES', 'MASS_DELETE_START');
     const sales = await getStoredSales();
     const batch = writeBatch(db);
     const now = new Date().toISOString();
@@ -620,13 +672,13 @@ export const clearAllSales = async () => {
         batch.update(doc(db, 'sales', s.id), { deleted: true, deletedAt: now });
     }
     await batch.commit();
-    recordTrace('INFO', 'SALES', 'MASS_CLEAR_SUCCESS');
+    recordTrace('INFO', 'SALES', 'MASS_DELETE_SUCCESS');
 };
 
 // --- OTHERS ---
 
 export const generateChallengeCells = (challengeId: string, targetValue: number, depositCount: number, model: ChallengeModel): ChallengeCell[] => {
-    recordTrace('INFO', 'FINANCE', 'CHALLENGE_GENERATE', { model, targetValue });
+    recordTrace('INFO', 'FINANCE', 'CHALLENGE_GENERATE', { challengeId, model });
     const cells: ChallengeCell[] = [];
     const uid = auth.currentUser?.uid || '';
     if (model === 'PROPORTIONAL') {
@@ -644,29 +696,39 @@ export const generateChallengeCells = (challengeId: string, targetValue: number,
 };
 
 export const atomicClearUserTables = async (userId: string, tables: string[]) => {
-    recordTrace('WARN', 'ADMIN', 'REMOTE_RESET_START', { target: userId, tables });
-    const fn = httpsCallable(functions, 'adminHardResetUserData');
-    await fn({ targetUserId: userId, tables });
-    recordTrace('INFO', 'ADMIN', 'REMOTE_RESET_SUCCESS');
+    recordTrace('WARN', 'ADMIN', 'REMOTE_RESET_TRIGGERED', { target: userId, tables });
+    try {
+        const fn = httpsCallable(functions, 'adminHardResetUserData');
+        await fn({ targetUserId: userId, tables });
+        recordTrace('INFO', 'ADMIN', 'REMOTE_RESET_SUCCESS');
+    } catch (e: any) {
+        recordTrace('ERROR', 'ADMIN', 'REMOTE_RESET_FAIL', { error: e.message });
+        throw e;
+    }
 };
 
 export const bootstrapProductionData = async () => {
     recordTrace('INFO', 'SYSTEM', 'BOOTSTRAP_START');
-    const cfg = await getSystemConfig();
-    if (cfg.bootstrapVersion < 1) {
-        await saveSystemConfig({ ...cfg, bootstrapVersion: 1 });
+    try {
+        const cfg = await getSystemConfig();
+        if (cfg.bootstrapVersion < 1) {
+            await saveSystemConfig({ ...cfg, bootstrapVersion: 1 });
+            recordTrace('INFO', 'SYSTEM', 'BOOTSTRAP_UPGRADE_1');
+        }
+    } catch (e: any) {
+        recordTrace('ERROR', 'SYSTEM', 'BOOTSTRAP_FAIL', { error: e.message });
     }
 };
 
 export const clearLocalCache = async () => {
-    recordTrace('WARN', 'SYSTEM', 'CACHE_CLEAR_START');
+    recordTrace('WARN', 'SYSTEM', 'LOCAL_CACHE_PURGE');
     localStorage.clear();
     const dbInst = await initDB();
     const stores = dbInst.objectStoreNames;
     for (const s of Array.from(stores)) {
         await dbInst.clear(s as any);
     }
-    recordTrace('INFO', 'SYSTEM', 'CACHE_CLEAR_COMPLETE');
+    recordTrace('INFO', 'SYSTEM', 'LOCAL_CACHE_PURGE_COMPLETE');
 };
 
 export const getReportConfig = async (): Promise<ReportConfig> => {
@@ -676,8 +738,13 @@ export const getReportConfig = async (): Promise<ReportConfig> => {
 
 export const saveReportConfig = async (config: ReportConfig) => {
     recordTrace('INFO', 'CONFIG', 'REPORT_CONFIG_SAVE');
-    await dbPut('config', { id: 'report_config', ...config } as any);
-    await setDoc(doc(db, 'config', 'report_config'), config, { merge: true });
+    try {
+        await dbPut('config', { id: 'report_config', ...config } as any);
+        await setDoc(doc(db, 'config', 'report_config'), config, { merge: true });
+    } catch (e: any) {
+        recordTrace('ERROR', 'CONFIG', 'REPORT_CONFIG_FAIL', { error: e.message });
+        throw e;
+    }
 };
 
 export const getClients = async (): Promise<Client[]> => {
@@ -696,17 +763,27 @@ export const getTrashItems = async () => {
 
 export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
     recordTrace('INFO', 'SYSTEM', 'RESTORE_ITEM', { type, id: item.id });
-    const updated = { ...item, deleted: false, deletedAt: null };
-    const store = type === 'SALE' ? 'sales' : 'transactions';
-    await dbPut(store as any, updated);
-    await updateDoc(doc(db, store, item.id), { deleted: false, deletedAt: null });
+    try {
+        const updated = { ...item, deleted: false, deletedAt: null };
+        const store = type === 'SALE' ? 'sales' : 'transactions';
+        await dbPut(store as any, updated);
+        await updateDoc(doc(db, store, item.id), { deleted: false, deletedAt: null });
+    } catch (e: any) {
+        recordTrace('ERROR', 'SYSTEM', 'RESTORE_ITEM_FAIL', { error: e.message });
+        throw e;
+    }
 };
 
 export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
     recordTrace('WARN', 'SYSTEM', 'PERMANENT_DELETE', { type, id });
-    const store = type === 'SALE' ? 'sales' : 'transactions';
-    await dbDelete(store as any, id);
-    await deleteDoc(doc(db, store, id));
+    try {
+        const store = type === 'SALE' ? 'sales' : 'transactions';
+        await dbDelete(store as any, id);
+        await deleteDoc(doc(db, store, id));
+    } catch (e: any) {
+        recordTrace('ERROR', 'SYSTEM', 'PERMANENT_DELETE_FAIL', { error: e.message });
+        throw e;
+    }
 };
 
 export const getDeletedClients = async (): Promise<Client[]> => {
@@ -715,16 +792,26 @@ export const getDeletedClients = async (): Promise<Client[]> => {
 
 export const restoreClient = async (id: string) => {
     recordTrace('INFO', 'CRM', 'RESTORE_CLIENT', { id });
-    const client = await dbGet('clients', id);
-    if (client) {
-        const updated = { ...client, deleted: false, deletedAt: null };
-        await dbPut('clients', updated);
-        await updateDoc(doc(db, 'clients', id), { deleted: false, deletedAt: null });
+    try {
+        const client = await dbGet('clients', id);
+        if (client) {
+            const updated = { ...client, deleted: false, deletedAt: null };
+            await dbPut('clients', updated);
+            await updateDoc(doc(db, 'clients', id), { deleted: false, deletedAt: null });
+        }
+    } catch (e: any) {
+        recordTrace('ERROR', 'CRM', 'RESTORE_CLIENT_FAIL', { error: e.message });
+        throw e;
     }
 };
 
 export const permanentlyDeleteClient = async (id: string) => {
     recordTrace('WARN', 'CRM', 'PERMANENT_DELETE_CLIENT', { id });
-    await dbDelete('clients', id);
-    await deleteDoc(doc(db, 'clients', id));
+    try {
+        await dbDelete('clients', id);
+        await deleteDoc(doc(db, 'clients', id));
+    } catch (e: any) {
+        recordTrace('ERROR', 'CRM', 'PERMANENT_DELETE_CLIENT_FAIL', { error: e.message });
+        throw e;
+    }
 };
