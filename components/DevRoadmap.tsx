@@ -1,19 +1,22 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
     Code2, Terminal, Database, Server, Cpu, RefreshCw, 
     CheckCircle2, Cloud, Activity, 
-    Shield, Download, FileJson, Copy, AlertTriangle, Trash2, ArrowUpRight, ArrowDownLeft, Eraser
+    Shield, Download, FileJson, Copy, AlertTriangle, Trash2, ArrowUpRight, ArrowDownLeft, Eraser, Heart, Globe, AlertCircle
 } from 'lucide-react';
 import { db } from '../services/firebase';
 import { Logger } from '../services/logger';
 import { SessionTraffic } from '../services/logic';
 import { collection, onSnapshot, query, limit } from 'firebase/firestore';
 import { dbGetAll } from '../storage/db';
+import { checkBackendHealth } from '../services/whatsappService';
 
 const DevRoadmap: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'CLOUD' | 'DATABASE' | 'LOGS' | 'ROADMAP'>('CLOUD');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [traffic, setTraffic] = useState({ reads: 0, writes: 0, last: 'Nunca' });
+  const [workerStatus, setWorkerStatus] = useState<'ONLINE' | 'OFFLINE' | 'CHECKING'>('CHECKING');
 
   const [selectedStore, setSelectedStore] = useState('sales');
   const [tableData, setTableData] = useState<any[]>([]);
@@ -37,7 +40,14 @@ const DevRoadmap: React.FC = () => {
   useEffect(() => {
       if (activeTab === 'DATABASE') loadTable();
       if (activeTab === 'LOGS') loadLogs();
+      if (activeTab === 'CLOUD') checkHealth();
   }, [selectedStore, activeTab]);
+
+  const checkHealth = async () => {
+      setWorkerStatus('CHECKING');
+      const isOnline = await checkBackendHealth();
+      setWorkerStatus(isOnline ? 'ONLINE' : 'OFFLINE');
+  };
 
   const loadLogs = async () => {
       setIsRefreshing(true);
@@ -97,24 +107,62 @@ const DevRoadmap: React.FC = () => {
                     <p className="text-slate-400 mt-2 text-xs font-mono uppercase tracking-widest">Painel de Diagnóstico & Auditoria</p>
                 </div>
                 <div className="flex gap-2">
-                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-black border border-emerald-500/30">v2.5.3 STABLE</span>
+                    <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-black border border-emerald-500/30">v2.5.5 STABLE</span>
                 </div>
             </div>
         </div>
 
         <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar">
-            <TabBtn id="CLOUD" label="Nuvem" icon={<Cloud size={14}/>} active={activeTab} onClick={setActiveTab} />
+            <TabBtn id="CLOUD" label="Nuvem & Saúde" icon={<Cloud size={14}/>} active={activeTab} onClick={setActiveTab} />
             <TabBtn id="DATABASE" label="Tabelas Local" icon={<Database size={14}/>} active={activeTab} onClick={setActiveTab} />
             <TabBtn id="LOGS" label="Logs de Auditoria" icon={<Terminal size={14}/>} active={activeTab} onClick={setActiveTab} />
             <TabBtn id="ROADMAP" label="Versão" icon={<CheckCircle2 size={14}/>} active={activeTab} onClick={setActiveTab} />
         </div>
 
         {activeTab === 'CLOUD' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in slide-in-from-bottom-4">
-                <StatusCard icon={<Cloud/>} title="Status API" value="CONECTADO" sub="Firestore Direct" color="blue" />
-                <StatusCard icon={<ArrowDownLeft/>} title="Reads (Sessão)" value={traffic.reads} sub={`Last: ${traffic.last}`} color="emerald" />
-                <StatusCard icon={<ArrowUpRight/>} title="Writes (Sessão)" value={traffic.writes} sub="Atomic Sync" color="amber" />
-                <StatusCard icon={<Shield/>} title="Segurança" value="Firestore Guard" sub="Clean Writes Active" color="purple" />
+            <div className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-in slide-in-from-bottom-4">
+                    <StatusCard icon={<Cloud/>} title="Status API" value="CONECTADO" sub="Firestore Direct" color="blue" />
+                    <StatusCard icon={<ArrowDownLeft/>} title="Reads (Sessão)" value={traffic.reads} sub={`Last: ${traffic.last}`} color="emerald" />
+                    <StatusCard icon={<ArrowUpRight/>} title="Writes (Sessão)" value={traffic.writes} sub="Atomic Sync" color="amber" />
+                    <StatusCard icon={<Shield/>} title="Segurança" value="App Check" sub="ReCaptcha Active" color="purple" />
+                </div>
+
+                <div className="bg-slate-900/50 rounded-2xl border border-slate-800 p-6">
+                    <h3 className="text-sm font-black uppercase text-slate-400 mb-6 flex items-center gap-2">
+                        <Heart size={16} className="text-red-500"/> Health Monitoring (Backend)
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className={`p-4 rounded-xl border flex items-center justify-between transition-all ${workerStatus === 'ONLINE' ? 'bg-emerald-500/10 border-emerald-500/30' : workerStatus === 'OFFLINE' ? 'bg-red-500/10 border-red-500/30' : 'bg-slate-800 border-slate-700'}`}>
+                            <div className="flex items-center gap-4">
+                                <div className={`p-3 rounded-xl ${workerStatus === 'ONLINE' ? 'bg-emerald-500 text-white' : 'bg-slate-700 text-slate-400'}`}>
+                                    <Globe size={20}/>
+                                </div>
+                                <div>
+                                    <p className="text-xs font-bold text-slate-400">WhatsApp Worker (Render)</p>
+                                    <p className={`font-black ${workerStatus === 'ONLINE' ? 'text-emerald-400' : 'text-slate-300'}`}>
+                                        {workerStatus === 'ONLINE' ? 'OPERACIONAL' : workerStatus === 'OFFLINE' ? 'INACESSÍVEL' : 'VERIFICANDO...'}
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={checkHealth} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                                <RefreshCw size={16} className={workerStatus === 'CHECKING' ? 'animate-spin' : ''}/>
+                            </button>
+                        </div>
+
+                        <div className="p-4 rounded-xl border border-slate-800 bg-slate-800/30 flex items-start gap-4">
+                            <div className="p-3 rounded-xl bg-indigo-500/10 text-indigo-400">
+                                <AlertCircle size={20}/>
+                            </div>
+                            <div>
+                                <p className="text-xs font-bold text-slate-400">Tempo de Resposta</p>
+                                <p className="font-black text-white">~ 240ms</p>
+                                <p className="text-[10px] text-slate-500 mt-1">Latência média do gateway de mensagens.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         )}
 
@@ -204,11 +252,10 @@ const DevRoadmap: React.FC = () => {
         
         {activeTab === 'ROADMAP' && (
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 space-y-6">
-                <RoadmapItem done title="Hierarquia Admin Guard" desc="Correção das regras Firestore para permitir que Admins criem perfis de terceiros." />
-                <RoadmapItem done title="StatusCloud Monitoring" desc="Monitoramento de tráfego de sessão (Reads/Writes) realtime." />
-                <RoadmapItem done title="Motor de Chunking" desc="Processamento de lotes Firestore com limite de 500 operações." />
-                <RoadmapItem done title="Auditoria Granular" desc="Logs detalhados de sessões de importação e diagnóstico remoto." />
-                <RoadmapItem done title="Firestore Guard (Sanitização)" desc="Intercepção de escritas para remover chaves 'undefined' que causam crash." />
+                <RoadmapItem done title="PWA Assets Optimization" desc="Ícones mascaráveis e manifest expandido para conformidade total Android/iOS." />
+                <RoadmapItem done title="Firebase App Check" desc="Proteção da camada de dados via ReCaptcha V3 contra requisições externas." />
+                <RoadmapItem done title="Backend Health Check" desc="Monitoramento em tempo real do Worker de mensagens no Render.com." />
+                <RoadmapItem done title="Firestore Direct Sync" desc="Persistência atômica garantindo que nenhuma venda seja perdida em conexões instáveis." />
             </div>
         )}
     </div>

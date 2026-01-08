@@ -62,7 +62,6 @@ export const ensureNumber = (value: any, fallback = 0): number => {
     return isNaN(num) ? fallback : num;
 };
 
-// Fix: Added missing export for formatCurrency
 export const formatCurrency = (val: number): string => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 };
@@ -82,10 +81,30 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
     return { commissionBase, commissionValue: commissionBase * rateUsed, rateUsed };
 };
 
-/**
- * Carrega tabelas de comissão globais.
- * Tenta buscar do servidor a versão ativa (isActive == true).
- */
+export const createReceivableFromSale = async (sale: Sale): Promise<string> => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) throw new Error("Usuário não autenticado");
+
+    const receivableId = crypto.randomUUID();
+    const newRec: Receivable = {
+        id: receivableId,
+        description: `Comissão: ${sale.client} (${sale.type})`,
+        value: sale.commissionValueTotal,
+        date: sale.date || new Date().toISOString().split('T')[0],
+        status: 'PENDING',
+        distributed: false,
+        deductions: [],
+        userId: uid,
+        deleted: false
+    };
+
+    await dbPut('receivables', newRec);
+    await setDoc(doc(db, "receivables", receivableId), sanitizeForFirestore(newRec));
+    SessionTraffic.trackWrite();
+    
+    return receivableId;
+};
+
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
     let colName = 'commissions_basic';
     let storeName = 'commission_basic';
@@ -96,14 +115,11 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
     }
 
     try {
-        // Removido orderBy para evitar necessidade de índice composto (isActive + createdAt)
-        // Isso resolve o erro de "permission-denied" que às vezes mascara erro de índice
         const q = query(collection(db, colName), where("isActive", "==", true), limit(5));
         const snap = await getDocs(q); 
         SessionTraffic.trackRead(snap.size);
 
         if (!snap.empty) {
-            // Ordena manualmente no cliente pelo doc mais recente
             const docs = snap.docs.sort((a, b) => {
                 const da = a.data()?.createdAt?.toDate?.()?.getTime() || 0;
                 const db = b.data()?.createdAt?.toDate?.()?.getTime() || 0;
@@ -136,16 +152,12 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
         .sort((a: any, b: any) => (a.minPercent || 0) - (b.minPercent || 0));
 };
 
-/**
- * Salva regras de comissão e desativa versões anteriores.
- */
 export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
     let colName = 'commissions_basic';
     if (type === ProductType.NATAL) colName = 'commissions_natal';
     if (type === ProductType.CUSTOM) return;
 
     try {
-        Logger.info(`Audit: Iniciando atualização global da tabela [${type}]`);
         const q = query(collection(db, colName), where("isActive", "==", true));
         const snap = await getDocs(q);
         const batch = writeBatch(db);
@@ -169,10 +181,6 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
         await batch.commit();
         SessionTraffic.trackWrite();
     } catch (e: any) {
-        Logger.error(`Erro ao salvar regras globais [${type}]`, e);
-        if (e.code === 'permission-denied') {
-            throw new Error(`Privilégios insuficientes no Firestore. Verifique sua role ADMIN.`);
-        }
         throw e;
     }
 };
@@ -211,14 +219,10 @@ export const getStoredSales = async (): Promise<Sale[]> => {
     }));
 };
 
-/**
- * Função unificada para baixar dados financeiros do backend e atualizar o front.
- */
 export const getFinanceData = async () => {
     const uid = auth.currentUser?.uid;
     if (!uid) return { accounts: [], transactions: [], cards: [], categories: [], goals: [], challenges: [], cells: [], receivables: [] };
     
-    // Lista de tabelas para sincronizar
     const tables = ['accounts', 'transactions', 'cards', 'categories', 'goals', 'challenges', 'challenge_cells', 'receivables'];
     
     for (const table of tables) {
@@ -255,7 +259,6 @@ export const handleSoftDelete = async (table: string, id: string) => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
 
-    Logger.warn(`Audit: Soft Delete solicitado em ${table}/${id}`);
     const local = await dbGet(table as any, id);
     if (local) {
         await dbPut(table as any, { ...local, deleted: true, deletedAt: new Date().toISOString() });
@@ -268,9 +271,7 @@ export const handleSoftDelete = async (table: string, id: string) => {
             updatedAt: serverTimestamp()
         });
         SessionTraffic.trackWrite();
-    } catch (e) {
-        Logger.error(`Audit: Falha ao sincronizar soft delete`, e);
-    }
+    } catch (e) {}
 };
 
 export const saveSales = async (sales: Sale[]) => {
@@ -307,7 +308,6 @@ export const getTicketStats = async (): Promise<number> => {
     } catch (e) { return 0; }
 };
 
-// Fix: Added missing export for processFinanceImport
 export const processFinanceImport = (data: any[][], mapping: ImportMapping): Partial<Transaction>[] => {
     const rows = data.slice(1);
     const transactions: Partial<Transaction>[] = [];
@@ -415,6 +415,23 @@ export const getClients = async (): Promise<Client[]> => {
         await dbBulkPut('clients', data);
     } catch (e) {}
     return await dbGetAll('clients', c => c.userId === uid && !c.deleted);
+};
+
+export const createClientAutomatically = async (name: string): Promise<string> => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) throw new Error("Auth required");
+    const id = crypto.randomUUID();
+    const newClient: Client = {
+        id,
+        name,
+        userId: uid,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        deleted: false
+    };
+    await dbPut('clients', newClient);
+    await setDoc(doc(db, 'clients', id), sanitizeForFirestore(newClient));
+    return id;
 };
 
 export const saveSingleSale = async (sale: Sale) => {

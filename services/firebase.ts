@@ -1,8 +1,10 @@
+
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, Auth, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, Firestore } from "firebase/firestore";
 import { getMessaging, Messaging, isSupported } from "firebase/messaging";
 import { getFunctions, Functions } from "firebase/functions";
+import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
 const getEnv = (key: string): string => {
   return (import.meta as any).env?.[key] || (process as any).env?.[key] || "";
@@ -21,6 +23,17 @@ export const firebaseConfig = {
 const app: FirebaseApp = getApps().length === 0
   ? initializeApp(firebaseConfig)
   : getApp();
+
+// Ativação do App Check (Proteção contra bots e uso indevido de API)
+// Nota: Em produção, requer VITE_RECAPTCHA_SITE_KEY configurado no .env
+const recaptchaKey = getEnv('VITE_RECAPTCHA_SITE_KEY');
+if (recaptchaKey && typeof window !== "undefined") {
+    initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider(recaptchaKey),
+        isTokenAutoRefreshEnabled: true
+    });
+    console.info("[Firebase] App Check ativado com ReCaptcha V3.");
+}
 
 export const auth: Auth = getAuth(app);
 

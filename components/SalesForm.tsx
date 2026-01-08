@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Sale, ProductType, Client, SaleStatus } from '../types';
-import { getStoredTable, computeCommissionValues, getClients } from '../services/logic';
-import { X, Calculator, AlertCircle, Truck, DollarSign, Clock } from 'lucide-react';
+import { getStoredTable, computeCommissionValues, getClients, createClientAutomatically, createReceivableFromSale } from '../services/logic';
+import { X, Calculator, AlertCircle, Truck, DollarSign, Clock, Users, Plus, Check } from 'lucide-react';
 import { auth } from '../services/firebase';
 import { Logger } from '../services/logger';
 
@@ -23,6 +23,7 @@ const SalesForm: React.FC<Props> = ({
 }) => {
   const [availableClients, setAvailableClients] = useState<Client[]>([]);
   const [clientName, setClientName] = useState('');
+  const [selectedClientId, setSelectedClientId] = useState('');
   const [productType, setProductType] = useState<ProductType>(ProductType.BASICA);
   const [status, setStatus] = useState<SaleStatus>('ORÇAMENTO');
   const [quantity, setQuantity] = useState(1);
@@ -33,12 +34,14 @@ const SalesForm: React.FC<Props> = ({
   const [closeDate, setCloseDate] = useState('');
   const [billDate, setBillDate] = useState('');
   const [isPendingBilling, setIsPendingBilling] = useState(false);
+  const [autoCreateReceivable, setAutoCreateReceivable] = useState(true);
   const [observations, setObservations] = useState('');
   const [trackingCode, setTrackingCode] = useState('');
 
   const [commissionRate, setCommissionRate] = useState(0);
   const [commissionValue, setCommissionValue] = useState(0);
   const [commissionBase, setCommissionBase] = useState(0);
+  const [showClientList, setShowClientList] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -50,6 +53,7 @@ const SalesForm: React.FC<Props> = ({
     if (!initialData) {
         setIsPendingBilling(false);
         setClientName('');
+        setSelectedClientId('');
         setProductType(ProductType.BASICA);
         setStatus('ORÇAMENTO');
         setQuantity(1);
@@ -63,6 +67,7 @@ const SalesForm: React.FC<Props> = ({
     }
 
     setClientName(initialData.client);
+    setSelectedClientId(initialData.clientId || '');
     setProductType(initialData.type);
     setStatus(initialData.status || (initialData.date ? 'FATURADO' : 'ORÇAMENTO'));
     setQuantity(initialData.quantity);
@@ -72,7 +77,7 @@ const SalesForm: React.FC<Props> = ({
     setQuoteDate(initialData.quoteDate || '');
     setCloseDate(initialData.completionDate || '');
     setBillDate(initialData.date || '');
-    setIsPendingBilling(!initialData.date); // Se não tem data, inicia como pendente
+    setIsPendingBilling(!initialData.date);
     setObservations(initialData.observations || '');
     setTrackingCode(initialData.trackingCode || '');
   }, [initialData, isOpen]);
@@ -90,7 +95,16 @@ const SalesForm: React.FC<Props> = ({
     calc();
   }, [quantity, valueProposed, margin, productType]);
 
-  if (!isOpen) return null;
+  const filteredClients = useMemo(() => {
+      if (!clientName) return [];
+      return availableClients.filter(c => c.name.toLowerCase().includes(clientName.toLowerCase()));
+  }, [clientName, availableClients]);
+
+  const handleSelectClient = (c: Client) => {
+      setClientName(c.name);
+      setSelectedClientId(c.id);
+      setShowClientList(false);
+  };
 
   const handleSave = async () => {
     if (!clientName || valueProposed <= 0 || (!isPendingBilling && !billDate)) {
@@ -100,6 +114,18 @@ const SalesForm: React.FC<Props> = ({
 
     const uid = auth.currentUser?.uid;
     if (!uid) return;
+
+    let finalClientId = selectedClientId;
+
+    // Auto-create client if it doesn't exist
+    if (!finalClientId) {
+        const existing = availableClients.find(c => c.name.toLowerCase() === clientName.toLowerCase());
+        if (existing) {
+            finalClientId = existing.id;
+        } else {
+            finalClientId = await createClientAutomatically(clientName);
+        }
+    }
 
     Logger.info(`Audit: Iniciando gravação de venda para [${clientName}]`);
 
@@ -111,6 +137,7 @@ const SalesForm: React.FC<Props> = ({
       id: initialData?.id || crypto.randomUUID(),
       userId: uid,
       client: clientName,
+      clientId: finalClientId,
       quantity,
       type: productType,
       status: finalStatus,
@@ -133,6 +160,12 @@ const SalesForm: React.FC<Props> = ({
 
     try {
         if (onSave) await onSave(sale);
+        
+        // Auto-receivable Logic
+        if (isBilled && autoCreateReceivable) {
+            await createReceivableFromSale(sale);
+        }
+
         if (onSaved) await onSaved();
         onClose();
     } catch (e) {
@@ -167,14 +200,34 @@ const SalesForm: React.FC<Props> = ({
         <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-8 custom-scrollbar">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Cliente</label>
+              <div className="relative">
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1 flex items-center gap-1">
+                    <Users size={12}/> Cliente
+                </label>
                 <input
                   className={inputClasses}
                   placeholder="Nome do cliente ou empresa"
                   value={clientName}
-                  onChange={e => setClientName(e.target.value)}
+                  onChange={e => { setClientName(e.target.value); setShowClientList(true); setSelectedClientId(''); }}
+                  onFocus={() => setShowClientList(true)}
                 />
+                {showClientList && filteredClients.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-xl max-h-40 overflow-y-auto">
+                        {filteredClients.map(c => (
+                            <button 
+                                key={c.id} 
+                                onClick={() => handleSelectClient(c)}
+                                className="w-full text-left p-3 text-sm hover:bg-emerald-50 dark:hover:bg-emerald-900/20 border-b last:border-0 dark:border-slate-700 flex justify-between items-center"
+                            >
+                                <span>{c.name}</span>
+                                <Check size={14} className="text-emerald-500 opacity-0 group-hover:opacity-100"/>
+                            </button>
+                        ))}
+                    </div>
+                )}
+                {!selectedClientId && clientName && filteredClients.length === 0 && (
+                    <p className="text-[10px] text-emerald-500 font-bold mt-1 ml-1 animate-pulse">Novo cliente será criado!</p>
+                )}
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Tipo de Produto</label>
@@ -271,6 +324,22 @@ const SalesForm: React.FC<Props> = ({
                   disabled={isPendingBilling}
                 />
               </div>
+              
+              {!isPendingBilling && (
+                  <label className="flex items-center gap-2 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/30 bg-indigo-50/50 dark:bg-indigo-900/10 cursor-pointer">
+                    <input 
+                        type="checkbox" 
+                        className="w-5 h-5 accent-indigo-600" 
+                        checked={autoCreateReceivable} 
+                        onChange={e => setAutoCreateReceivable(e.target.checked)}
+                    />
+                    <div className="text-xs">
+                        <p className="font-bold text-indigo-700 dark:text-indigo-400">Lançar no Financeiro?</p>
+                        <p className="text-indigo-600/70 dark:text-indigo-300/50">Cria um item na aba "A Receber" automaticamente.</p>
+                    </div>
+                  </label>
+              )}
+
               <div className={`p-4 rounded-xl flex items-start gap-3 transition-colors ${isPendingBilling ? 'bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30' : 'bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30'}`}>
                   {isPendingBilling ? (
                       <>

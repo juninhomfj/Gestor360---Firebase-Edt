@@ -1,12 +1,12 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { CommissionRule, ProductType, ReportConfig, SystemConfig, AppTheme, User, Sale, AiUsageStats, ProductLabels, DuplicateGroup, Transaction, SyncEntry, AudioType } from '../types';
+import { CommissionRule, ProductType, ReportConfig, SystemConfig, AppTheme, User, Sale, AudioType } from '../types';
 import CommissionEditor from './CommissionEditor';
-import ClientList from './ClientList';
-import { Settings, Shield, Server, Volume2, Trash2, Database, User as UserIcon, Palette, Activity, Hammer, X, ArrowLeft, Users, Save, PlayCircle, Plus, Bell, Key, MessageSquare, Terminal, Eraser } from 'lucide-react';
+import ClientManagementHub from './ClientManagementHub'; // Atualizado
+import { Settings, Shield, Volume2, Trash2, User as UserIcon, Activity, Hammer, X, ArrowLeft, Users, Save, Bell, Key, Terminal, Eraser } from 'lucide-react';
 import { getSystemConfig, saveSystemConfig, DEFAULT_SYSTEM_CONFIG } from '../services/logic';
-import { dbGetAll } from '../storage/db';
-import { auth, db } from '../services/firebase';
-import { fileToBase64 } from '../utils/fileHelper';
+import { auth } from '../services/firebase';
+import { fileToBase64, optimizeImage } from '../utils/fileHelper';
 import { Logger } from '../services/logger';
 import BackupModal from './BackupModal';
 import UserProfile from './UserProfile';
@@ -354,7 +354,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
 
                {activeTab === 'TRASH' && <TrashBin darkMode={!!darkMode} />}
                {activeTab === 'ROADMAP' && (isAdmin || isDev) && <DevRoadmap />}
-               {activeTab === 'CLIENTS' && <ClientList currentUser={currentUser} darkMode={!!darkMode} />}
+               {activeTab === 'CLIENTS' && <ClientManagementHub currentUser={currentUser} darkMode={!!darkMode} />}
            </div>
        </div>
 
@@ -370,7 +370,7 @@ const SoundRow = ({ label, value, onUpload, onTest, onDelete }: any) => (
             <span className="text-[10px] text-gray-500 font-mono tracking-tighter">{value ? '✓ Áudio customizado carregado' : '× Som padrão (Silencioso)'}</span>
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
-            {value && <button onClick={onTest} className="p-3 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 rounded-xl hover:scale-110 transition-transform"><PlayCircle size={18}/></button>}
+            {value && <button onClick={onTest} className="p-3 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 rounded-xl hover:scale-110 transition-transform"><Activity size={18}/></button>}
             <button onClick={onUpload} className="flex-1 sm:flex-none px-5 py-3 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-900/20">{value ? 'Trocar' : 'Carregar'}</button>
             {value && <button onClick={onDelete} className="p-3 bg-red-100 dark:bg-red-900/30 text-red-600 rounded-xl hover:bg-red-50 hover:text-white transition-all"><Trash2 size={18}/></button>}
         </div>
