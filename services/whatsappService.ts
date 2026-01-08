@@ -16,10 +16,11 @@ import {
   getDocs,
   writeBatch,
   getDoc,
-  updateDoc
+  updateDoc,
+  orderBy,
+  limit
 } from 'firebase/firestore';
 
-// Tenta pegar a URL salva nas configurações locais, senão usa a do ambiente ou localhost
 const getBackendUrl = () => {
     const savedUrl = localStorage.getItem('wa_backend_url_override');
     if (savedUrl) return savedUrl;

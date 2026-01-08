@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Sale, ProductType, DashboardWidgetConfig, Transaction, User, SalesTargets } from '../types'; 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { DollarSign, Gift, ShoppingBasket, Plus, Calendar, Eye, EyeOff, Settings, X, Clock, CheckCircle2, Sparkles, Target, Edit3 } from 'lucide-react';
+import { DollarSign, Gift, ShoppingBasket, Plus, Calendar, Eye, EyeOff, Settings, X, Clock, CheckCircle2, Sparkles, Target, Edit3, ShoppingBag, ArrowRight } from 'lucide-react';
 import AiConsultant from './AiConsultant'; 
 import { getFinanceData, getSystemConfig } from '../services/logic'; 
 
@@ -94,31 +94,25 @@ const Dashboard: React.FC<DashboardProps> = ({
       setShowAi(true);
   };
 
-  const vibrate = () => {
-      if (navigator.vibrate) navigator.vibrate(50);
-  };
-
-  const handleNewSaleClick = () => {
-      vibrate();
-      onNewSale();
-  };
+  // Filtragem de vendas ativas (não deletadas)
+  const activeSales = sales.filter(s => !s.deleted);
 
   // Vendas de Básica do Mês Vigente
-  const basicSalesMonth = sales.filter(s => {
+  const basicSalesMonth = activeSales.filter(s => {
     if (!s.date) return false;
     const d = new Date(s.date);
     return s.type === ProductType.BASICA && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
   });
 
   // Vendas de Natal do Ano Inteiro
-  const natalSalesYear = sales.filter(s => {
+  const natalSalesYear = activeSales.filter(s => {
     if (!s.date) return false;
     const d = new Date(s.date);
     return s.type === ProductType.NATAL && d.getFullYear() === currentYear;
   });
 
   // COMISSÃO TOTAL DO MÊS
-  const totalCommissionMonth = sales.filter(s => {
+  const totalCommissionMonth = activeSales.filter(s => {
       if (!s.date) return false;
       const d = new Date(s.date);
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
@@ -145,7 +139,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       });
     }
 
-    sales.forEach(sale => {
+    activeSales.forEach(sale => {
       if (!sale.date) return;
       const d = new Date(sale.date);
       const key = `${d.getFullYear()}-${d.getMonth()}`;
@@ -158,9 +152,9 @@ const Dashboard: React.FC<DashboardProps> = ({
     });
 
     return Array.from(months.values());
-  }, [sales]);
+  }, [activeSales]);
 
-  const recentSales = [...sales].sort((a, b) => {
+  const recentSales = [...activeSales].sort((a, b) => {
       const dateA = a.date ? new Date(a.date).getTime() : new Date(a.completionDate || '2099-01-01').getTime();
       const dateB = b.date ? new Date(b.date).getTime() : new Date(b.completionDate || '2099-01-01').getTime();
       return dateB - dateA;
@@ -176,12 +170,33 @@ const Dashboard: React.FC<DashboardProps> = ({
   const basicProgress = salesTargets?.basic ? Math.min((basicQtyMonth / salesTargets.basic) * 100, 100) : 0;
   const natalProgress = salesTargets?.natal ? Math.min((natalQtyYear / salesTargets.natal) * 100, 100) : 0;
 
+  // COMPONENTE DE ESTADO VAZIO
+  if (activeSales.length === 0) {
+      return (
+          <div className="flex flex-col items-center justify-center min-h-[70vh] text-center p-6 animate-in fade-in zoom-in duration-500">
+              <div className="bg-indigo-500/10 p-8 rounded-3xl mb-6 border-2 border-dashed border-indigo-500/30">
+                  <ShoppingBag size={64} className="text-indigo-500 mx-auto animate-float" />
+              </div>
+              <h2 className={`text-3xl font-black mb-4 ${darkMode ? 'text-white' : 'text-gray-900'}`}>Sua jornada começa aqui!</h2>
+              <p className={`text-gray-500 dark:text-gray-400 mb-8 max-w-md leading-relaxed`}>
+                  Seu dashboard está pronto para brilhar. Lance sua primeira venda para desbloquear os indicadores de performance e análise estratégica.
+              </p>
+              <button 
+                  onClick={onNewSale}
+                  className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black flex items-center gap-3 shadow-2xl shadow-indigo-900/30 transition-all active:scale-95"
+              >
+                  Lançar Minha Primeira Venda <ArrowRight size={20}/>
+              </button>
+          </div>
+      );
+  }
+
   return (
     <div className="space-y-6 relative h-auto">
       <AiConsultant 
         isOpen={showAi} 
         onClose={() => setShowAi(false)} 
-        sales={sales} 
+        sales={activeSales} 
         transactions={transactions} 
         darkMode={darkMode} 
         userKeys={currentUser?.keys}
@@ -216,7 +231,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             </button>
 
             <button 
-                onClick={handleNewSaleClick}
+                onClick={onNewSale}
                 className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 flex items-center shadow-sm transition-colors active:scale-95"
             >
                 <Plus size={20} className="mr-2" />
@@ -422,7 +437,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                           />
                       </div>
                   </div>
-                  <button onClick={handleSaveTargets} className="w-full mt-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg">Salvar Metas</button>
+                  <button handleSaveTargets={() => handleSaveTargets()} className="w-full mt-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg">Salvar Metas</button>
               </div>
           </div>
       )}

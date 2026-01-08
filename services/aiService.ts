@@ -1,19 +1,20 @@
-
 import { GoogleGenAI, Modality } from "@google/genai";
 import { Transaction, Sale } from '../types';
 
-// Use process.env.API_KEY directly as required
+// O acesso deve ser direto ao process.env.API_KEY conforme diretriz de segurança
 const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const sendMessageToAi = async (message: string, history: any[], userKeys: any, sales: Sale[] = []) => {
     const ai = getAIClient();
     
-    // Enrich context for the model
+    // Filtro mandatório: ignorar itens deletados do contexto da IA
+    const activeSales = sales.filter(s => !s.deleted);
+
     const dataContext = `
-        Dados do Usuário:
-        - Total de Vendas: ${sales.length}
-        - Vendas Faturadas: ${sales.filter(s => s.date).length}
-        - Comissões a Receber (Brutas): R$ ${sales.filter(s => !s.date).reduce((acc, s) => acc + s.commissionValueTotal, 0).toFixed(2)}
+        Dados Reais (Filtro Active-Only):
+        - Total de Vendas Ativas: ${activeSales.length}
+        - Vendas Faturadas: ${activeSales.filter(s => s.date).length}
+        - Comissões a Receber (Brutas): R$ ${activeSales.filter(s => !s.date).reduce((acc, s) => acc + s.commissionValueTotal, 0).toFixed(2)}
     `;
 
     const contents = history.map(h => ({

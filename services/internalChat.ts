@@ -1,4 +1,3 @@
-
 import { 
     collection, 
     doc, 
@@ -10,7 +9,6 @@ import {
     onSnapshot,
     Timestamp,
     limit,
-    /* Fix: Added serverTimestamp to firestore imports */
     serverTimestamp
 } from "firebase/firestore";
 import { db, auth } from "./firebase";
@@ -18,7 +16,7 @@ import { dbPut, dbGetAll, dbGet } from '../storage/db';
 import { InternalMessage, User } from '../types';
 
 /**
- * Envia uma mensagem persistindo localmente e no Firestore.
+ * Envia uma mensagem persistindo localmente e no Firestore com suporte a Soft Delete.
  */
 export const sendMessage = async (
     sender: User, 
@@ -38,6 +36,7 @@ export const sendMessage = async (
         type,
         timestamp: new Date().toISOString(),
         read: false,
+        deleted: false, // Padrão de integridade v2.5
         relatedModule
     };
 
@@ -53,6 +52,7 @@ export const sendMessage = async (
                 type: msg.type,
                 timestamp: msg.timestamp,
                 read: msg.read,
+                deleted: false,
                 userId: auth.currentUser.uid,
                 createdAt: serverTimestamp()
             };
@@ -70,25 +70,25 @@ export const sendMessage = async (
 };
 
 /**
- * Carrega histórico local de mensagens com filtro RLS obrigatório.
+ * Carrega histórico local de mensagens com filtro RLS e Soft Delete obrigatório.
  */
 export const getMessages = async (userId: string, isAdmin: boolean) => {
-    // 1. Busca mensagens locais no IndexedDB
     const all = await dbGetAll('internal_messages');
-    let filtered = all.filter(m => m.recipientId === userId || m.senderId === userId || m.recipientId === 'BROADCAST');
+    let filtered = all.filter(m => 
+        !m.deleted && (m.recipientId === userId || m.senderId === userId || m.recipientId === 'BROADCAST')
+    );
 
-    // 2. Busca mensagens do Firestore com filtro obrigatório
     try {
         const q = query(
             collection(db, "internal_messages"),
             where("recipientId", "in", [userId, "BROADCAST"]),
+            where("deleted", "==", false),
             orderBy("createdAt", "desc"),
             limit(50)
         );
         const snap = await getDocs(q);
         const cloudMsgs = snap.docs.map(d => ({ ...d.data(), id: d.id } as InternalMessage));
         
-        // Merge seguro
         const merged = [...filtered];
         cloudMsgs.forEach(cm => {
             if (!merged.find(m => m.id === cm.id)) merged.push(cm);
@@ -102,7 +102,7 @@ export const getMessages = async (userId: string, isAdmin: boolean) => {
 };
 
 /**
- * Subscreve ao Firestore para mensagens novas com filtro mandatório.
+ * Subscreve ao Firestore para mensagens novas com filtro de integridade mandatório.
  */
 export const subscribeToMessages = (
     userId: string, 
@@ -112,6 +112,7 @@ export const subscribeToMessages = (
     const q = query(
         collection(db, "internal_messages"),
         where("recipientId", "in", [userId, "BROADCAST"]),
+        where("deleted", "==", false),
         orderBy("createdAt", "desc"),
         limit(20)
     );

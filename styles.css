@@ -3,57 +3,47 @@
 @tailwind components;
 @tailwind utilities;
 
-/* --- SCROLLBARS --- */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+@layer base {
+  :root {
+    --brand-primary: #10b981;
+    --brand-secondary: #6366f1;
+  }
+  
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-100 antialiased overflow-hidden;
+  }
 }
 
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-.dark ::-webkit-scrollbar-thumb { background: #334155; }
+@layer components {
+  .glass-panel {
+    @apply bg-slate-900/60 backdrop-blur-md border border-white/10 shadow-2xl;
+  }
 
-/* --- ANIMATIONS: PAPER PLANE & SUCCESS --- */
+  .card-hover-glow {
+    @apply transition-all duration-300 hover:shadow-[0_0_20px_rgba(99,102,241,0.2)] hover:border-indigo-500/30;
+  }
 
-@keyframes plane-takeoff {
-  0% { transform: translate(-150px, 150px) rotate(0deg) scale(0.5); opacity: 0; }
-  30% { transform: translate(0, 0) rotate(-15deg) scale(1); opacity: 1; }
-  70% { transform: translate(100px, -100px) rotate(-25deg) scale(1.1); opacity: 1; }
-  100% { transform: translate(300px, -300px) rotate(-35deg) scale(0.8); opacity: 0; }
-}
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
 
-.animate-plane-takeoff {
-  animation: plane-takeoff 2.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
-}
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
 
-@keyframes dash-trail {
-  0% { stroke-dashoffset: 100; opacity: 0; }
-  20% { opacity: 1; }
-  100% { stroke-dashoffset: 0; opacity: 0; }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-slate-800 rounded-full hover:bg-slate-700 transition-colors;
+  }
 }
 
-.animate-trail {
-  stroke-dasharray: 10;
-  animation: dash-trail 2s linear infinite;
-}
+/* --- ANIMATIONS --- */
 
-@keyframes success-pop {
-  0% { transform: scale(0.4); opacity: 0; }
-  80% { transform: scale(1.1); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
-}
-
-.animate-success-pop {
-  animation: success-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-  animation-delay: 1.8s;
-  opacity: 0;
-}
-
-/* --- OUTRAS ANIMAÇÕES EXISTENTES --- */
 @keyframes aurora {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
@@ -62,12 +52,58 @@
 .animate-aurora {
   background: linear-gradient(-45deg, #020617, #0f172a, #1e1b4b, #020617);
   background-size: 400% 400%;
-  animation: aurora 8s ease infinite;
+  animation: aurora 12s ease infinite;
 }
 
-@keyframes float {
-  0% { transform: translateY(0px); }
-  50% { transform: translateY(-15px); }
-  100% { transform: translateY(0px); }
+@keyframes plane-takeoff {
+  0% { transform: translate(-150px, 150px) rotate(0deg) scale(0.5); opacity: 0; }
+  30% { transform: translate(0, 0) rotate(-15deg) scale(1); opacity: 1; }
+  70% { transform: translate(100px, -100px) rotate(-25deg) scale(1.1); opacity: 1; }
+  100% { transform: translate(300px, -300px) rotate(-35deg) scale(0.8); opacity: 0; }
 }
-.animate-float { animation: float 5s ease-in-out infinite; }
+.animate-plane-takeoff {
+  animation: plane-takeoff 2.2s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
+}
+
+@keyframes success-pop {
+  0% { transform: scale(0.4); opacity: 0; }
+  80% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-success-pop {
+  animation: success-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes countdown {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: 56.54; } /* 2 * PI * 9 */
+}
+.animate-countdown {
+  animation: countdown linear forwards;
+}
+
+@keyframes trash-paper-1 {
+  0% { transform: translateY(0) rotate(0); opacity: 1; }
+  100% { transform: translateY(40px) rotate(180deg); opacity: 0; }
+}
+@keyframes trash-paper-2 {
+  0% { transform: translateY(0) rotate(0); opacity: 1; }
+  100% { transform: translateY(40px) rotate(-180deg); opacity: 0; }
+}
+.animate-trash-paper-1 { animation: trash-paper-1 0.8s ease-in forwards; }
+.animate-trash-paper-2 { animation: trash-paper-2 0.8s ease-in 0.2s forwards; }
+
+@keyframes swing {
+  0%, 100% { transform: rotate(0); }
+  20% { transform: rotate(10deg); }
+  40% { transform: rotate(-10deg); }
+  60% { transform: rotate(5deg); }
+  80% { transform: rotate(-5deg); }
+}
+.animate-swing { animation: swing 1s ease-in-out; }
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+.animate-float { animation: float 4s ease-in-out infinite; }

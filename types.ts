@@ -87,6 +87,7 @@ export interface InternalMessage {
   type: 'CHAT' | 'ACCESS_REQUEST' | 'BROADCAST' | 'BUG_REPORT' | 'SYSTEM';
   timestamp: string;
   read: boolean;
+  deleted: boolean; // Padrão Soft Delete v2.5
   relatedModule?: 'sales' | 'finance' | 'ai';
   readBy?: string[];
 }
@@ -283,9 +284,7 @@ export interface SystemConfig {
   includeNonAccountingInTotal: boolean;
   fcmServerKey?: string;
   ntfyTopic?: string;
-  modules?: {
-    ai: boolean;
-  };
+  modules?: SystemModules;
   notificationSound?: string;
   alertSound?: string;
   successSound?: string;

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { User } from '../types';
 import { login } from '../services/auth';
-import { Lock, Mail, AlertCircle, ArrowRight, ShieldCheck, Heart } from 'lucide-react';
+import { Lock, Mail, AlertCircle, ArrowRight, ShieldCheck, Heart, KeyRound } from 'lucide-react';
 import Logo from './Logo';
 import BrazilFlag from './BrazilFlag';
 
@@ -21,7 +21,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRequestReset }) => {
     setError('');
     
     if (!identifier || !password) {
-        setError('Preencha todos os campos.');
+        setError('Por favor, informe suas credenciais de acesso.');
         return;
     }
 
@@ -31,79 +31,86 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRequestReset }) => {
         if (user) {
             onLoginSuccess(user);
         } else {
-            setError(authError || 'Falha na autenticação.');
+            setError(authError || 'Falha na autenticação. Verifique seus dados.');
             setIsLoading(false);
         }
     } catch (e: any) {
-        setError('Erro ao conectar com o servidor.');
+        setError('Ocorreu um erro ao conectar com a plataforma cloud.');
         setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-[100dvh] flex flex-col items-center justify-center relative overflow-y-auto bg-slate-950 p-4 md:p-8 font-sans text-slate-200">
+    <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-[#020617] p-4 md:p-8 font-sans text-slate-200">
         
-        {/* Background Effects */}
+        {/* Background Gradients (Professional SaaS look) */}
         <div className="fixed inset-0 overflow-hidden pointer-events-none">
-            <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-500/10 blur-[120px] rounded-full"></div>
-            <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full"></div>
+            <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-600/10 blur-[120px] rounded-full"></div>
+            <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-600/10 blur-[120px] rounded-full"></div>
         </div>
 
-        <div className="w-full max-w-[440px] z-10 animate-pop-in">
-            {/* Logo Area */}
-            <div className="flex flex-col items-center mb-8">
-                <Logo size="xl" variant="full" lightMode />
-                <div className="mt-4 flex items-center gap-2 text-[10px] text-slate-500 uppercase tracking-[0.2em] font-black">
-                    <ShieldCheck size={12} className="text-emerald-500" />
-                    Ambiente Criptografado
+        <div className="w-full max-w-[420px] z-10 animate-in fade-in zoom-in duration-500">
+            {/* Branding Header */}
+            <div className="flex flex-col items-center mb-10">
+                <div className="bg-white/5 p-4 rounded-3xl border border-white/10 shadow-2xl mb-4">
+                    <Logo size="lg" variant="icon" />
                 </div>
+                <h1 className="text-3xl font-black text-white tracking-tighter">Gestor<span className="text-blue-500">360</span></h1>
+                <p className="text-slate-500 text-xs font-bold uppercase tracking-[0.2em] mt-2">Plataforma de Inteligência Comercial</p>
             </div>
 
-            {/* Login Card */}
-            <div className="bg-white/[0.03] backdrop-blur-xl border border-white/10 rounded-[2rem] p-8 md:p-10 shadow-2xl">
-                <h2 className="text-xl font-bold text-white mb-6 text-center">Acesse sua Conta</h2>
+            {/* Professional Login Card */}
+            <div className="bg-slate-900/50 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-8 md:p-10 shadow-2xl ring-1 ring-white/5">
+                <div className="flex items-center gap-3 mb-8">
+                    <div className="p-2 bg-blue-500/10 rounded-lg text-blue-500">
+                        <ShieldCheck size={20} />
+                    </div>
+                    <h2 className="text-xl font-bold text-white">Login de Usuário</h2>
+                </div>
 
                 {error && (
-                    <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-xl text-xs flex items-center gap-3 mb-6 animate-in fade-in slide-in-from-top-1">
-                        <AlertCircle size={16} className="shrink-0" /> 
-                        <span className="font-bold">{error}</span>
+                    <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-4 rounded-2xl text-xs flex items-center gap-3 mb-6 animate-in slide-in-from-top-2">
+                        <AlertCircle size={18} className="shrink-0" /> 
+                        <span className="font-semibold leading-relaxed">{error}</span>
                     </div>
                 )}
 
-                <form onSubmit={handleSubmit} className="space-y-5">
+                <form onSubmit={handleSubmit} className="space-y-6">
                     <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">E-mail ou Usuário</label>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">E-mail Corporativo</label>
                         <div className="relative group">
-                            <Mail className="absolute left-4 top-3.5 text-slate-500 group-focus-within:text-emerald-500 transition-colors" size={18} />
+                            <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" size={18} />
                             <input 
-                                type="text"
+                                type="email"
                                 value={identifier}
                                 onChange={e => setIdentifier(e.target.value)}
-                                className="w-full pl-12 pr-4 py-3.5 bg-black/20 border border-white/5 rounded-xl text-white outline-none focus:border-emerald-500/50 focus:ring-4 ring-emerald-500/5 transition-all text-sm"
-                                placeholder="exemplo@empresa.com"
+                                className="w-full pl-12 pr-4 py-4 bg-slate-950/50 border border-white/5 rounded-2xl text-white outline-none focus:border-blue-500/50 focus:ring-4 ring-blue-500/5 transition-all text-sm font-medium"
+                                placeholder="nome@empresa.com"
+                                required
                             />
                         </div>
                     </div>
 
                     <div className="space-y-2">
                         <div className="flex justify-between items-center ml-1">
-                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sua Senha</label>
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Senha de Acesso</label>
                             <button 
                                 type="button"
                                 onClick={onRequestReset}
-                                className="text-[10px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest transition-colors"
+                                className="text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors uppercase tracking-widest"
                             >
-                                Esqueci a senha
+                                Recuperar
                             </button>
                         </div>
                         <div className="relative group">
-                            <Lock className="absolute left-4 top-3.5 text-slate-500 group-focus-within:text-emerald-500 transition-colors" size={18} />
+                            <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" size={18} />
                             <input 
                                 type="password"
                                 value={password}
                                 onChange={e => setPassword(e.target.value)}
-                                className="w-full pl-12 pr-4 py-3.5 bg-black/20 border border-white/5 rounded-xl text-white outline-none focus:border-emerald-500/50 focus:ring-4 ring-emerald-500/5 transition-all text-sm"
+                                className="w-full pl-12 pr-4 py-4 bg-slate-950/50 border border-white/5 rounded-2xl text-white outline-none focus:border-blue-500/50 focus:ring-4 ring-blue-500/5 transition-all text-sm font-medium"
                                 placeholder="••••••••"
+                                required
                             />
                         </div>
                     </div>
@@ -111,28 +118,35 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRequestReset }) => {
                     <button 
                         type="submit"
                         disabled={isLoading}
-                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-xl transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-70 shadow-xl shadow-emerald-900/20 border border-emerald-400/20 mt-4"
+                        className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 rounded-2xl transition-all flex items-center justify-center gap-3 active:scale-[0.98] disabled:opacity-70 shadow-xl shadow-blue-900/20 border border-blue-400/20 mt-4 group"
                     >
                         {isLoading ? (
                             <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                         ) : (
-                            <>Entrar no Sistema <ArrowRight size={18} /></>
+                            <>Acessar Plataforma <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></>
                         )}
                     </button>
                 </form>
+
+                <div className="mt-8 pt-8 border-t border-white/5 flex justify-between items-center">
+                    <span className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">Build v2.5.3 Stable</span>
+                    <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Sistemas OK</span>
+                    </div>
+                </div>
             </div>
 
-            {/* Footer Area */}
+            {/* Support Info */}
             <div className="mt-10 flex flex-col items-center gap-6">
-                <BrazilFlag className="scale-110" showSoundToggle={false} />
+                <BrazilFlag className="opacity-80 hover:opacity-100 transition-opacity" showSoundToggle={false} />
                 
                 <div className="text-center space-y-1">
-                    <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">
-                        <span>Desenvolvido com</span>
-                        <Heart size={10} className="text-red-500 fill-red-500 animate-pulse" />
-                        <span>por <strong>Hypelab</strong></span>
+                    <div className="flex items-center justify-center gap-2 text-[10px] font-bold text-slate-600 uppercase tracking-[0.2em]">
+                        <span>Powered by</span>
+                        <Heart size={10} className="text-red-600/50 fill-red-600/50" />
+                        <span><strong>Hypelab Engineering</strong></span>
                     </div>
-                    <p className="text-[9px] text-slate-600 uppercase tracking-widest">Versão 2.5.0 Stable • Cloud Native</p>
                 </div>
             </div>
         </div>

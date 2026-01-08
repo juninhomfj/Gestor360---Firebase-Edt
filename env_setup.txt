@@ -1,0 +1,17 @@
+
+PARA CRIAR O ARQUIVO .ENV FORA DO SISTEMA:
+
+1. Crie um novo arquivo chamado exatamente ".env" (sem o .txt) na raiz do seu projeto.
+2. Copie e cole o conteúdo abaixo:
+
+VITE_FIREBASE_API_KEY=AIzaSyAoHj36s8WBZlzjC1ekCa0evr4N7Eb8jhY
+VITE_FIREBASE_AUTH_DOMAIN=gestor360-app.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=gestor360-app
+VITE_FIREBASE_STORAGE_BUCKET=gestor360-app.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=461678740958
+VITE_FIREBASE_APP_ID=1:461678740958:web:ecb53b055eddd70413494f
+VITE_FIREBASE_MEASUREMENT_ID=G-LMLPQN2PHQ
+API_KEY=SUA_CHAVE_GEMINI_AQUI
+
+3. Salve o arquivo.
+4. Reinicie o servidor de desenvolvimento (Vite).

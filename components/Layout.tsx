@@ -2,7 +2,6 @@
 import React, { useEffect, useState } from 'react';
 import { LayoutDashboard, ShoppingCart, Settings, Menu, X, ShoppingBag, Users, FileText, Wallet, PieChart, Moon, Target, Trophy, Tag, ArrowLeftRight, PiggyBank, List, LogOut, Sun, Palette, ClipboardList, BarChart2, Sparkles, HelpCircle, PartyPopper, CalendarClock, Cloud, MessageCircle, Zap, Trees, Flame, Lock, MessageSquare, Newspaper, Rocket, FlaskConical, Terminal, Snowflake } from 'lucide-react';
 import { AppMode, User, AppTheme, AppNotification, SystemModules, InternalMessage } from '../types';
-// Fix: Added 'canAccess' to imports as it is now correctly exported from services/logic
 import { getSystemConfig, canAccess } from '../services/logic';
 import { getMessages } from '../services/internalChat';
 import FAB from './FAB';
@@ -36,35 +35,35 @@ interface LayoutProps {
 const THEME_CONFIG: Record<AppTheme, { background: string; sidebar: string; navActive: (mode: AppMode) => string; navInactive: string }> = {
     glass: {
         background: 'bg-slate-950 animate-aurora', 
-        sidebar: 'bg-black/80 md:bg-black/30 backdrop-blur-2xl border-r border-white/10 text-gray-100 shadow-[4px_0_24px_rgba(0,0,0,0.5)]',
+        sidebar: 'bg-slate-900/80 md:bg-black/30 backdrop-blur-2xl border-r border-white/10 text-gray-100 shadow-[4px_0_24px_rgba(0,0,0,0.5)]',
         navActive: (mode) => mode === 'SALES' 
             ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] backdrop-blur-md' 
             : (mode === 'WHATSAPP' ? 'bg-green-500/20 text-green-300 ring-1 ring-green-500/50' : 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)]'),
-        navInactive: 'text-slate-400 hover:bg-white/5 hover:text-white transition-colors'
+        navInactive: 'text-slate-400 hover:bg-white/5 hover:text-white transition-all duration-200'
     },
     neutral: {
         background: 'bg-slate-50',
         sidebar: 'bg-white border-r border-slate-200 text-slate-700 shadow-sm',
         navActive: (mode) => 'bg-slate-800 text-white shadow-md shadow-slate-900/10',
-        navInactive: 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+        navInactive: 'text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-all'
     },
     rose: {
         background: 'bg-gradient-to-br from-rose-50 to-orange-50',
         sidebar: 'bg-white/80 backdrop-blur-xl border-r border-rose-100 text-rose-900 shadow-sm',
         navActive: (mode) => 'bg-rose-500 text-white shadow-lg shadow-rose-500/30',
-        navInactive: 'text-rose-400 hover:bg-rose-50 hover:text-rose-700'
+        navInactive: 'text-rose-400 hover:bg-rose-50 hover:text-rose-700 transition-all'
     },
     cyberpunk: {
         background: 'bg-[#050505] bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-900 to-black',
         sidebar: 'bg-black border-r border-pink-500/20 text-cyan-400 shadow-[0_0_15px_rgba(236,72,153,0.1)]',
         navActive: (mode) => 'bg-pink-600/10 border border-pink-500 text-pink-400 shadow-[0_0_10px_rgba(236,72,153,0.4)]',
-        navInactive: 'text-slate-500 hover:text-cyan-300 hover:bg-cyan-900/10'
+        navInactive: 'text-slate-500 hover:text-cyan-300 hover:bg-cyan-900/10 transition-all'
     },
     dark: {
         background: 'bg-slate-950',
         sidebar: 'bg-slate-900 border-r border-slate-800 text-slate-300',
         navActive: (mode) => 'bg-indigo-600 text-white shadow-md shadow-indigo-900/20',
-        navInactive: 'text-slate-500 hover:bg-slate-800 hover:text-white'
+        navInactive: 'text-slate-500 hover:bg-slate-800 hover:text-white transition-all'
     }
 };
 
@@ -163,29 +162,33 @@ const Layout: React.FC<LayoutProps> = ({
         
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
           {currentNavItems.map((item) => (
-                <button key={item.id} onClick={() => navigate(item.id)} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${activeTab === item.id ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}>
-                    <item.icon size={20} />
-                    <span className="font-medium text-sm">{item.label}</span>
+                <button 
+                  key={item.id} 
+                  onClick={() => navigate(item.id)} 
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 group ${activeTab === item.id ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}
+                >
+                    <item.icon size={20} className={`transition-transform duration-300 ${activeTab === item.id ? 'scale-110' : 'group-hover:scale-110'}`} />
+                    <span className="font-bold text-sm">{item.label}</span>
                 </button>
           ))}
 
           <div className="pt-2 border-t border-white/5 space-y-1">
               <button 
                 onClick={onToggleSnow}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-300 ${showSnow ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/50' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-300 ${showSnow ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/50' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
               >
                 <Snowflake size={20} className={showSnow ? 'animate-spin-slow' : ''} />
-                <span className="font-medium text-sm">Let it Snow ❄️</span>
+                <span className="font-bold text-sm">Let it Snow ❄️</span>
               </button>
 
               {hasAccess('whatsapp') && (
-                  <button onClick={() => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-300 border ${appMode === 'WHATSAPP' ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500' : 'text-slate-400 hover:bg-white/5'}`}>
+                  <button onClick={() => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-300 border ${appMode === 'WHATSAPP' ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500 shadow-lg shadow-emerald-900/20' : 'text-slate-400 border-transparent hover:bg-white/5'}`}>
                       <MessageCircle size={18} className="mr-3" /> <span className="font-bold text-sm">WhatsApp 360</span>
                   </button>
               )}
               {isDev && (
-                  <button onClick={() => { setActiveTab('dev_roadmap'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-all duration-200 ${activeTab === 'dev_roadmap' ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 'text-slate-400 hover:bg-white/5'}`}>
-                      <Terminal size={20} className="text-amber-500" /> <span className="font-bold text-sm text-amber-500">Engenharia v2.5</span>
+                  <button onClick={() => { setActiveTab('dev_roadmap'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeTab === 'dev_roadmap' ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 'text-slate-400 hover:bg-white/5'}`}>
+                      <Terminal size={20} className="text-amber-500" /> <span className="font-bold text-sm">Engenharia Root</span>
                   </button>
               )}
           </div>
@@ -201,12 +204,12 @@ const Layout: React.FC<LayoutProps> = ({
             <div className="flex items-center gap-3 px-2">
                 <UserAvatar />
                 <div className="overflow-hidden">
-                    <p className="text-sm font-bold truncate">{currentUser.name}</p>
-                    <span className="text-[9px] font-black uppercase text-indigo-500">{currentUser.role}</span>
+                    <p className="text-sm font-black truncate">{currentUser.name}</p>
+                    <span className="text-[9px] font-black uppercase text-indigo-500 tracking-widest">{currentUser.role}</span>
                 </div>
             </div>
-            <button onClick={toggleAppMode} className={`w-full py-2 rounded-xl font-bold text-sm border ${appMode === 'SALES' ? 'bg-blue-600 text-white shadow-lg' : 'bg-emerald-600 text-white shadow-lg'}`}>{`Ir para ${appMode === 'SALES' ? 'Finanças' : 'Vendas'}`}</button>
-            <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 text-red-500 hover:text-red-400 text-sm py-2 font-bold"><LogOut size={16} /> Sair</button>
+            <button onClick={toggleAppMode} className={`w-full py-2.5 rounded-xl font-black text-xs uppercase tracking-widest border transition-all active:scale-95 ${appMode === 'SALES' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 border-blue-500' : 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20 border-emerald-500'}`}>{`Ir para ${appMode === 'SALES' ? 'Finanças' : 'Vendas'}`}</button>
+            <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 text-red-500 hover:text-red-400 text-xs font-black uppercase tracking-widest py-2 transition-colors"><LogOut size={16} /> Sair</button>
         </div>
       </aside>
 
@@ -222,9 +225,9 @@ const Layout: React.FC<LayoutProps> = ({
           </div>
         </header>
 
-        {/* This container MUST allow scrolling */}
-        <main className="flex-1 overflow-y-auto relative scrollbar-thin scroll-smooth custom-scrollbar">
-          <div className="max-w-7xl mx-auto w-full pb-32">
+        {/* This container MUST allow scrolling and respect design max-width */}
+        <main className="flex-1 overflow-y-auto relative custom-scrollbar scroll-smooth">
+          <div className="max-w-7xl mx-auto w-full px-4 md:px-8 py-8 pb-32">
             {children}
           </div>
         </main>
