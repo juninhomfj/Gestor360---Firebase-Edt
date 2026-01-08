@@ -1,3 +1,4 @@
+
 import {
   collection,
   query,
@@ -95,12 +96,21 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
     }
 
     try {
-        const q = query(collection(db, colName), where("isActive", "==", true), orderBy("createdAt", "desc"), limit(1));
+        // Removido orderBy para evitar necessidade de índice composto (isActive + createdAt)
+        // Isso resolve o erro de "permission-denied" que às vezes mascara erro de índice
+        const q = query(collection(db, colName), where("isActive", "==", true), limit(5));
         const snap = await getDocs(q); 
         SessionTraffic.trackRead(snap.size);
 
         if (!snap.empty) {
-            const docData = snap.docs[0].data();
+            // Ordena manualmente no cliente pelo doc mais recente
+            const docs = snap.docs.sort((a, b) => {
+                const da = a.data()?.createdAt?.toDate?.()?.getTime() || 0;
+                const db = b.data()?.createdAt?.toDate?.()?.getTime() || 0;
+                return db - da;
+            });
+
+            const docData = docs[0].data();
             const tiers = docData?.tiers || [];
             const version = docData?.version || Date.now();
             const rules: CommissionRule[] = tiers.map((t: any, idx: number) => ({
@@ -116,7 +126,7 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
         }
     } catch (e: any) {
         if (e.code !== 'permission-denied' && navigator.onLine) {
-            Logger.warn(`Audit: Falha ao sincronizar tabela global [${type}]. Usando cache local.`);
+            Logger.warn(`Audit: Falha ao sincronizar tabela global [${type}]. Usando cache local.`, e);
         }
     }
 
@@ -160,7 +170,10 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
         SessionTraffic.trackWrite();
     } catch (e: any) {
         Logger.error(`Erro ao salvar regras globais [${type}]`, e);
-        throw new Error(`Privilégios insuficientes.`);
+        if (e.code === 'permission-denied') {
+            throw new Error(`Privilégios insuficientes no Firestore. Verifique sua role ADMIN.`);
+        }
+        throw e;
     }
 };
 

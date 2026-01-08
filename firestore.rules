@@ -1,3 +1,4 @@
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -6,12 +7,17 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function getProfile() {
+      return get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data;
+    }
+
     function isActive() {
-      return isSignedIn() && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.isActive == true;
+      return isSignedIn() && getProfile().isActive == true;
     }
 
     function isAdmin() {
-      return isSignedIn() && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role in ['ADMIN', 'DEV'];
+      let profile = getProfile();
+      return isSignedIn() && (profile.role == 'ADMIN' || profile.role == 'DEV');
     }
 
     function isOwner() {

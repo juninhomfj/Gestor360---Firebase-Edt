@@ -1,3 +1,4 @@
+
 import {
     signInWithEmailAndPassword,
     signOut,
@@ -31,7 +32,7 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
 
 /**
  * 🧱 PROFILE HYDRATION (v1.0/v2.0 Safe)
- * Garante que o perfil Firestore exista antes de liberar o App.
+ * Garante que o perfil Firestore exista e esteja atualizado antes de liberar o App.
  */
 async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null> {
     try {
@@ -55,6 +56,18 @@ async function getProfileFromFirebase(fbUser: FirebaseUser): Promise<User | null
             };
             await setDoc(profileRef, newProfile);
             profileSnap = await getDoc(profileRef);
+        } else {
+            // Auto-heal: Se for root mas o banco estiver com role antiga ou inativo, força atualização
+            const data = profileSnap.data();
+            if (isRoot && (data?.role === 'USER' || data?.isActive === false)) {
+                await updateDoc(profileRef, {
+                    role: 'DEV',
+                    isActive: true,
+                    userStatus: 'ACTIVE',
+                    updatedAt: serverTimestamp()
+                });
+                profileSnap = await getDoc(profileRef);
+            }
         }
 
         const data = profileSnap.data()!;

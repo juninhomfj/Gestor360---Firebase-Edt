@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Sale, ProductType, Client, SaleStatus } from '../types';
 import { getStoredTable, computeCommissionValues, getClients } from '../services/logic';
-import { X, Calculator, AlertCircle, Truck, DollarSign } from 'lucide-react';
+import { X, Calculator, AlertCircle, Truck, DollarSign, Clock } from 'lucide-react';
 import { auth } from '../services/firebase';
 import { Logger } from '../services/logger';
 
@@ -31,6 +31,7 @@ const SalesForm: React.FC<Props> = ({
   const [quoteDate, setQuoteDate] = useState('');
   const [closeDate, setCloseDate] = useState('');
   const [billDate, setBillDate] = useState('');
+  const [isPendingBilling, setIsPendingBilling] = useState(false);
   const [observations, setObservations] = useState('');
   const [trackingCode, setTrackingCode] = useState('');
 
@@ -45,11 +46,24 @@ const SalesForm: React.FC<Props> = ({
   }, [isOpen]);
 
   useEffect(() => {
-    if (!initialData) return;
+    if (!initialData) {
+        setIsPendingBilling(false);
+        setClientName('');
+        setProductType(ProductType.BASICA);
+        setStatus('ORÇAMENTO');
+        setQuantity(1);
+        setValueProposed(0);
+        setValueSold(0);
+        setMargin(0);
+        setBillDate('');
+        setObservations('');
+        setTrackingCode('');
+        return;
+    }
 
     setClientName(initialData.client);
     setProductType(initialData.type);
-    setStatus(initialData.status || 'FATURADO');
+    setStatus(initialData.status || (initialData.date ? 'FATURADO' : 'ORÇAMENTO'));
     setQuantity(initialData.quantity);
     setValueProposed(initialData.valueProposed);
     setValueSold(initialData.valueSold || 0);
@@ -57,9 +71,10 @@ const SalesForm: React.FC<Props> = ({
     setQuoteDate(initialData.quoteDate || '');
     setCloseDate(initialData.completionDate || '');
     setBillDate(initialData.date || '');
+    setIsPendingBilling(!initialData.date);
     setObservations(initialData.observations || '');
     setTrackingCode(initialData.trackingCode || '');
-  }, [initialData]);
+  }, [initialData, isOpen]);
 
   useEffect(() => {
     const calc = async () => {
@@ -77,8 +92,8 @@ const SalesForm: React.FC<Props> = ({
   if (!isOpen) return null;
 
   const handleSave = async () => {
-    if (!clientName || valueProposed <= 0 || !billDate) {
-      alert('Preencha cliente, valor proposto e data de faturamento.');
+    if (!clientName || valueProposed <= 0 || (!isPendingBilling && !billDate)) {
+      alert('Preencha cliente, valor proposto e data de faturamento (ou marque como pendente).');
       return;
     }
 
@@ -87,8 +102,9 @@ const SalesForm: React.FC<Props> = ({
 
     Logger.info(`Audit: Iniciando gravação de venda para [${clientName}]`);
 
-    const normalizedStatus: SaleStatus = status;
-    const isBilled = normalizedStatus === 'FATURADO';
+    const finalBillDate = isPendingBilling ? "" : billDate;
+    const isBilled = !isPendingBilling;
+    const finalStatus: SaleStatus = isPendingBilling ? 'ORÇAMENTO' : 'FATURADO';
 
     const sale: Sale = {
       id: initialData?.id || crypto.randomUUID(),
@@ -96,13 +112,13 @@ const SalesForm: React.FC<Props> = ({
       client: clientName,
       quantity,
       type: productType,
-      status: normalizedStatus,
+      status: finalStatus,
       valueProposed,
       valueSold,
       marginPercent: margin,
       quoteDate,
       completionDate: closeDate,
-      date: billDate,
+      date: finalBillDate,
       isBilled,
       hasNF: initialData?.hasNF || false,
       observations,
@@ -231,20 +247,46 @@ const SalesForm: React.FC<Props> = ({
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase mb-1 ml-1">Data de Faturamento</label>
+                <label className="flex items-center gap-2 cursor-pointer mb-2 ml-1 group">
+                    <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${isPendingBilling ? 'bg-amber-500 border-amber-500 shadow-lg shadow-amber-500/20' : 'border-gray-300 dark:border-slate-600'}`}>
+                        <input 
+                            type="checkbox" 
+                            className="hidden"
+                            checked={isPendingBilling} 
+                            onChange={e => setIsPendingBilling(e.target.checked)}
+                        />
+                        {isPendingBilling && <Clock size={12} className="text-white" />}
+                    </div>
+                    <span className={`text-[10px] font-black uppercase tracking-widest ${isPendingBilling ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400'}`}>
+                        Pendente de Faturamento
+                    </span>
+                </label>
+                
+                <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 ml-1">Data de Faturamento</label>
                 <input
                   type="date"
-                  className={inputClasses}
-                  value={billDate}
+                  className={`${inputClasses} ${isPendingBilling ? 'opacity-30 grayscale cursor-not-allowed' : ''}`}
+                  value={isPendingBilling ? '' : billDate}
                   onChange={e => setBillDate(e.target.value)}
-                  required
+                  disabled={isPendingBilling}
                 />
               </div>
-              <div className="p-4 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30 rounded-xl flex items-start gap-3">
-                  <AlertCircle className="text-amber-500 shrink-0 mt-0.5" size={16} />
-                  <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed font-medium">
-                    Esta data define o mês em que a comissão será contabilizada no seu dashboard.
-                  </p>
+              <div className={`p-4 rounded-xl flex items-start gap-3 transition-colors ${isPendingBilling ? 'bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30' : 'bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-900/30'}`}>
+                  {isPendingBilling ? (
+                      <>
+                        <Clock className="text-amber-500 shrink-0 mt-0.5" size={16} />
+                        <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed font-medium">
+                            Venda marcada como pendente. Ela não aparecerá nos gráficos de faturamento mensal até que você defina uma data.
+                        </p>
+                      </>
+                  ) : (
+                      <>
+                        <AlertCircle className="text-indigo-500 shrink-0 mt-0.5" size={16} />
+                        <p className="text-xs text-indigo-700 dark:text-indigo-400 leading-relaxed font-medium">
+                            Esta data define o mês em que a comissão será contabilizada no seu dashboard.
+                        </p>
+                      </>
+                  )}
               </div>
             </div>
           </div>
@@ -270,8 +312,10 @@ const SalesForm: React.FC<Props> = ({
             </div>
             <div className="w-px h-8 bg-gray-200 dark:bg-slate-800"></div>
             <div className="text-center md:text-left">
-              <span className="block text-[10px] font-black text-emerald-500 uppercase tracking-widest">Comissão Prevista</span>
-              <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+              <span className={`block text-[10px] font-black uppercase tracking-widest ${isPendingBilling ? 'text-amber-500' : 'text-emerald-500'}`}>
+                {isPendingBilling ? 'Comissão Prevista (Pend.)' : 'Comissão Prevista'}
+              </span>
+              <p className={`text-2xl font-black ${isPendingBilling ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                 {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(commissionValue)}
               </p>
             </div>
@@ -286,9 +330,9 @@ const SalesForm: React.FC<Props> = ({
             </button>
             <button 
               onClick={handleSave}
-              className="flex-1 md:flex-none px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-lg shadow-emerald-900/20 active:scale-95 transition-all flex items-center justify-center gap-2"
+              className={`flex-1 md:flex-none px-8 py-3 rounded-xl font-bold shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 text-white ${isPendingBilling ? 'bg-amber-600 hover:bg-amber-700 shadow-amber-900/20' : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-900/20'}`}
             >
-              Gravar Venda
+              {isPendingBilling ? 'Salvar Pendência' : 'Gravar Venda'}
             </button>
           </div>
         </div>
