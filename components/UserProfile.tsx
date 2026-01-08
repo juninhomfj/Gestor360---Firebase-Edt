@@ -21,7 +21,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
   const [profilePhoto, setProfilePhoto] = useState(currentUser.profilePhoto || '');
   const [contactVisibility, setContactVisibility] = useState(currentUser.contactVisibility || 'PUBLIC');
   
-  const [modules, setModules] = useState<UserPermissions>(currentUser.permissions);
+  // Proteção: Garante que modules nunca seja null/undefined para o Object.keys
+  const [modules, setModules] = useState<UserPermissions>(currentUser.permissions || {} as UserPermissions);
   
   const [isSaving, setIsSaving] = useState(false);
   const [isRegisteringPush, setIsRegisteringPush] = useState(false);

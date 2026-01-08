@@ -19,7 +19,7 @@ export const safeShort = (v: unknown, n: number): string => {
 
 export const safeInitials = (v: unknown, limit = 2): string => {
     const s = safeString(v).trim();
-    if (!s) return fallbackInitials(limit);
+    if (!s) return '?'.repeat(limit);
     return s.split(' ')
             .filter(Boolean)
             .map(part => part.charAt(0))
@@ -27,5 +27,3 @@ export const safeInitials = (v: unknown, limit = 2): string => {
             .slice(0, limit)
             .toUpperCase();
 };
-
-const fallbackInitials = (limit: number) => '?'.repeat(limit);
