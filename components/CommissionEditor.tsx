@@ -16,17 +16,18 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
   const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
-    if (initialRules) {
+    if (initialRules && Array.isArray(initialRules)) {
       const sanitized = initialRules
-        .sort((a, b) => a.minPercent - b.minPercent)
+        .filter(r => r && typeof r === 'object')
+        .sort((a, b) => (a.minPercent || 0) - (b.minPercent || 0))
         .map(r => {
-          let rate = r.commissionRate;
+          let rate = r.commissionRate || 0;
           if (rate > 1) rate = rate / 100; 
 
           return {
-            id: r.id,
-            minPercent: r.minPercent.toString(),
-            maxPercent: r.maxPercent === null ? '' : r.maxPercent.toString(),
+            id: r.id || crypto.randomUUID(),
+            minPercent: (r.minPercent || 0).toString(),
+            maxPercent: r.maxPercent === null ? '' : (r.maxPercent || '').toString(),
             commissionRate: (rate * 100).toFixed(2).replace(/\.00$/, '')
           };
         });
@@ -71,25 +72,39 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const imported = JSON.parse(event.target?.result as string);
-        if (Array.isArray(imported)) {
-          setRules(imported.map((r: any) => {
-            let rate = parseFloat(r.commissionRate) || 0;
-            if (rate > 0 && rate < 1) rate = rate * 100;
-            else if (rate > 100) rate = rate / 100;
+        const result = event.target?.result;
+        if (typeof result !== 'string') return;
+        
+        const imported = JSON.parse(result);
+        if (imported && Array.isArray(imported)) {
+          // Validação profunda de cada regra importada
+          const validRules = imported
+            .filter(r => r && typeof r === 'object')
+            .map((r: any) => {
+                let rate = parseFloat(r.commissionRate) || 0;
+                // Normalização inteligente de taxas (0.15 vs 15)
+                if (rate > 0 && rate < 1) rate = rate * 100;
+                
+                return {
+                    id: r.id || crypto.randomUUID(),
+                    minPercent: (r.minPercent ?? 0).toString(),
+                    maxPercent: r.maxPercent === null ? '' : (r.maxPercent ?? '').toString(),
+                    commissionRate: rate.toFixed(2).replace(/\.00$/, '')
+                };
+            });
             
-            return {
-              id: r.id || crypto.randomUUID(),
-              minPercent: (r.minPercent || 0).toString(),
-              maxPercent: r.maxPercent === null ? '' : (r.maxPercent || '').toString(),
-              commissionRate: rate.toString()
-            };
-          }));
-          setIsDirty(true);
+          if (validRules.length > 0) {
+              setRules(validRules);
+              setIsDirty(true);
+          } else {
+              alert("O arquivo não contém regras de comissão válidas.");
+          }
+        } else {
+            alert("Formato de arquivo inválido. O JSON deve ser uma lista (Array) de regras.");
         }
       } catch (err) {
         Logger.error("Audit: Falha ao processar arquivo JSON.", err);
-        alert("Erro no formato do arquivo.");
+        alert("Erro no formato do arquivo. Certifique-se de que é um JSON válido de regras.");
       }
     };
     reader.readAsText(file);
@@ -146,16 +161,16 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
 
         <div className="space-y-2">
           {rules.map((rule) => (
-            <div key={rule.id} className="grid grid-cols-12 gap-2 items-center animate-in fade-in duration-300">
+            <div key={rule?.id || Math.random()} className="grid grid-cols-12 gap-2 items-center animate-in fade-in duration-300">
               <div className="col-span-3">
-                <input type="number" step="0.01" className="w-full bg-transparent border rounded p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" value={rule.minPercent} onChange={(e) => handleChange(rule.id, 'minPercent', e.target.value)} disabled={readOnly} />
+                <input type="number" step="0.01" className="w-full bg-transparent border rounded p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white" value={rule.minPercent} onChange={(e) => handleChange(rule.id, 'minPercent', e.target.value)} disabled={readOnly} />
               </div>
               <div className="col-span-3">
-                <input type="number" step="0.01" className="w-full bg-transparent border rounded p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" value={rule.maxPercent} placeholder="Acima" onChange={(e) => handleChange(rule.id, 'maxPercent', e.target.value)} disabled={readOnly} />
+                <input type="number" step="0.01" className="w-full bg-transparent border rounded p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white" value={rule.maxPercent} placeholder="Acima" onChange={(e) => handleChange(rule.id, 'maxPercent', e.target.value)} disabled={readOnly} />
               </div>
               <div className="col-span-4">
                 <div className="relative">
-                  <input type="number" step="0.01" className="w-full bg-transparent border-2 border-emerald-500/20 rounded p-2 text-sm font-bold focus:border-emerald-500 outline-none" value={rule.commissionRate} onChange={(e) => handleChange(rule.id, 'commissionRate', e.target.value)} disabled={readOnly} />
+                  <input type="number" step="0.01" className="w-full bg-transparent border-2 border-emerald-500/20 rounded p-2 text-sm font-bold focus:border-emerald-500 outline-none dark:text-white" value={rule.commissionRate} onChange={(e) => handleChange(rule.id, 'commissionRate', e.target.value)} disabled={readOnly} />
                   <span className="absolute right-3 top-2 text-xs font-bold text-emerald-600">%</span>
                 </div>
               </div>
@@ -168,7 +183,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
               </div>
             </div>
           ))}
-          {rules.length === 0 && (
+          {(rules || []).length === 0 && (
             <div className="text-center py-12 bg-gray-50 dark:bg-slate-950/50 rounded-xl border border-dashed border-gray-200 dark:border-slate-800">
               <p className="text-gray-400 text-sm italic">Nenhuma regra definida.</p>
             </div>

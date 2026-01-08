@@ -14,15 +14,21 @@ interface UserProfileProps {
   onUpdate: (user: User) => void;
 }
 
+const DEFAULT_MODULES_FALLBACK: UserPermissions = {
+    sales: true, finance: true, crm: true, whatsapp: false,
+    reports: true, ai: true, dev: false, settings: true,
+    news: true, receivables: true, distribution: true, imports: true
+};
+
 const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }) => {
-  const [name, setName] = useState(currentUser.name || '');
-  const [username, setUsername] = useState(currentUser.username || '');
-  const [tel, setTel] = useState(currentUser.tel || '');
-  const [profilePhoto, setProfilePhoto] = useState(currentUser.profilePhoto || '');
-  const [contactVisibility, setContactVisibility] = useState(currentUser.contactVisibility || 'PUBLIC');
+  const [name, setName] = useState(currentUser?.name || '');
+  const [username, setUsername] = useState(currentUser?.username || '');
+  const [tel, setTel] = useState(currentUser?.tel || '');
+  const [profilePhoto, setProfilePhoto] = useState(currentUser?.profilePhoto || '');
+  const [contactVisibility, setContactVisibility] = useState(currentUser?.contactVisibility || 'PUBLIC');
   
-  // Proteção: Garante que modules nunca seja null/undefined para o Object.keys
-  const [modules, setModules] = useState<UserPermissions>(currentUser.permissions || {} as UserPermissions);
+  // Proteção de inicialização: Se permissions for null/undefined, usa o fallback padrão
+  const [modules, setModules] = useState<UserPermissions>(currentUser?.permissions || DEFAULT_MODULES_FALLBACK);
   
   const [isSaving, setIsSaving] = useState(false);
   const [isRegisteringPush, setIsRegisteringPush] = useState(false);
@@ -31,6 +37,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSave = async () => {
+    if (!currentUser?.id) return;
     setIsSaving(true);
     setMessage(null);
 
@@ -65,6 +72,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
   };
 
   const handleEnablePush = async () => {
+      if (!currentUser?.id) return;
       setIsRegisteringPush(true);
       try {
           const token = await requestAndSaveToken(currentUser.id);
@@ -82,6 +90,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
   };
 
   const handleDeactivate = async () => {
+    if (!currentUser?.id) return;
     try {
       await deactivateUser(currentUser.id);
       logout();
@@ -127,7 +136,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                     {profilePhoto ? (
                         <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" />
                     ) : (
-                        <div className="text-4xl font-bold text-indigo-300">{safeFirstChar(name || currentUser.name)}</div>
+                        <div className="text-4xl font-bold text-indigo-300">{safeFirstChar(name || currentUser?.name)}</div>
                     )}
                   </div>
                   <button 
@@ -140,8 +149,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                 <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*" className="hidden" />
                 <div className="text-center">
                     <p className="font-bold text-gray-900 dark:text-white">@{username || 'usuario'}</p>
-                    <div className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${currentUser.role === 'DEV' ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'}`}>
-                        <Shield size={10} className="mr-1"/> {currentUser.role}
+                    <div className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${currentUser?.role === 'DEV' ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'}`}>
+                        <Shield size={10} className="mr-1"/> {currentUser?.role || 'USER'}
                     </div>
                 </div>
                 
@@ -149,10 +158,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                     <button 
                         onClick={handleEnablePush}
                         disabled={isRegisteringPush}
-                        className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${currentUser.fcmToken ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-900/20'}`}
+                        className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${currentUser?.fcmToken ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-900/20'}`}
                     >
-                        {isRegisteringPush ? <Loader2 size={16} className="animate-spin"/> : (currentUser.fcmToken ? <BellRing size={16}/> : <Bell size={16}/>)}
-                        {currentUser.fcmToken ? 'Notificações Ativas' : 'Habilitar Notificações'}
+                        {isRegisteringPush ? <Loader2 size={16} className="animate-spin"/> : (currentUser?.fcmToken ? <BellRing size={16}/> : <Bell size={16}/>)}
+                        {currentUser?.fcmToken ? 'Notificações Ativas' : 'Habilitar Notificações'}
                     </button>
                 </div>
             </div>
@@ -162,7 +171,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                     <Lock size={14} /> Permissões
                 </h3>
                 <div className="grid grid-cols-2 lg:grid-cols-1 gap-2">
-                    {Object.keys(modules).map((mod) => (
+                    {/* Proteção: Garante que modules nunca seja null para o Object.keys */}
+                    {Object.keys(modules || {}).map((mod) => (
                         <div key={mod} className={`flex items-center justify-between p-2 rounded-lg text-[10px] font-bold uppercase transition-all ${modules[mod as keyof typeof modules] ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20' : 'bg-gray-50 text-gray-400 opacity-50'}`}>
                             <span className="truncate">{mod}</span>
                             {modules[mod as keyof typeof modules] ? <CheckCircle size={12}/> : <Lock size={12}/>}

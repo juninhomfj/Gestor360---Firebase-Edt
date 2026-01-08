@@ -52,6 +52,7 @@ export const ensureNumber = (value: any, fallback = 0): number => {
     if (value === undefined || value === null || value === '') return fallback;
     if (typeof value === 'number') return isNaN(value) ? fallback : value;
     let str = String(value).trim();
+    // Suporte para padrão brasileiro (1.234,56)
     const lastComma = str.lastIndexOf(',');
     const lastDot = str.lastIndexOf('.');
     if (lastComma > lastDot) str = str.replace(/\./g, '').replace(',', '.');
@@ -70,9 +71,9 @@ export const SessionTraffic = {
 };
 
 export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
-    const commissionBase = quantity * valueProposed;
-    const rule = rules.find(r => margin >= r.minPercent && (r.maxPercent === null || margin < r.maxPercent));
-    const rateUsed = rule ? rule.commissionRate : 0;
+    const commissionBase = (quantity || 0) * (valueProposed || 0);
+    const rule = (rules || []).find(r => r && margin >= (r.minPercent || 0) && (r.maxPercent === null || margin < (r.maxPercent || 0)));
+    const rateUsed = rule ? (rule.commissionRate || 0) : 0;
     return { commissionBase, commissionValue: commissionBase * rateUsed, rateUsed };
 };
 
@@ -84,25 +85,31 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
     const storeName = type === ProductType.NATAL ? 'commission_natal' : 'commission_basic';
     try {
         const q = query(collection(db, colName), where("isActive", "==", true), limit(1));
-        const snap = await getDocsFromServer(q); // Força leitura do backend
+        const snap = await getDocsFromServer(q); 
         SessionTraffic.trackRead(snap.size);
         if (!snap.empty) {
             const docData = snap.docs[0].data();
-            const rules: CommissionRule[] = (docData.tiers || []).map((t: any, idx: number) => ({
-                id: `${docData.version}_${idx}`,
-                minPercent: t.min,
-                maxPercent: t.max,
-                commissionRate: t.rate,
+            const tiers = docData?.tiers || [];
+            const version = docData?.version || Date.now();
+            const rules: CommissionRule[] = tiers.map((t: any, idx: number) => ({
+                id: `${version}_${idx}`,
+                minPercent: ensureNumber(t.min),
+                maxPercent: t.max === null ? null : ensureNumber(t.max),
+                commissionRate: ensureNumber(t.rate),
                 isActive: true
             }));
             await dbBulkPut(storeName as any, rules);
             return rules.sort((a, b) => a.minPercent - b.minPercent);
         }
     } catch (e: any) {
-        Logger.error(`Erro ao carregar regras de comissão via Server [${type}]`, e);
+        if (e.code !== 'permission-denied') {
+            Logger.error(`Erro ao carregar regras de comissão via Server [${type}]`, e);
+        }
     }
     const cached = await dbGetAll(storeName as any);
-    return (cached || []).filter((r: any) => r.isActive).sort((a: any, b: any) => a.minPercent - b.minPercent);
+    return (cached || [])
+        .filter((r: any) => r && r.isActive)
+        .sort((a: any, b: any) => (a.minPercent || 0) - (b.minPercent || 0));
 };
 
 export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
@@ -125,7 +132,7 @@ export const saveCommissionRules = async (type: ProductType, rules: CommissionRu
         await batch.commit();
         SessionTraffic.trackWrite();
     } catch (e: any) {
-        throw new Error(`Privilégios insuficientes.`);
+        throw new Error(`Privilégios insuficientes para alterar tabelas mestre.`);
     }
 };
 
@@ -144,9 +151,8 @@ export const getStoredSales = async (): Promise<Sale[]> => {
     const uid = auth.currentUser?.uid;
     if (!uid) return [];
     
-    // Tenta sincronizar as últimas vendas do servidor primeiro
     try {
-        const q = query(collection(db, 'sales'), where('userId', '==', uid), where('deleted', '==', false), orderBy('createdAt', 'desc'), limit(50));
+        const q = query(collection(db, 'sales'), where('userId', '==', uid), where('deleted', '==', false), orderBy('createdAt', 'desc'), limit(100));
         const snap = await getDocs(q);
         const cloudSales = snap.docs.map(d => ({ ...d.data(), id: d.id } as Sale));
         await dbBulkPut('sales', cloudSales);
@@ -155,8 +161,10 @@ export const getStoredSales = async (): Promise<Sale[]> => {
     const sales = await dbGetAll('sales', (s) => s.userId === uid && !s.deleted);
     return sales.map(s => ({
         ...s,
+        quantity: ensureNumber(s.quantity, 1),
         valueSold: ensureNumber(s.valueSold),
         valueProposed: ensureNumber(s.valueProposed),
+        marginPercent: ensureNumber(s.marginPercent),
         commissionValueTotal: ensureNumber(s.commissionValueTotal)
     }));
 };
@@ -187,8 +195,9 @@ export const handleSoftDelete = async (table: string, id: string) => {
 export const saveSales = async (sales: Sale[]) => {
     const batch = writeBatch(db);
     for (const sale of sales) {
+        const safeSale = sanitizeForFirestore(sale);
         await dbPut('sales', sale);
-        batch.set(doc(db, 'sales', sale.id), sanitizeForFirestore(sale), { merge: true });
+        batch.set(doc(db, 'sales', sale.id), safeSale, { merge: true });
     }
     await batch.commit();
     SessionTraffic.trackWrite(sales.length);
@@ -197,7 +206,7 @@ export const saveSales = async (sales: Sale[]) => {
 export const canAccess = (user: User | null, mod: string): boolean => {
     if (!user || !user.isActive || user.userStatus === 'INACTIVE') return false;
     if (user.role === 'DEV' || user.role === 'ADMIN') return true;
-    return !!(user.permissions as any)[mod];
+    return !!(user.permissions as any)?.[mod];
 };
 
 export const clearLocalCache = async () => {
@@ -274,7 +283,12 @@ export const getFinanceData = async () => {
         dbGetAll('receivables', r => r.userId === uid && !r.deleted)
     ]);
 
-    return { accounts, transactions, cards, categories, goals, challenges, cells, receivables };
+    return { 
+        accounts: (accounts || []).map(a => ({ ...a, balance: ensureNumber(a.balance) })),
+        transactions: (transactions || []).map(t => ({ ...t, amount: ensureNumber(t.amount) })),
+        cards: (cards || []).map(c => ({ ...c, limit: ensureNumber(c.limit) })),
+        categories, goals, challenges, cells, receivables 
+    };
 };
 
 export const saveFinanceData = async (accounts: FinanceAccount[], cards: CreditCard[], transactions: Transaction[], categories: TransactionCategory[]) => {
@@ -323,21 +337,19 @@ export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
 export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
     const table = type === 'SALE' ? 'sales' : 'transactions';
     await dbDelete(table, id);
-    // Deleção física real removida para cumprir auditoria de integridade (mantém-se apenas na lixeira lógica do IndexedDB se necessário)
 };
-
-/* --- IMPLEMENTAÇÃO DOS MEMBROS FALTANTES --- */
 
 export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
     const clientsMap = new Map<string, { name: string, totalSpent: number, lastPurchaseDate: string, totalOrders: number }>();
     sales.forEach(s => {
         if (s.deleted) return;
-        const existing = clientsMap.get(s.client) || { name: s.client, totalSpent: 0, lastPurchaseDate: '1970-01-01', totalOrders: 0 };
-        existing.totalSpent += s.valueSold * s.quantity;
+        const name = s.client || 'Cliente Indefinido';
+        const existing = clientsMap.get(name) || { name, totalSpent: 0, lastPurchaseDate: '1970-01-01', totalOrders: 0 };
+        existing.totalSpent += ensureNumber(s.valueSold) * ensureNumber(s.quantity);
         existing.totalOrders += 1;
         const sDate = s.date || s.completionDate || '1970-01-01';
         if (sDate > existing.lastPurchaseDate) existing.lastPurchaseDate = sDate;
-        clientsMap.set(s.client, existing);
+        clientsMap.set(name, existing);
     });
 
     const now = new Date();
@@ -362,8 +374,8 @@ export const analyzeMonthlyVolume = (sales: Sale[], months: number) => {
         const name = d.toLocaleDateString('pt-BR', { month: 'short' });
         
         const monthSales = sales.filter(s => !s.deleted && s.date?.startsWith(key));
-        const basica = monthSales.filter(s => s.type === ProductType.BASICA).reduce((acc, s) => acc + s.commissionValueTotal, 0);
-        const natal = monthSales.filter(s => s.type === ProductType.NATAL).reduce((acc, s) => acc + s.commissionValueTotal, 0);
+        const basica = monthSales.filter(s => s.type === ProductType.BASICA).reduce((acc, s) => acc + ensureNumber(s.commissionValueTotal), 0);
+        const natal = monthSales.filter(s => s.type === ProductType.NATAL).reduce((acc, s) => acc + ensureNumber(s.commissionValueTotal), 0);
         
         data.push({ name, basica, natal });
     }
@@ -411,20 +423,20 @@ export const calculateProductivityMetrics = async (userId: string): Promise<Prod
 export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]): FinancialPacing => {
     const now = new Date();
     const today = now.getDate();
-    const nextIncomeDay = salaryDays.find(d => d > today) || salaryDays[0];
+    const nextIncomeDay = (salaryDays || []).find(d => d > today) || (salaryDays || [])[0] || 1;
     
     let nextIncomeDate = new Date(now.getFullYear(), now.getMonth(), nextIncomeDay);
     if (nextIncomeDay <= today) {
         nextIncomeDate = new Date(now.getFullYear(), now.getMonth() + 1, nextIncomeDay);
     }
 
-    const daysRemaining = Math.ceil((nextIncomeDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const daysRemaining = Math.max(1, Math.ceil((nextIncomeDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
     
     const pendingExpenses = transactions
-        .filter(t => !t.isPaid && !t.deleted && t.type === 'EXPENSE' && new Date(t.date) <= nextIncomeDate)
-        .reduce((acc, t) => acc + t.amount, 0);
+        .filter(t => t && !t.isPaid && !t.deleted && t.type === 'EXPENSE' && new Date(t.date) <= nextIncomeDate)
+        .reduce((acc, t) => acc + ensureNumber(t.amount), 0);
 
-    const safeDailySpend = daysRemaining > 0 ? (balance - pendingExpenses) / daysRemaining : 0;
+    const safeDailySpend = (balance - pendingExpenses) / daysRemaining;
 
     return {
         daysRemaining,
@@ -437,7 +449,7 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
 export const getInvoiceMonth = (date: string, closingDay: number): string => {
     const d = new Date(date);
     const day = d.getDate();
-    if (day > closingDay) {
+    if (day > (closingDay || 10)) {
         d.setMonth(d.getMonth() + 1);
     }
     return d.toISOString().substring(0, 7);
@@ -470,7 +482,7 @@ export const exportEncryptedBackup = async (passphrase: string) => {
 export const importEncryptedBackup = async (file: File, passphrase: string) => {
     const text = await file.text();
     const decrypted = CryptoJS.AES.decrypt(text, passphrase).toString(CryptoJS.enc.Utf8);
-    if (!decrypted) throw new Error("Senha incorreta.");
+    if (!decrypted) throw new Error("Senha de backup incorreta ou arquivo corrompido.");
     const data = JSON.parse(decrypted);
     
     await clearLocalCache();
@@ -517,7 +529,7 @@ export const generateChallengeCells = (challengeId: string, targetValue: number,
             id: crypto.randomUUID(),
             challengeId,
             number: i,
-            value,
+            value: ensureNumber(value),
             status: 'PENDING',
             userId: uid,
             deleted: false
@@ -528,12 +540,13 @@ export const generateChallengeCells = (challengeId: string, targetValue: number,
 
 export const processFinanceImport = (data: any[][], mapping: ImportMapping): Partial<Transaction>[] => {
     const transactions: Partial<Transaction>[] = [];
-    const rows = data.slice(1);
+    const rows = (data || []).slice(1);
     
     rows.forEach(row => {
         const description = mapping.description !== -1 ? String(row[mapping.description] || '') : 'Importação';
         const amount = ensureNumber(mapping.amount !== -1 ? row[mapping.amount] : 0);
-        const date = mapping.date !== -1 ? String(row[mapping.date] || '') : new Date().toISOString().split('T')[0];
+        const dateRaw = mapping.date !== -1 ? row[mapping.date] : null;
+        const date = dateRaw ? String(dateRaw) : new Date().toISOString().split('T')[0];
         
         if (description && amount !== 0) {
             transactions.push({
@@ -558,7 +571,6 @@ export const atomicClearUserTables = async (userId: string, tables: string[]) =>
     for (const table of tables) {
         const q = query(collection(db, table), where("userId", "==", userId));
         const snap = await getDocs(q);
-        // Realiza Soft Delete em lote
         snap.forEach(d => batch.update(d.ref, { deleted: true, deletedAt: serverTimestamp() }));
         
         const allLocal = await dbGetAll(table as any, (item: any) => item.userId === userId);
@@ -570,7 +582,7 @@ export const atomicClearUserTables = async (userId: string, tables: string[]) =>
 };
 
 export const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(ensureNumber(val));
 };
 
 export const getReportConfig = async (): Promise<ReportConfig> => {
@@ -588,7 +600,7 @@ export const saveReportConfig = async (config: ReportConfig) => {
 };
 
 export const findPotentialDuplicates = (sales: Sale[]) => {
-    const clients = Array.from(new Set(sales.filter(s => !s.deleted).map(s => s.client)));
+    const clients = Array.from(new Set((sales || []).filter(s => s && !s.deleted).map(s => s.client)));
     const groups: { master: string, similar: string[] }[] = [];
     const seen = new Set<string>();
 
@@ -615,7 +627,7 @@ export const findPotentialDuplicates = (sales: Sale[]) => {
 };
 
 export const smartMergeSales = (sales: Sale[]): Sale => {
-    return sales.filter(s => !s.deleted).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())[0];
+    return (sales || []).filter(s => s && !s.deleted).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())[0];
 };
 
 export const getDeletedClients = async (): Promise<Client[]> => {
