@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Client } from '../types';
 import { MergePreviewResult, previewClientMerge, executeClientMerge } from '../services/clientMergeService';
@@ -105,7 +104,7 @@ const ClientMergeModal: React.FC<ClientMergeModalProps> = ({
                                     />
                                     <div className="flex-1">
                                         <div className="font-bold text-sm">{client.name}</div>
-                                        <div className="text-xs text-gray-500">ID: {client.id.substring(0, 8)}...</div>
+                                        <div className="text-xs text-gray-500">ID: {(client?.id || "").substring(0, 8)}...</div>
                                     </div>
                                     {selectedMasterId === client.id && <span className="text-xs font-bold text-indigo-600 bg-indigo-100 px-2 py-1 rounded">MASTER</span>}
                                 </label>

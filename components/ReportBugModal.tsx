@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { X, Send, Bug, AlertTriangle, CheckCircle, Loader2, Paperclip, MessageSquare } from 'lucide-react';
 import { User } from '../types';
@@ -41,11 +40,13 @@ const ReportBugModal: React.FC<ReportBugModalProps> = ({ isOpen, onClose, curren
         );
 
         // Dispara PUSH para os administradores
+        // Safe check for substring
+        const safeDesc = (description || "").substring(0, 50);
         await sendPushNotification(
             'ADMIN_GROUP',
             `🚨 Novo Ticket: ${module}`,
-            `${currentUser.name} reportou um problema: ${description.substring(0, 50)}...`,
-            { moduleId: module.toLowerCase(), sender: currentUser.name }
+            `${currentUser?.name || "Usuário"} reportou um problema: ${safeDesc}...`,
+            { moduleId: module.toLowerCase(), sender: currentUser?.name || "???" }
         );
 
         setSent(true);

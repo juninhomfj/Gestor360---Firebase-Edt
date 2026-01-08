@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { LayoutDashboard, ShoppingCart, Settings, Menu, X, ShoppingBag, Users, FileText, Wallet, PieChart, Moon, Target, Trophy, Tag, ArrowLeftRight, PiggyBank, List, LogOut, Sun, Palette, ClipboardList, BarChart2, Sparkles, HelpCircle, PartyPopper, CalendarClock, Cloud, MessageCircle, Zap, Trees, Flame, Lock, MessageSquare, Newspaper, Rocket, FlaskConical, Terminal, Snowflake } from 'lucide-react';
 import { AppMode, User, AppTheme, AppNotification, SystemModules, InternalMessage } from '../types';
@@ -136,8 +135,10 @@ const Layout: React.FC<LayoutProps> = ({
   };
 
   const UserAvatar = () => {
-      if (currentUser.profilePhoto) return <img src={currentUser.profilePhoto} className="w-8 h-8 rounded-full object-cover border border-white/20" alt="Avatar"/>;
-      return <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold border border-white/20 shadow-sm">{currentUser.name.substring(0, 2).toUpperCase()}</div>;
+      if (currentUser?.profilePhoto) return <img src={currentUser.profilePhoto} className="w-8 h-8 rounded-full object-cover border border-white/20" alt="Avatar"/>;
+      // Proteção contra nome indefinido
+      const initials = (currentUser?.name || "??").substring(0, 2).toUpperCase();
+      return <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold border border-white/20 shadow-sm">{initials}</div>;
   };
 
   return (
@@ -204,8 +205,8 @@ const Layout: React.FC<LayoutProps> = ({
             <div className="flex items-center gap-3 px-2">
                 <UserAvatar />
                 <div className="overflow-hidden">
-                    <p className="text-sm font-black truncate">{currentUser.name}</p>
-                    <span className="text-[9px] font-black uppercase text-indigo-500 tracking-widest">{currentUser.role}</span>
+                    <p className="text-sm font-black truncate">{currentUser?.name || "Usuário"}</p>
+                    <span className="text-[9px] font-black uppercase text-indigo-500 tracking-widest">{currentUser?.role || "USER"}</span>
                 </div>
             </div>
             <button onClick={toggleAppMode} className={`w-full py-2.5 rounded-xl font-black text-xs uppercase tracking-widest border transition-all active:scale-95 ${appMode === 'SALES' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 border-blue-500' : 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20 border-emerald-500'}`}>{`Ir para ${appMode === 'SALES' ? 'Finanças' : 'Vendas'}`}</button>

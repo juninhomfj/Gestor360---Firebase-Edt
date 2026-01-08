@@ -76,12 +76,15 @@ const InternalChatSystem: React.FC<InternalChatSystemProps> = ({ currentUser, is
                         </div>
                     </div>
                     <div className="flex-1 overflow-y-auto">
-                        {users.filter(u => u.id !== currentUser.id).map(user => (
-                            <button key={user.id} onClick={() => setActiveChatId(user.id)} className={`w-full p-4 flex items-center gap-3 border-b dark:border-slate-800 ${activeChatId === user.id ? 'bg-indigo-900/20' : ''}`}>
-                                <div className="w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-xs">{user.name.substring(0,2)}</div>
-                                <div className="text-left"><p className="font-bold text-sm">{user.name}</p></div>
-                            </button>
-                        ))}
+                        {users.filter(u => u.id !== currentUser.id).map(user => {
+                            const initials = (user?.name || "??").substring(0, 2).toUpperCase();
+                            return (
+                                <button key={user.id} onClick={() => setActiveChatId(user.id)} className={`w-full p-4 flex items-center gap-3 border-b dark:border-slate-800 ${activeChatId === user.id ? 'bg-indigo-900/20' : ''}`}>
+                                    <div className="w-10 h-10 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-xs">{initials}</div>
+                                    <div className="text-left"><p className="font-bold text-sm">{user?.name || "Usuário"}</p></div>
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
 

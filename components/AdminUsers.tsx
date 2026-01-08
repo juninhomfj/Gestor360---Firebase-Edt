@@ -120,9 +120,9 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
 
   const handleOpenEdit = (u: User) => {
       setEditingId(u.id);
-      setNewName(u.name);
-      setNewEmail(u.email);
-      setNewRole(u.role);
+      setNewName(u.name || "");
+      setNewEmail(u.email || "");
+      setNewRole(u.role || "USER");
       setNewModules(u.permissions || DEFAULT_MODULES);
       setIsFormOpen(true);
   };
@@ -220,52 +220,56 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                         </tr>
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800">
-                        {users.map(u => (
-                            <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
-                                <td className="p-6">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-black text-xl shrink-0 overflow-hidden">
-                                            {u.profilePhoto ? <img src={u.profilePhoto} className="w-full h-full object-cover" alt="" /> : u.name.charAt(0).toUpperCase()}
-                                        </div>
-                                        <div>
-                                            <div className="font-black text-gray-900 dark:text-white text-lg flex items-center gap-2">
-                                                {u.name} {u.id === currentUser.id && <span className="text-[9px] bg-blue-500 text-white px-2 py-0.5 rounded font-black">VOCÊ</span>}
+                        {users.map(u => {
+                            const nameChar = (u?.name || "?").charAt(0).toUpperCase();
+                            const shortId = (u?.id || "").substring(0, 12);
+                            return (
+                                <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
+                                    <td className="p-6">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-black text-xl shrink-0 overflow-hidden">
+                                                {u.profilePhoto ? <img src={u.profilePhoto} className="w-full h-full object-cover" alt="" /> : nameChar}
                                             </div>
-                                            <div className="text-xs text-gray-400 font-mono">@{u.username} • {u.email}</div>
+                                            <div>
+                                                <div className="font-black text-gray-900 dark:text-white text-lg flex items-center gap-2">
+                                                    {u.name || "Usuário sem nome"} {u.id === currentUser.id && <span className="text-[9px] bg-blue-500 text-white px-2 py-0.5 rounded font-black">VOCÊ</span>}
+                                                </div>
+                                                <div className="text-xs text-gray-400 font-mono">@{u.username || shortId} • {u.email}</div>
+                                            </div>
                                         </div>
-                                    </div>
-                                </td>
-                                <td className="p-6">
-                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest ${u.role === 'ADMIN' ? 'bg-amber-100 text-amber-700' : (u.role === 'DEV' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600')}`}>{u.role}</span>
-                                </td>
-                                <td className="p-6">
-                                    <button 
-                                        onClick={() => handleToggleStatus(u)}
-                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold text-[10px] transition-all ${u.isActive ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}
-                                    >
-                                        {u.isActive ? <UserCheck size={14}/> : <UserMinus size={14}/>}
-                                        {u.isActive ? 'ATIVO' : 'INATIVO'}
-                                    </button>
-                                </td>
-                                <td className="p-6">
-                                    <div className="flex justify-center gap-3">
-                                        {(currentUser.role === 'DEV' || currentUser.role === 'ADMIN') && (
-                                            <button 
-                                                onClick={() => setHardResetModal({ isOpen: true, targetUser: u })}
-                                                className="p-3 bg-red-500 text-white rounded-xl hover:shadow-lg transition-all active:scale-95"
-                                                title="RESET SELETIVO"
-                                            >
-                                                <Bomb size={18}/>
-                                            </button>
-                                        )}
-                                        <button onClick={() => handleOpenEdit(u)} className="p-3 bg-gray-100 dark:bg-slate-800 text-indigo-500 rounded-xl hover:shadow-lg transition-all"><Edit2 size={18}/></button>
-                                        {u.userStatus === 'PENDING' && (
-                                            <button onClick={() => resendInvitation(u.email)} className="p-3 bg-amber-100 dark:bg-amber-900/30 text-amber-600 rounded-xl hover:shadow-lg transition-all"><Send size={18}/></button>
-                                        )}
-                                    </div>
-                                </td>
-                            </tr>
-                        ))}
+                                    </td>
+                                    <td className="p-6">
+                                        <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest ${u.role === 'ADMIN' ? 'bg-amber-100 text-amber-700' : (u.role === 'DEV' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600')}`}>{u.role}</span>
+                                    </td>
+                                    <td className="p-6">
+                                        <button 
+                                            onClick={() => handleToggleStatus(u)}
+                                            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold text-[10px] transition-all ${u.isActive ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}
+                                        >
+                                            {u.isActive ? <UserCheck size={14}/> : <UserMinus size={14}/>}
+                                            {u.isActive ? 'ATIVO' : 'INATIVO'}
+                                        </button>
+                                    </td>
+                                    <td className="p-6">
+                                        <div className="flex justify-center gap-3">
+                                            {(currentUser.role === 'DEV' || currentUser.role === 'ADMIN') && (
+                                                <button 
+                                                    onClick={() => setHardResetModal({ isOpen: true, targetUser: u })}
+                                                    className="p-3 bg-red-500 text-white rounded-xl hover:shadow-lg transition-all active:scale-95"
+                                                    title="RESET SELETIVO"
+                                                >
+                                                    <Bomb size={18}/>
+                                                </button>
+                                            )}
+                                            <button onClick={() => handleOpenEdit(u)} className="p-3 bg-gray-100 dark:bg-slate-800 text-indigo-500 rounded-xl hover:shadow-lg transition-all"><Edit2 size={18}/></button>
+                                            {u.userStatus === 'PENDING' && (
+                                                <button onClick={() => resendInvitation(u.email)} className="p-3 bg-amber-100 dark:bg-amber-900/30 text-amber-600 rounded-xl hover:shadow-lg transition-all"><Send size={18}/></button>
+                                            )}
+                                        </div>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
