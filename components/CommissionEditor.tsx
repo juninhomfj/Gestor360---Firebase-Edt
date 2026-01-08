@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { CommissionRule, ProductType, User } from '../types';
-import { Save, Plus, Trash2, Lock, Download, Upload, AlertCircle } from 'lucide-react';
+import { Save, Plus, Trash2, Lock, Download, Upload, AlertCircle, Loader2 } from 'lucide-react';
 import { Logger } from '../services/logger';
 
 interface CommissionEditorProps {
@@ -14,6 +14,7 @@ interface CommissionEditorProps {
 const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type, onSave, readOnly = false, currentUser }) => {
   const [rules, setRules] = useState<{ id: string; minPercent: string; maxPercent: string; commissionRate: string; }[]>([]);
   const [isDirty, setIsDirty] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (initialRules && Array.isArray(initialRules)) {
@@ -52,17 +53,22 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
     setIsDirty(true);
   };
 
-  const handleSave = () => {
-    Logger.info(`Audit: Usuário clicou em salvar parâmetros da tabela [${type}].`);
-    const finalRules: CommissionRule[] = rules.map(r => ({
-      id: r.id,
-      minPercent: parseFloat(r.minPercent) || 0,
-      maxPercent: r.maxPercent === '' ? null : parseFloat(r.maxPercent),
-      commissionRate: (parseFloat(r.commissionRate) || 0) / 100,
-      isActive: true
-    }));
-    onSave(type, finalRules);
-    setIsDirty(false);
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+        Logger.info(`Audit: Usuário clicou em salvar parâmetros da tabela global [${type}].`);
+        const finalRules: CommissionRule[] = rules.map(r => ({
+          id: r.id,
+          minPercent: parseFloat(r.minPercent) || 0,
+          maxPercent: r.maxPercent === '' ? null : parseFloat(r.maxPercent),
+          commissionRate: (parseFloat(r.commissionRate) || 0) / 100,
+          isActive: true
+        }));
+        await onSave(type, finalRules);
+        setIsDirty(false);
+    } finally {
+        setIsSaving(false);
+    }
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,12 +83,10 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
         
         const imported = JSON.parse(result);
         if (imported && Array.isArray(imported)) {
-          // Validação profunda de cada regra importada
           const validRules = imported
             .filter(r => r && typeof r === 'object')
             .map((r: any) => {
                 let rate = parseFloat(r.commissionRate) || 0;
-                // Normalização inteligente de taxas (0.15 vs 15)
                 if (rate > 0 && rate < 1) rate = rate * 100;
                 
                 return {
@@ -116,11 +120,12 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
       <div className={`p-4 border-b dark:border-slate-700 bg-gray-50 dark:bg-slate-950 flex justify-between items-center`}>
         <div className="flex items-center gap-2">
           <h3 className="text-lg font-bold">Tabela de Comissão: {type === ProductType.BASICA ? 'Cesta Básica' : 'Natal'}</h3>
+          {readOnly && <span className="text-[9px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-black uppercase tracking-widest">Global / Somente Leitura</span>}
         </div>
         <div className="flex gap-2">
           {!readOnly && (
             <>
-              <label className="p-2 cursor-pointer hover:bg-black/5 dark:hover:bg-white/10 rounded text-gray-600 dark:text-gray-400" title="Importar Tabela">
+              <label className="p-2 cursor-pointer hover:bg-black/5 dark:hover:bg-white/10 rounded text-gray-600 dark:text-gray-400 transition-colors" title="Importar Tabela">
                 <Upload size={18} />
                 <input type="file" className="hidden" accept=".json" onChange={handleImport} />
               </label>
@@ -141,7 +146,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
                   a.download = `tabela_comissao_${type.toLowerCase()}.json`;
                   a.click();
                 }}
-                className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded text-gray-600 dark:text-gray-400"
+                className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded text-gray-600 dark:text-gray-400 transition-colors"
                 title="Exportar Tabela"
               >
                 <Download size={18} />
@@ -197,17 +202,18 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type,
             </button>
             
             <div className="flex items-center gap-4 w-full sm:w-auto">
-              {isDirty && (
+              {isDirty && !isSaving && (
                 <span className="text-[10px] font-black text-amber-500 uppercase animate-pulse flex items-center gap-1">
                   <AlertCircle size={12}/> Alterações Pendentes
                 </span>
               )}
               <button 
                 onClick={handleSave} 
-                disabled={!isDirty} 
-                className={`w-full sm:w-auto px-10 py-3 rounded-xl font-black uppercase text-xs tracking-widest transition-all ${isDirty ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20 hover:bg-emerald-700 active:scale-95' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                disabled={!isDirty || isSaving} 
+                className={`w-full sm:w-auto px-10 py-3 rounded-xl font-black uppercase text-xs tracking-widest transition-all flex items-center justify-center gap-2 ${isDirty ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20 hover:bg-emerald-700 active:scale-95' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
               >
-                Salvar Alterações
+                {isSaving ? <Loader2 size={16} className="animate-spin"/> : <Save size={16}/>}
+                {isSaving ? 'Gravando...' : 'Salvar Tabela Master'}
               </button>
             </div>
           </div>

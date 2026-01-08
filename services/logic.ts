@@ -52,7 +52,6 @@ export const ensureNumber = (value: any, fallback = 0): number => {
     if (value === undefined || value === null || value === '') return fallback;
     if (typeof value === 'number') return isNaN(value) ? fallback : value;
     let str = String(value).trim();
-    // Suporte para padrão brasileiro (1.234,56)
     const lastComma = str.lastIndexOf(',');
     const lastDot = str.lastIndexOf('.');
     if (lastComma > lastDot) str = str.replace(/\./g, '').replace(',', '.');
@@ -60,6 +59,11 @@ export const ensureNumber = (value: any, fallback = 0): number => {
     else if (lastComma !== -1) str = str.replace(',', '.');
     const num = parseFloat(str);
     return isNaN(num) ? fallback : num;
+};
+
+// Fix: Added missing export for formatCurrency
+export const formatCurrency = (val: number): string => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 };
 
 export const SessionTraffic = {
@@ -78,15 +82,23 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
 };
 
 /**
- * Carrega tabelas de comissão garantindo autoridade do servidor.
+ * Carrega tabelas de comissão globais.
+ * Tenta buscar do servidor a versão ativa (isActive == true).
  */
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
-    const colName = type === ProductType.NATAL ? 'commissions_natal' : 'commissions_basic';
-    const storeName = type === ProductType.NATAL ? 'commission_natal' : 'commission_basic';
+    let colName = 'commissions_basic';
+    let storeName = 'commission_basic';
+
+    if (type === ProductType.NATAL) {
+        colName = 'commissions_natal';
+        storeName = 'commission_natal';
+    }
+
     try {
-        const q = query(collection(db, colName), where("isActive", "==", true), limit(1));
-        const snap = await getDocsFromServer(q); 
+        const q = query(collection(db, colName), where("isActive", "==", true), orderBy("createdAt", "desc"), limit(1));
+        const snap = await getDocs(q); 
         SessionTraffic.trackRead(snap.size);
+
         if (!snap.empty) {
             const docData = snap.docs[0].data();
             const tiers = docData?.tiers || [];
@@ -98,41 +110,57 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
                 commissionRate: ensureNumber(t.rate),
                 isActive: true
             }));
+            
             await dbBulkPut(storeName as any, rules);
             return rules.sort((a, b) => a.minPercent - b.minPercent);
         }
     } catch (e: any) {
-        if (e.code !== 'permission-denied') {
-            Logger.error(`Erro ao carregar regras de comissão via Server [${type}]`, e);
+        if (e.code !== 'permission-denied' && navigator.onLine) {
+            Logger.warn(`Audit: Falha ao sincronizar tabela global [${type}]. Usando cache local.`);
         }
     }
+
     const cached = await dbGetAll(storeName as any);
     return (cached || [])
         .filter((r: any) => r && r.isActive)
         .sort((a: any, b: any) => (a.minPercent || 0) - (b.minPercent || 0));
 };
 
+/**
+ * Salva regras de comissão e desativa versões anteriores.
+ */
 export const saveCommissionRules = async (type: ProductType, rules: CommissionRule[]) => {
-    const colName = type === ProductType.NATAL ? 'commissions_natal' : 'commissions_basic';
+    let colName = 'commissions_basic';
+    if (type === ProductType.NATAL) colName = 'commissions_natal';
+    if (type === ProductType.CUSTOM) return;
+
     try {
+        Logger.info(`Audit: Iniciando atualização global da tabela [${type}]`);
         const q = query(collection(db, colName), where("isActive", "==", true));
         const snap = await getDocs(q);
         const batch = writeBatch(db);
-        snap.docs.forEach(d => batch.update(d.ref, { isActive: false }));
-        batch.set(doc(collection(db, colName)), {
+        
+        snap.docs.forEach(d => batch.update(d.ref, { isActive: false, updatedAt: serverTimestamp() }));
+        
+        const newDocRef = doc(collection(db, colName));
+        batch.set(newDocRef, {
             version: Date.now(),
             isActive: true,
             createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            createdBy: auth.currentUser?.uid || 'system',
             tiers: rules.map(r => ({ 
                 min: r.minPercent, 
                 max: r.maxPercent, 
                 rate: r.commissionRate > 1 ? r.commissionRate / 100 : r.commissionRate 
             }))
         });
+        
         await batch.commit();
         SessionTraffic.trackWrite();
     } catch (e: any) {
-        throw new Error(`Privilégios insuficientes para alterar tabelas mestre.`);
+        Logger.error(`Erro ao salvar regras globais [${type}]`, e);
+        throw new Error(`Privilégios insuficientes.`);
     }
 };
 
@@ -152,8 +180,9 @@ export const getStoredSales = async (): Promise<Sale[]> => {
     if (!uid) return [];
     
     try {
-        const q = query(collection(db, 'sales'), where('userId', '==', uid), where('deleted', '==', false), orderBy('createdAt', 'desc'), limit(100));
+        const q = query(collection(db, 'sales'), where('userId', '==', uid), where('deleted', '==', false), orderBy('createdAt', 'desc'), limit(500));
         const snap = await getDocs(q);
+        SessionTraffic.trackRead(snap.size);
         const cloudSales = snap.docs.map(d => ({ ...d.data(), id: d.id } as Sale));
         await dbBulkPut('sales', cloudSales);
     } catch (e) {}
@@ -169,12 +198,51 @@ export const getStoredSales = async (): Promise<Sale[]> => {
     }));
 };
 
+/**
+ * Função unificada para baixar dados financeiros do backend e atualizar o front.
+ */
+export const getFinanceData = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return { accounts: [], transactions: [], cards: [], categories: [], goals: [], challenges: [], cells: [], receivables: [] };
+    
+    // Lista de tabelas para sincronizar
+    const tables = ['accounts', 'transactions', 'cards', 'categories', 'goals', 'challenges', 'challenge_cells', 'receivables'];
+    
+    for (const table of tables) {
+        try {
+            const q = query(collection(db, table), where('userId', '==', uid), where('deleted', '==', false));
+            const snap = await getDocs(q);
+            SessionTraffic.trackRead(snap.size);
+            const data = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+            const storeName = table === 'challenge_cells' ? 'challenge_cells' : table;
+            await dbBulkPut(storeName as any, data);
+        } catch (e) {}
+    }
+
+    const [accounts, transactions, cards, categories, goals, challenges, cells, receivables] = await Promise.all([
+        dbGetAll('accounts', a => a.userId === uid && !a.deleted),
+        dbGetAll('transactions', t => t.userId === uid && !t.deleted),
+        dbGetAll('cards', c => c.userId === uid && !c.deleted),
+        dbGetAll('categories', c => c.userId === uid && !c.deleted),
+        dbGetAll('goals', g => g.userId === uid && !g.deleted),
+        dbGetAll('challenges', c => c.userId === uid && !c.deleted),
+        dbGetAll('challenge_cells', c => c.userId === uid && !c.deleted),
+        dbGetAll('receivables', r => r.userId === uid && !r.deleted)
+    ]);
+
+    return { 
+        accounts: (accounts || []).map(a => ({ ...a, balance: ensureNumber(a.balance) })),
+        transactions: (transactions || []).map(t => ({ ...t, amount: ensureNumber(t.amount) })),
+        cards: (cards || []).map(c => ({ ...c, limit: ensureNumber(c.limit) })),
+        categories, goals, challenges, cells, receivables 
+    };
+};
+
 export const handleSoftDelete = async (table: string, id: string) => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
 
     Logger.warn(`Audit: Soft Delete solicitado em ${table}/${id}`);
-    
     const local = await dbGet(table as any, id);
     if (local) {
         await dbPut(table as any, { ...local, deleted: true, deletedAt: new Date().toISOString() });
@@ -188,7 +256,7 @@ export const handleSoftDelete = async (table: string, id: string) => {
         });
         SessionTraffic.trackWrite();
     } catch (e) {
-        Logger.error(`Audit: Falha ao sincronizar soft delete para ${table}/${id}`, e);
+        Logger.error(`Audit: Falha ao sincronizar soft delete`, e);
     }
 };
 
@@ -224,6 +292,53 @@ export const getTicketStats = async (): Promise<number> => {
         SessionTraffic.trackRead(1);
         return snap.size;
     } catch (e) { return 0; }
+};
+
+// Fix: Added missing export for processFinanceImport
+export const processFinanceImport = (data: any[][], mapping: ImportMapping): Partial<Transaction>[] => {
+    const rows = data.slice(1);
+    const transactions: Partial<Transaction>[] = [];
+
+    rows.forEach(row => {
+        const dateIdx = mapping['date'];
+        const descIdx = mapping['description'];
+        const amountIdx = mapping['amount'];
+        const typeIdx = mapping['type'];
+        const personIdx = mapping['person'];
+
+        if (dateIdx === undefined || dateIdx === -1 || 
+            descIdx === undefined || descIdx === -1 || 
+            amountIdx === undefined || amountIdx === -1) return;
+
+        const rawAmount = ensureNumber(row[amountIdx]);
+        let type: 'INCOME' | 'EXPENSE' = rawAmount >= 0 ? 'INCOME' : 'EXPENSE';
+        
+        if (typeIdx !== undefined && typeIdx !== -1 && row[typeIdx]) {
+            const tStr = String(row[typeIdx]).toUpperCase();
+            if (tStr.includes('ENTRADA') || tStr.includes('RECEITA')) type = 'INCOME';
+            if (tStr.includes('SAIDA') || tStr.includes('DESPESA')) type = 'EXPENSE';
+        }
+
+        const tx: Partial<Transaction> = {
+            id: crypto.randomUUID(),
+            description: String(row[descIdx] || 'Importado'),
+            amount: Math.abs(rawAmount),
+            type,
+            date: String(row[dateIdx] || new Date().toISOString().split('T')[0]),
+            isPaid: true,
+            provisioned: false,
+            isRecurring: false,
+            deleted: false,
+            createdAt: new Date().toISOString(),
+            userId: auth.currentUser?.uid || '',
+            categoryId: 'uncategorized',
+            personType: (personIdx !== undefined && personIdx !== -1 && row[personIdx]) ? (String(row[personIdx]).toUpperCase().includes('PJ') ? 'PJ' : 'PF') : 'PF'
+        };
+
+        transactions.push(tx);
+    });
+
+    return transactions;
 };
 
 export const readExcelFile = (file: File): Promise<any[][]> => {
@@ -268,29 +383,6 @@ export const saveSystemConfig = async (config: SystemConfig) => {
     await setDoc(doc(db, "config", "system"), sanitizeForFirestore(config));
 };
 
-export const getFinanceData = async () => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return { accounts: [], transactions: [], cards: [], categories: [], goals: [], challenges: [], cells: [], receivables: [] };
-    
-    const [accounts, transactions, cards, categories, goals, challenges, cells, receivables] = await Promise.all([
-        dbGetAll('accounts', a => a.userId === uid && !a.deleted),
-        dbGetAll('transactions', t => t.userId === uid && !t.deleted),
-        dbGetAll('cards', c => c.userId === uid && !c.deleted),
-        dbGetAll('categories', c => c.userId === uid && !c.deleted),
-        dbGetAll('goals', g => g.userId === uid && !g.deleted),
-        dbGetAll('challenges', c => c.userId === uid && !c.deleted),
-        dbGetAll('challenge_cells', c => c.userId === uid && !c.deleted),
-        dbGetAll('receivables', r => r.userId === uid && !r.deleted)
-    ]);
-
-    return { 
-        accounts: (accounts || []).map(a => ({ ...a, balance: ensureNumber(a.balance) })),
-        transactions: (transactions || []).map(t => ({ ...t, amount: ensureNumber(t.amount) })),
-        cards: (cards || []).map(c => ({ ...c, limit: ensureNumber(c.limit) })),
-        categories, goals, challenges, cells, receivables 
-    };
-};
-
 export const saveFinanceData = async (accounts: FinanceAccount[], cards: CreditCard[], transactions: Transaction[], categories: TransactionCategory[]) => {
     const batch = writeBatch(db);
     for (const acc of accounts) { await dbPut('accounts', acc); batch.set(doc(db, 'accounts', acc.id), sanitizeForFirestore(acc), { merge: true }); }
@@ -303,6 +395,12 @@ export const saveFinanceData = async (accounts: FinanceAccount[], cards: CreditC
 export const getClients = async (): Promise<Client[]> => {
     const uid = auth.currentUser?.uid;
     if (!uid) return [];
+    try {
+        const q = query(collection(db, 'clients'), where('userId', '==', uid), where('deleted', '==', false));
+        const snap = await getDocs(q);
+        const data = snap.docs.map(d => ({ ...d.data(), id: d.id } as Client));
+        await dbBulkPut('clients', data);
+    } catch (e) {}
     return await dbGetAll('clients', c => c.userId === uid && !c.deleted);
 };
 
@@ -538,34 +636,6 @@ export const generateChallengeCells = (challengeId: string, targetValue: number,
     return cells;
 };
 
-export const processFinanceImport = (data: any[][], mapping: ImportMapping): Partial<Transaction>[] => {
-    const transactions: Partial<Transaction>[] = [];
-    const rows = (data || []).slice(1);
-    
-    rows.forEach(row => {
-        const description = mapping.description !== -1 ? String(row[mapping.description] || '') : 'Importação';
-        const amount = ensureNumber(mapping.amount !== -1 ? row[mapping.amount] : 0);
-        const dateRaw = mapping.date !== -1 ? row[mapping.date] : null;
-        const date = dateRaw ? String(dateRaw) : new Date().toISOString().split('T')[0];
-        
-        if (description && amount !== 0) {
-            transactions.push({
-                id: crypto.randomUUID(),
-                description,
-                amount: Math.abs(amount),
-                type: amount > 0 ? 'INCOME' : 'EXPENSE',
-                date,
-                isPaid: true,
-                provisioned: false,
-                deleted: false,
-                createdAt: new Date().toISOString(),
-                userId: auth.currentUser?.uid || ''
-            });
-        }
-    });
-    return transactions;
-};
-
 export const atomicClearUserTables = async (userId: string, tables: string[]) => {
     const batch = writeBatch(db);
     for (const table of tables) {
@@ -579,10 +649,6 @@ export const atomicClearUserTables = async (userId: string, tables: string[]) =>
         }
     }
     await batch.commit();
-};
-
-export const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(ensureNumber(val));
 };
 
 export const getReportConfig = async (): Promise<ReportConfig> => {

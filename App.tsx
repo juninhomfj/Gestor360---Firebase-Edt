@@ -55,7 +55,6 @@ const App: React.FC = () => {
     const [authError, setAuthError] = useState<string | null>(null);
     
     const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
-    // Fix: Added missing isClearLocalModalOpen state
     const [isClearLocalModalOpen, setIsClearLocalModalOpen] = useState(false);
     const [isBulkDateModalOpen, setIsBulkDateModalOpen] = useState(false);
     const [editingSale, setEditingSale] = useState<Sale | null>(null);
@@ -82,7 +81,6 @@ const App: React.FC = () => {
     );
     const [theme, setTheme] = useState<AppTheme>('glass');
 
-    // Estados de dados com filtragem global v2.5
     const [sales, setSales] = useState<Sale[]>([]);
     const [clients, setClients] = useState<Client[]>([]);
     const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
@@ -95,7 +93,6 @@ const App: React.FC = () => {
     const [receivables, setReceivables] = useState<Receivable[]>([]);
     const [rulesBasic, setRulesBasic] = useState<CommissionRule[]>([]);
     const [rulesNatal, setRulesNatal] = useState<CommissionRule[]>([]);
-    const [rulesCustom, setRulesCustom] = useState<CommissionRule[]>([]);
     const [reportConfig, setReportConfig] = useState<ReportConfig>({
         daysForNewClient: 30, daysForInactive: 60, daysForLost: 180
     });
@@ -113,13 +110,11 @@ const App: React.FC = () => {
         setSortedToasts(prev => prev.filter(t => t.id !== id));
     };
 
-    // Fix: Added missing handleSaveCommissionRulesInApp function
     const handleSaveCommissionRulesInApp = async (type: ProductType, rules: CommissionRule[]) => {
         try {
             await saveCommissionRules(type, rules);
             if (type === ProductType.BASICA) setRulesBasic(rules);
             else if (type === ProductType.NATAL) setRulesNatal(rules);
-            else setRulesCustom(rules);
             addToast('SUCCESS', 'Tabela de comissões atualizada!');
         } catch (e: any) {
             addToast('ERROR', e.message);
@@ -135,7 +130,6 @@ const App: React.FC = () => {
                 await AudioService.preload();
                 const sessionUser = await reloadSession();
                 if (sessionUser) {
-                    // VERIFICAÇÃO DE STATUS ATIVO (Governança Backend)
                     if (!sessionUser.isActive || sessionUser.userStatus === 'INACTIVE') {
                         Logger.warn(`Audit: Tentativa de acesso por usuário inativo: ${sessionUser.email}`);
                         setAuthView('BLOCKED');
@@ -171,18 +165,18 @@ const App: React.FC = () => {
     };
 
     const loadDataForUser = async () => {
-        Logger.info("📥 Audit: Sincronizando dados ativos (deleted == false)...");
+        Logger.info("📥 Audit: Sincronizando todos os dados do servidor...");
         try {
-            const [rBasic, rNatal, rCustom] = await Promise.all([
+            // Sincroniza tabelas globais
+            const [rBasic, rNatal] = await Promise.all([
                 getStoredTable(ProductType.BASICA),
-                getStoredTable(ProductType.NATAL),
-                getStoredTable(ProductType.CUSTOM)
+                getStoredTable(ProductType.NATAL)
             ]);
             setRulesBasic(rBasic);
             setRulesNatal(rNatal);
-            setRulesCustom(rCustom);
 
-            const results = await Promise.all([
+            // Sincroniza dados do usuário (Vendas, Clientes, Financeiro, Config)
+            const [storedSales, storedClients, finData, sysCfg, rConfig] = await Promise.all([
                 getStoredSales(), 
                 getClients(), 
                 getFinanceData(),
@@ -190,25 +184,22 @@ const App: React.FC = () => {
                 getReportConfig()
             ]);
 
-            const [storedSales, storedClients, finData, sysCfg, rConfig] = results;
-
             if (sysCfg?.theme) setTheme(sysCfg.theme);
             
-            // FILTRAGEM DE SEGURANÇA (Redundância Client-side)
-            setSales(storedSales?.filter(s => !s.deleted) || []);
-            setClients(storedClients?.filter(c => !c.deleted) || []);
-            setAccounts(finData.accounts?.filter(a => !a.deleted) || []);
-            setCards(finData.cards?.filter(c => !c.deleted) || []);
-            setTransactions(finData.transactions?.filter(t => !t.deleted) || []);
-            setCategories(finData.categories?.filter(c => !c.deleted) || []);
-            setGoals(finData.goals?.filter(g => !g.deleted) || []);
-            setReceivables(finData.receivables?.filter(r => !r.deleted) || []);
+            setSales(storedSales || []);
+            setClients(storedClients || []);
+            setAccounts(finData.accounts || []);
+            setCards(finData.cards || []);
+            setTransactions(finData.transactions || []);
+            setCategories(finData.categories || []);
+            setGoals(finData.goals || []);
+            setReceivables(finData.receivables || []);
             
             if (rConfig?.daysForLost) setReportConfig(rConfig as ReportConfig);
             
-            Logger.info("✅ Audit: Sincronização de itens ativos concluída.");
+            Logger.info("✅ Audit: Sincronização concluída com sucesso.");
         } catch (e) {
-            Logger.error("🚨 Audit: Falha na sincronização.");
+            Logger.error("🚨 Audit: Falha crítica na sincronização de dados.", e);
         }
     };
 
@@ -217,7 +208,6 @@ const App: React.FC = () => {
     if (authView === 'REQUEST_RESET') return <RequestReset onBack={() => setAuthView('LOGIN')} />;
     if (authView === 'ERROR') return <div className="p-20 text-center text-red-500 font-bold">{authError}</div>;
 
-    // TELA DE BLOQUEIO PARA USUÁRIOS INATIVOS
     if (authView === 'BLOCKED') {
         return (
             <div className="h-screen bg-[#020617] flex items-center justify-center p-6 text-center animate-in fade-in">
@@ -270,7 +260,7 @@ const App: React.FC = () => {
             {activeTab === 'fin_categories' && <FinanceCategories categories={categories} onUpdate={() => loadDataForUser()} darkMode={true} />}
             {activeTab === 'fin_goals' && <FinanceGoals goals={goals} onUpdate={() => loadDataForUser()} darkMode={true} />}
             {activeTab === 'fin_challenges' && <FinanceChallenges challenges={challenges} cells={cells} onUpdate={() => loadDataForUser()} darkMode={true} />}
-            {activeTab === 'settings' && <SettingsHub rulesBasic={rulesBasic} rulesNatal={rulesNatal} rulesCustom={rulesCustom} reportConfig={reportConfig} onSaveRules={handleSaveCommissionRulesInApp} onSaveReportConfig={saveReportConfig} darkMode={true} currentUser={currentUser!} onUpdateUser={setCurrentUser} sales={sales} onUpdateSales={setSales} onNotify={addToast} isAdmin={isAdmin} isDev={isDev} />}
+            {activeTab === 'settings' && <SettingsHub rulesBasic={rulesBasic} rulesNatal={rulesNatal} reportConfig={reportConfig} onSaveRules={handleSaveCommissionRulesInApp} onSaveReportConfig={saveReportConfig} darkMode={true} currentUser={currentUser!} onUpdateUser={setCurrentUser} sales={sales} onUpdateSales={setSales} onNotify={addToast} isAdmin={isAdmin} isDev={isDev} />}
             {activeTab === 'dev_roadmap' && <DevRoadmap />}
             
             <SalesForm isOpen={showSalesForm} onClose={() => { setShowSalesForm(false); setEditingSale(null); }} onSaved={loadDataForUser} initialData={editingSale} />
@@ -278,7 +268,6 @@ const App: React.FC = () => {
             <ToastContainer toasts={toasts} removeToast={removeToast} />
             {showSnow && <SnowOverlay />}
             
-            {/* Fix: Added missing Modals to the JSX tree */}
             <BackupModal 
                 isOpen={isBackupModalOpen} 
                 mode="RESTORE" 

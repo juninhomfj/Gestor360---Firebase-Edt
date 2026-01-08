@@ -18,7 +18,6 @@ import AdminMessaging from './AdminMessaging';
 interface SettingsHubProps {
   rulesBasic: CommissionRule[];
   rulesNatal: CommissionRule[];
-  rulesCustom: CommissionRule[]; 
   reportConfig: ReportConfig;
   onSaveRules: (type: ProductType, rules: CommissionRule[]) => void;
   onSaveReportConfig: (config: ReportConfig) => void;
@@ -34,7 +33,7 @@ interface SettingsHubProps {
 }
 
 const SettingsHub: React.FC<SettingsHubProps> = ({ 
-  rulesBasic, rulesNatal, rulesCustom, reportConfig, onSaveRules, onSaveReportConfig,
+  rulesBasic, rulesNatal, reportConfig, onSaveRules, onSaveReportConfig,
   darkMode, onThemeChange, currentUser, onUpdateUser, sales, onUpdateSales, onNotify,
   isAdmin, isDev
 }) => {
