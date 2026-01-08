@@ -1,10 +1,10 @@
-
 import React, { useState, useMemo } from 'react';
 import { WAContact, WATag, Sale } from '../types';
 import { Search, Plus, Filter, Tag, MoreHorizontal, Trash2, Edit2, Download, Upload, User, Smartphone, Calendar, Star } from 'lucide-react';
 import { saveWAContact, deleteWAContact, importWAContacts, parseCSVContacts } from '../services/whatsappService';
 // Import auth to get the current user ID
 import { auth } from '../services/firebase';
+import { safeFirstChar } from '../utils/stringUtils';
 
 interface WhatsAppContactsProps {
     contacts: WAContact[];
@@ -173,7 +173,7 @@ const WhatsAppContacts: React.FC<WhatsAppContactsProps> = ({ contacts, tags, onU
                                     <td className="p-4">
                                         <div className="flex items-center gap-3">
                                             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${darkMode ? 'bg-slate-700 text-slate-300' : 'bg-gray-200 text-gray-600'}`}>
-                                                {contact.name.charAt(0).toUpperCase()}
+                                                {safeFirstChar(contact.name)}
                                             </div>
                                             <div>
                                                 <div className={`font-bold ${textClass}`}>{contact.name}</div>

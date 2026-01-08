@@ -1,9 +1,9 @@
-
 import React, { useState } from 'react';
 import { FinanceAccount, CreditCard, TransactionCategory, PersonType, AppTheme } from '../types';
 /* Fix: Added missing 'Lock' icon to the imports from lucide-react */
 import { Wallet, CreditCard as CardIcon, CheckCircle, ArrowRight, Flag, User, Building2, Layers, Sparkles, AlertTriangle, Clock, Mic, ShoppingBag, PieChart, Info, BookOpen, Palette, Check, SkipForward, Cloud, Lock } from 'lucide-react';
 import { auth } from '../services/firebase';
+import { safeFirstChar } from '../utils/stringUtils';
 
 interface OnboardingProps {
   onComplete: (accounts: FinanceAccount[], cards: CreditCard[], categories: TransactionCategory[], theme: AppTheme) => void;
@@ -120,6 +120,8 @@ const Onboarding: React.FC<OnboardingProps> = ({ onComplete, onSkip }) => {
 
       onComplete(newAccounts, newCards, defaultCategories, selectedTheme);
   };
+
+  const currentUserName = auth.currentUser?.displayName || 'Usuário';
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900 text-white p-4">

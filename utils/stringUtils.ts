@@ -2,7 +2,10 @@
  * Utilitários para evitar erros de TypeError em strings indefinidas
  */
 
-export const safeString = (v: unknown): string => (typeof v === 'string' ? v : '');
+export const safeString = (v: unknown): string => {
+    if (v === null || v === undefined) return '';
+    return typeof v === 'string' ? v : String(v);
+};
 
 export const safeFirstChar = (v: unknown, fallback = '?'): string => {
     const s = safeString(v).trim();
@@ -16,10 +19,13 @@ export const safeShort = (v: unknown, n: number): string => {
 
 export const safeInitials = (v: unknown, limit = 2): string => {
     const s = safeString(v).trim();
-    if (!s) return '??';
+    if (!s) return fallbackInitials(limit);
     return s.split(' ')
+            .filter(Boolean)
             .map(part => part.charAt(0))
             .join('')
             .slice(0, limit)
             .toUpperCase();
 };
+
+const fallbackInitials = (limit: number) => '?'.repeat(limit);

@@ -95,8 +95,10 @@ export const getMessages = async (userId: string, isAdmin: boolean) => {
         });
         
         return merged.sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    } catch (e) {
-        console.warn("[Chat] Falha ao ler nuvem:", e);
+    } catch (e: any) {
+        if (e.code !== 'permission-denied') {
+            console.warn("[Chat] Falha ao ler nuvem:", e);
+        }
         return filtered.sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     }
 };
@@ -134,6 +136,10 @@ export const subscribeToMessages = (
                 }
             }
         });
+    }, (error) => {
+        if (error.code !== 'permission-denied') {
+            console.error("[Chat] Sync error:", error);
+        }
     });
 
     return { unsubscribe };

@@ -1,12 +1,13 @@
 import React, { useState, useRef } from 'react';
-import { User, UserStatus, UserPermissions } from '../types';
+import { User, UserPermissions } from '../types';
 import { logout, updateUser, deactivateUser } from '../services/auth';
 import { requestAndSaveToken } from '../services/pushService';
 import { 
   Save, User as UserIcon, LogOut, Camera, CheckCircle, 
-  AlertTriangle, MessageSquare, Shield, Lock, UserX, ShieldAlert, Key, Bell, BellRing
+  AlertTriangle, Shield, Lock, UserX, ShieldAlert, Bell, BellRing, Loader2
 } from 'lucide-react';
 import { optimizeImage } from '../utils/fileHelper';
+import { safeFirstChar } from '../utils/stringUtils';
 
 interface UserProfileProps {
   user: User; 
@@ -14,15 +15,12 @@ interface UserProfileProps {
 }
 
 const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }) => {
-  const isSuper = currentUser.role === 'DEV' || currentUser.role === 'ADMIN';
-  
-  const [name, setName] = useState(currentUser.name);
+  const [name, setName] = useState(currentUser.name || '');
   const [username, setUsername] = useState(currentUser.username || '');
   const [tel, setTel] = useState(currentUser.tel || '');
   const [profilePhoto, setProfilePhoto] = useState(currentUser.profilePhoto || '');
   const [contactVisibility, setContactVisibility] = useState(currentUser.contactVisibility || 'PUBLIC');
   
-  // Fix: Explicitly typed modules state as UserPermissions and removed incompatible empty object fallback (Line 20)
   const [modules, setModules] = useState<UserPermissions>(currentUser.permissions);
   
   const [isSaving, setIsSaving] = useState(false);
@@ -70,9 +68,9 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
       try {
           const token = await requestAndSaveToken(currentUser.id);
           if (token) {
-              setMessage({ type: 'success', text: 'Notificações Push habilitadas neste dispositivo!' });
+              setMessage({ type: 'success', text: 'Notificações Push habilitadas!' });
           } else {
-              setMessage({ type: 'error', text: 'Permissão de notificação negada ou não suportada.' });
+              setMessage({ type: 'error', text: 'Permissão de notificação negada.' });
           }
       } catch (e) {
           setMessage({ type: 'error', text: 'Falha ao registrar para notificações.' });
@@ -121,7 +119,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* FOTO E MÓDULOS */}
           <div className="space-y-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 flex flex-col items-center shadow-sm">
                 <div className="relative mb-6">
@@ -129,7 +126,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                     {profilePhoto ? (
                         <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" />
                     ) : (
-                        <div className="text-4xl font-bold text-indigo-300">{currentUser.name.charAt(0).toUpperCase()}</div>
+                        <div className="text-4xl font-bold text-indigo-300">{safeFirstChar(name || currentUser.name)}</div>
                     )}
                   </div>
                   <button 
@@ -147,7 +144,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                     </div>
                 </div>
                 
-                {/* NOVO BOTÃO DE PUSH */}
                 <div className="w-full mt-6 pt-6 border-t dark:border-slate-800">
                     <button 
                         onClick={handleEnablePush}
@@ -155,17 +151,14 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                         className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${currentUser.fcmToken ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-900/20'}`}
                     >
                         {isRegisteringPush ? <Loader2 size={16} className="animate-spin"/> : (currentUser.fcmToken ? <BellRing size={16}/> : <Bell size={16}/>)}
-                        {currentUser.fcmToken ? 'Notificações Ativas' : 'Habilitar Notificações Push'}
+                        {currentUser.fcmToken ? 'Notificações Ativas' : 'Habilitar Notificações'}
                     </button>
-                    {currentUser.fcmToken && (
-                        <p className="text-[9px] text-gray-400 mt-2 text-center opacity-60">Você receberá alertas de tickets e faturamento direto neste dispositivo.</p>
-                    )}
                 </div>
             </div>
 
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm">
                 <h3 className="text-xs font-black text-gray-400 uppercase mb-4 flex items-center gap-2 tracking-widest">
-                    <Lock size={14} /> Permissões de Acesso
+                    <Lock size={14} /> Permissões
                 </h3>
                 <div className="grid grid-cols-2 lg:grid-cols-1 gap-2">
                     {Object.keys(modules).map((mod) => (
@@ -178,11 +171,10 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
             </div>
           </div>
 
-          {/* DADOS CADASTRAIS */}
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm">
                 <h3 className="font-black text-gray-700 dark:text-gray-300 mb-6 flex items-center gap-2 border-b dark:border-slate-800 pb-2 uppercase text-xs tracking-widest">
-                    <Shield className="text-indigo-500" size={16} /> Identidade do Usuário
+                    <Shield className="text-indigo-500" size={16} /> Identidade
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div className="sm:col-span-2">
@@ -190,16 +182,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                         <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full p-3 border rounded-xl dark:bg-slate-950 dark:border-slate-700 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" />
                     </div>
                     <div>
-                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">Apelido / Usuário</label>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">Apelido</label>
                         <input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full p-3 border rounded-xl dark:bg-slate-950 dark:border-slate-700 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" />
                     </div>
                     <div>
-                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">Telefone Corporativo</label>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">Telefone</label>
                         <input type="tel" value={tel} onChange={e => setTel(e.target.value)} className="w-full p-3 border rounded-xl dark:bg-slate-950 dark:border-slate-700 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" placeholder="+55..." />
-                    </div>
-                    <div className="sm:col-span-2">
-                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">E-mail (Login)</label>
-                        <input type="email" value={currentUser.email} disabled className="w-full p-3 border rounded-xl bg-gray-50 dark:bg-slate-800 opacity-50 text-gray-400 font-mono text-sm cursor-not-allowed" />
                     </div>
                 </div>
             </div>
@@ -209,7 +197,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                 <button 
                     onClick={handleSave} 
                     disabled={isSaving} 
-                    className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 px-12 rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-indigo-900/20 active:scale-[0.98] disabled:opacity-50 transition-all uppercase text-xs tracking-widest"
+                    className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 px-12 rounded-2xl flex items-center justify-center gap-2 shadow-xl transition-all uppercase text-xs tracking-widest"
                 >
                     {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
                     {isSaving ? 'Salvando...' : 'Gravar Alterações'}
@@ -220,17 +208,17 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
 
       {showDeactivateConfirm && (
           <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in">
-              <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl p-8 shadow-2xl border-2 border-red-500 animate-in zoom-in-95">
+              <div className="bg-white dark:bg-slate-900 w-full max-sm rounded-2xl p-8 shadow-2xl border-2 border-red-500 animate-in zoom-in-95">
                   <div className="text-center mb-8">
                       <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
                         <ShieldAlert size={40} className="text-red-600" />
                       </div>
-                      <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Deseja Inativar?</h3>
-                      <p className="text-sm text-gray-500 mt-2">Você será deslogado e o acesso bloqueado. Dados preservados para o administrador.</p>
+                      <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Inativar conta?</h3>
+                      <p className="text-sm text-gray-500 mt-2">Seu acesso será bloqueado imediatamente.</p>
                   </div>
                   <div className="flex gap-4">
                       <button onClick={() => setShowDeactivateConfirm(false)} className="flex-1 py-4 border rounded-xl font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50">Voltar</button>
-                      <button onClick={handleDeactivate} className="flex-1 py-4 bg-red-600 text-white rounded-xl font-black shadow-lg hover:bg-red-700">Sim, Inativar</button>
+                      <button onClick={handleDeactivate} className="flex-1 py-4 bg-red-600 text-white rounded-xl font-black shadow-lg hover:bg-red-700">Confirmar</button>
                   </div>
               </div>
           </div>
@@ -238,9 +226,5 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
     </div>
   );
 };
-
-const Loader2 = ({ size, className }: { size: number, className: string }) => (
-    <svg className={className} width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
-);
 
 export default UserProfile;
