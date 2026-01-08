@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
 import { getAuth, Auth, setPersistence, browserLocalPersistence } from "firebase/auth";
-import { getFirestore, Firestore, enableIndexedDbPersistence } from "firebase/firestore";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, Firestore } from "firebase/firestore";
 import { getMessaging, Messaging, isSupported } from "firebase/messaging";
 import { getFunctions, Functions } from "firebase/functions";
 
@@ -23,22 +23,17 @@ const app: FirebaseApp = getApps().length === 0
   : getApp();
 
 export const auth: Auth = getAuth(app);
-export const db: Firestore = getFirestore(app);
-export const functions: Functions = getFunctions(app, 'us-central1'); // Ajuste a região se necessário
 
-// Configura persistência robusta para evitar deslogues repentinos
+// Inicialização moderna com Multi-Tab Manager
+export const db: Firestore = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
+
+export const functions: Functions = getFunctions(app, 'us-central1');
+
 setPersistence(auth, browserLocalPersistence);
-
-// Ativa cache offline do Firestore para performance e resiliência
-if (typeof window !== 'undefined') {
-    enableIndexedDbPersistence(db).catch((err) => {
-        if (err.code === 'failed-precondition') {
-            console.warn("[Firebase] Múltiplas abas abertas, persistência desativada nesta aba.");
-        } else if (err.code === 'unimplemented') {
-            console.warn("[Firebase] Navegador não suporta persistência offline.");
-        }
-    });
-}
 
 export const initMessaging = async (): Promise<Messaging | null> => {
     if (typeof window !== "undefined" && await isSupported()) {

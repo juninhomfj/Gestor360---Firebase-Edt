@@ -9,6 +9,7 @@ import SyncStatus from './SyncStatus';
 import Logo from './Logo';
 import { AudioService } from '../services/audioService';
 import InternalChatSystem from './InternalChatSystem'; 
+import { safeInitials } from '../utils/stringUtils';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -136,9 +137,7 @@ const Layout: React.FC<LayoutProps> = ({
 
   const UserAvatar = () => {
       if (currentUser?.profilePhoto) return <img src={currentUser.profilePhoto} className="w-8 h-8 rounded-full object-cover border border-white/20" alt="Avatar"/>;
-      // Proteção contra nome indefinido
-      const initials = (currentUser?.name || "??").substring(0, 2).toUpperCase();
-      return <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold border border-white/20 shadow-sm">{initials}</div>;
+      return <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold border border-white/20 shadow-sm">{safeInitials(currentUser?.name)}</div>;
   };
 
   return (

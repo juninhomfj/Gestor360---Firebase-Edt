@@ -7,6 +7,7 @@ import {
     RefreshCw, Edit2, Check, Loader2, Send, Lock, Bomb, X, Clock, Database, ShoppingCart, DollarSign, UserCheck, UserMinus
 } from 'lucide-react';
 import InvitationSentModal from './InvitationSentModal';
+import { safeFirstChar, safeShort } from '../utils/stringUtils';
 
 interface AdminUsersProps {
   currentUser: User;
@@ -221,8 +222,8 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800">
                         {users.map(u => {
-                            const nameChar = (u?.name || "?").charAt(0).toUpperCase();
-                            const shortId = (u?.id || "").substring(0, 12);
+                            const nameChar = safeFirstChar(u?.name);
+                            const shortId = safeShort(u?.id, 12);
                             return (
                                 <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                                     <td className="p-6">
@@ -302,7 +303,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                         <table.icon size={18}/>
                                         <span className="text-xs font-black uppercase tracking-wide">{table.label}</span>
                                     </div>
-                                    <div className={`w-5 h-5 rounded border ${selectedTables.includes(table.id) ? 'bg-red-500 text-white border-red-500' : 'border-slate-700'}`}>
+                                    <div className={`w-5 h-5 rounded border ${selectedTables.includes(table.id) ? 'bg-red-50 text-white border-red-500' : 'border-slate-700'}`}>
                                         {selectedTables.includes(table.id) && <Check size={14}/>}
                                     </div>
                                 </button>
