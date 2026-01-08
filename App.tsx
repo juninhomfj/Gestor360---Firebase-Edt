@@ -1,30 +1,33 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+
+import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
 
 import Layout from './components/Layout';
 import Login from './components/Login';
 import RequestReset from './components/RequestReset';
 import LoadingScreen from './components/LoadingScreen';
-import Dashboard from './components/Dashboard';
-import SalesForm from './components/SalesForm';
-import SalesList from './components/SalesList';
-import BoletoControl from './components/BoletoControl';
-import ClientReports from './components/ClientReports';
-import WhatsAppModule from './components/WhatsAppModule';
-import FinanceDashboard from './components/FinanceDashboard';
-import FinanceTransactionsList from './components/FinanceTransactionsList';
-import FinanceTransactionForm from './components/FinanceTransactionForm';
-import FinanceReceivables from './components/FinanceReceivables';
-import FinanceDistribution from './components/FinanceDistribution';
-import FinanceManager from './components/FinanceManager';
-import FinanceCategories from './components/FinanceCategories';
-import FinanceGoals from './components/FinanceGoals';
-import FinanceChallenges from './components/FinanceChallenges';
-import SettingsHub from './components/SettingsHub';
+import Dashboard from './components/Dashboard'; // Mantido estático para LCP rápida
 import ToastContainer, { ToastMessage } from './components/Toast';
 import SnowOverlay from './components/SnowOverlay';
-import DevRoadmap from './components/DevRoadmap';
-import BackupModal from './components/BackupModal';
-import BulkDateModal from './components/BulkDateModal';
+
+// Importação Dinâmica (Lazy Loading) para módulos secundários
+const SalesForm = lazy(() => import('./components/SalesForm'));
+const SalesList = lazy(() => import('./components/SalesList'));
+const BoletoControl = lazy(() => import('./components/BoletoControl'));
+const ClientReports = lazy(() => import('./components/ClientReports'));
+const WhatsAppModule = lazy(() => import('./components/WhatsAppModule'));
+const FinanceDashboard = lazy(() => import('./components/FinanceDashboard'));
+const FinanceTransactionsList = lazy(() => import('./components/FinanceTransactionsList'));
+const FinanceTransactionForm = lazy(() => import('./components/FinanceTransactionForm'));
+const FinanceReceivables = lazy(() => import('./components/FinanceReceivables'));
+const FinanceDistribution = lazy(() => import('./components/FinanceDistribution'));
+const FinanceManager = lazy(() => import('./components/FinanceManager'));
+const FinanceCategories = lazy(() => import('./components/FinanceCategories'));
+const FinanceGoals = lazy(() => import('./components/FinanceGoals'));
+const FinanceChallenges = lazy(() => import('./components/FinanceChallenges'));
+const SettingsHub = lazy(() => import('./components/SettingsHub'));
+const DevRoadmap = lazy(() => import('./components/DevRoadmap'));
+const BackupModal = lazy(() => import('./components/BackupModal'));
+const BulkDateModal = lazy(() => import('./components/BulkDateModal'));
 
 import {
     User, Sale, AppMode, AppTheme, FinanceAccount, Transaction, CreditCard,
@@ -37,7 +40,7 @@ import {
     getStoredSales, getFinanceData, getSystemConfig, getReportConfig,
     getStoredTable, saveSingleSale, getClients,
     saveCommissionRules, bootstrapProductionData, saveReportConfig,
-    canAccess, clearLocalCache, handleSoftDelete
+    canAccess, handleSoftDelete
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -46,6 +49,14 @@ import { Logger } from './services/logger';
 import { ShieldAlert, LogOut, Loader2 } from 'lucide-react';
 
 type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'APP' | 'ERROR' | 'LOADING' | 'BLOCKED';
+
+// Loader minimalista para transições de módulos lazy
+const ModuleLoader = () => (
+    <div className="flex flex-col items-center justify-center min-h-[400px] animate-in fade-in duration-500">
+        <Loader2 className="text-indigo-500 animate-spin mb-4" size={40} />
+        <p className="text-xs font-black uppercase tracking-widest text-slate-500">Preparando Ambiente...</p>
+    </div>
+);
 
 const App: React.FC = () => {
     const initRun = useRef(false);
@@ -125,13 +136,12 @@ const App: React.FC = () => {
         if (initRun.current) return;
         initRun.current = true;
         const init = async () => {
-            Logger.info("🚀 Auditoria: Inicializando Aplicação Gestor360 v2.5");
+            Logger.info("🚀 Auditoria: Inicializando Aplicação Gestor360 v2.5.3");
             try {
                 await AudioService.preload();
                 const sessionUser = await reloadSession();
                 if (sessionUser) {
                     if (!sessionUser.isActive || sessionUser.userStatus === 'INACTIVE') {
-                        Logger.warn(`Audit: Tentativa de acesso por usuário inativo: ${sessionUser.email}`);
                         setAuthView('BLOCKED');
                         setLoading(false);
                     } else {
@@ -142,7 +152,6 @@ const App: React.FC = () => {
                     setLoading(false);
                 }
             } catch (e: any) {
-                Logger.error("❌ Auditoria: Erro na inicialização", e);
                 setAuthError("Erro na conexão Cloud Firestore.");
                 setAuthView('ERROR');
                 setLoading(false);
@@ -165,9 +174,7 @@ const App: React.FC = () => {
     };
 
     const loadDataForUser = async () => {
-        Logger.info("📥 Audit: Sincronizando todos os dados do servidor...");
         try {
-            // Sincroniza tabelas globais
             const [rBasic, rNatal] = await Promise.all([
                 getStoredTable(ProductType.BASICA),
                 getStoredTable(ProductType.NATAL)
@@ -175,7 +182,6 @@ const App: React.FC = () => {
             setRulesBasic(rBasic);
             setRulesNatal(rNatal);
 
-            // Sincroniza dados do usuário (Vendas, Clientes, Financeiro, Config)
             const [storedSales, storedClients, finData, sysCfg, rConfig] = await Promise.all([
                 getStoredSales(), 
                 getClients(), 
@@ -196,10 +202,8 @@ const App: React.FC = () => {
             setReceivables(finData.receivables || []);
             
             if (rConfig?.daysForLost) setReportConfig(rConfig as ReportConfig);
-            
-            Logger.info("✅ Audit: Sincronização concluída com sucesso.");
         } catch (e) {
-            Logger.error("🚨 Audit: Falha crítica na sincronização de dados.", e);
+            Logger.error("🚨 Audit: Falha na sincronização de dados.", e);
         }
     };
 
@@ -217,10 +221,10 @@ const App: React.FC = () => {
                     </div>
                     <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-tighter">Acesso Bloqueado</h2>
                     <p className="text-slate-400 text-sm mb-8 font-medium leading-relaxed">
-                        Sua licença de uso está inativa ou pendente de aprovação. Entre em contato com o suporte para liberar seu acesso à plataforma.
+                        Sua licença de uso está inativa. Entre em contato com o suporte.
                     </p>
-                    <button onClick={logout} className="w-full py-4 bg-slate-800 hover:bg-red-600 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-xl transition-all uppercase text-[10px] tracking-[0.2em] group">
-                        <LogOut size={16} className="group-hover:-translate-x-1 transition-transform"/> Sair do Sistema
+                    <button onClick={logout} className="w-full py-4 bg-slate-800 hover:bg-red-600 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-xl transition-all uppercase text-[10px] tracking-[0.2em]">
+                        <LogOut size={16}/> Sair do Sistema
                     </button>
                 </div>
             </div>
@@ -237,7 +241,7 @@ const App: React.FC = () => {
             currentTheme={theme}
             setTheme={setTheme}
             currentUser={currentUser!}
-            onLogout={() => { Logger.info("🚪 Audit: Logout solicitado."); logout(); }}
+            onLogout={() => logout()}
             onNewSale={() => setShowSalesForm(true)}
             onNewIncome={() => setShowTxForm(true)}
             onNewExpense={() => setShowTxForm(true)}
@@ -247,47 +251,34 @@ const App: React.FC = () => {
             showSnow={showSnow}
             onToggleSnow={() => { setShowSnow(!showSnow); localStorage.setItem('sys_snow_enabled', String(!showSnow)); }}
         >
-            {activeTab === 'dashboard' && <Dashboard sales={sales} onNewSale={() => setShowSalesForm(true)} darkMode={true} hideValues={hideValues} config={dashboardConfig} onToggleHide={() => setHideValues(!hideValues)} onUpdateConfig={setDashboardConfig} currentUser={currentUser!} salesTargets={salesTargets} onUpdateTargets={setSalesTargets} isAdmin={isAdmin} isDev={isDev} />}
-            {activeTab === 'sales' && <SalesList sales={sales} onEdit={(s) => { setEditingSale(s); setShowSalesForm(true); }} onDelete={(s) => handleSoftDelete('sales', s.id).then(loadDataForUser)} onNew={() => setShowSalesForm(true)} onClearAll={() => setIsClearLocalModalOpen(true)} onRestore={() => setIsBackupModalOpen(true)} onOpenBulkAdvanced={() => setIsBulkDateModalOpen(true)} onBillBulk={() => {}} onDeleteBulk={() => {}} onBulkAdd={() => {}} onRecalculate={() => {}} onNotify={addToast} darkMode={true} />}
-            {activeTab === 'boletos' && <BoletoControl sales={sales} onUpdateSale={async (s) => { await saveSingleSale(s); }} />}
-            {activeTab === 'reports' && <ClientReports sales={sales} config={reportConfig} onOpenSettings={() => setActiveTab('settings')} userId={currentUser!.id} darkMode={true} />}
-            {activeTab === 'whatsapp_main' && <WhatsAppModule darkMode={true} sales={sales} />}
-            {activeTab === 'fin_dashboard' && <FinanceDashboard accounts={accounts} transactions={transactions} cards={cards} receivables={receivables} darkMode={true} hideValues={hideValues} config={dashboardConfig} onToggleHide={() => setHideValues(!hideValues)} onUpdateConfig={setDashboardConfig} onNavigate={setActiveTab} />}
-            {activeTab === 'fin_transactions' && <FinanceTransactionsList transactions={transactions} accounts={accounts} categories={categories} onDelete={(id) => handleSoftDelete('transactions', id).then(loadDataForUser)} darkMode={true} />}
-            {activeTab === 'fin_receivables' && <FinanceReceivables receivables={receivables} onUpdate={() => loadDataForUser()} sales={sales} accounts={accounts} darkMode={true} />}
-            {activeTab === 'fin_distribution' && <FinanceDistribution receivables={receivables} accounts={accounts} onDistribute={() => loadDataForUser()} darkMode={true} />}
-            {activeTab === 'fin_manager' && <FinanceManager accounts={accounts} cards={cards} transactions={transactions} onUpdate={() => loadDataForUser()} onPayInvoice={() => {}} darkMode={true} />}
-            {activeTab === 'fin_categories' && <FinanceCategories categories={categories} onUpdate={() => loadDataForUser()} darkMode={true} />}
-            {activeTab === 'fin_goals' && <FinanceGoals goals={goals} onUpdate={() => loadDataForUser()} darkMode={true} />}
-            {activeTab === 'fin_challenges' && <FinanceChallenges challenges={challenges} cells={cells} onUpdate={() => loadDataForUser()} darkMode={true} />}
-            {activeTab === 'settings' && <SettingsHub rulesBasic={rulesBasic} rulesNatal={rulesNatal} reportConfig={reportConfig} onSaveRules={handleSaveCommissionRulesInApp} onSaveReportConfig={saveReportConfig} darkMode={true} currentUser={currentUser!} onUpdateUser={setCurrentUser} sales={sales} onUpdateSales={setSales} onNotify={addToast} isAdmin={isAdmin} isDev={isDev} />}
-            {activeTab === 'dev_roadmap' && <DevRoadmap />}
+            <Suspense fallback={<ModuleLoader />}>
+                {activeTab === 'dashboard' && <Dashboard sales={sales} onNewSale={() => setShowSalesForm(true)} darkMode={true} hideValues={hideValues} config={dashboardConfig} onToggleHide={() => setHideValues(!hideValues)} onUpdateConfig={setDashboardConfig} currentUser={currentUser!} salesTargets={salesTargets} onUpdateTargets={setSalesTargets} isAdmin={isAdmin} isDev={isDev} />}
+                {activeTab === 'sales' && <SalesList sales={sales} onEdit={(s) => { setEditingSale(s); setShowSalesForm(true); }} onDelete={(s) => handleSoftDelete('sales', s.id).then(loadDataForUser)} onNew={() => setShowSalesForm(true)} onClearAll={() => setIsClearLocalModalOpen(true)} onRestore={() => setIsBackupModalOpen(true)} onOpenBulkAdvanced={() => setIsBulkDateModalOpen(true)} onBillBulk={() => {}} onDeleteBulk={() => {}} onBulkAdd={() => {}} onRecalculate={() => {}} onNotify={addToast} darkMode={true} />}
+                {activeTab === 'boletos' && <BoletoControl sales={sales} onUpdateSale={async (s) => { await saveSingleSale(s); }} />}
+                {activeTab === 'reports' && <ClientReports sales={sales} config={reportConfig} onOpenSettings={() => setActiveTab('settings')} userId={currentUser!.id} darkMode={true} />}
+                {activeTab === 'whatsapp_main' && <WhatsAppModule darkMode={true} sales={sales} />}
+                {activeTab === 'fin_dashboard' && <FinanceDashboard accounts={accounts} transactions={transactions} cards={cards} receivables={receivables} darkMode={true} hideValues={hideValues} config={dashboardConfig} onToggleHide={() => setHideValues(!hideValues)} onUpdateConfig={setDashboardConfig} onNavigate={setActiveTab} />}
+                {activeTab === 'fin_transactions' && <FinanceTransactionsList transactions={transactions} accounts={accounts} categories={categories} onDelete={(id) => handleSoftDelete('transactions', id).then(loadDataForUser)} darkMode={true} />}
+                {activeTab === 'fin_receivables' && <FinanceReceivables receivables={receivables} onUpdate={() => loadDataForUser()} sales={sales} accounts={accounts} darkMode={true} />}
+                {activeTab === 'fin_distribution' && <FinanceDistribution receivables={receivables} accounts={accounts} onDistribute={() => loadDataForUser()} darkMode={true} />}
+                {activeTab === 'fin_manager' && <FinanceManager accounts={accounts} cards={cards} transactions={transactions} onUpdate={() => loadDataForUser()} onPayInvoice={() => {}} darkMode={true} />}
+                {activeTab === 'fin_categories' && <FinanceCategories categories={categories} onUpdate={() => loadDataForUser()} darkMode={true} />}
+                {activeTab === 'fin_goals' && <FinanceGoals goals={goals} onUpdate={() => loadDataForUser()} darkMode={true} />}
+                {activeTab === 'fin_challenges' && <FinanceChallenges challenges={challenges} cells={cells} onUpdate={() => loadDataForUser()} darkMode={true} />}
+                {activeTab === 'settings' && <SettingsHub rulesBasic={rulesBasic} rulesNatal={rulesNatal} reportConfig={reportConfig} onSaveRules={handleSaveCommissionRulesInApp} onSaveReportConfig={saveReportConfig} darkMode={true} currentUser={currentUser!} onUpdateUser={setCurrentUser} sales={sales} onUpdateSales={setSales} onNotify={addToast} isAdmin={isAdmin} isDev={isDev} />}
+                {activeTab === 'dev_roadmap' && <DevRoadmap />}
+            </Suspense>
             
-            <SalesForm isOpen={showSalesForm} onClose={() => { setShowSalesForm(false); setEditingSale(null); }} onSaved={loadDataForUser} initialData={editingSale} />
-            <FinanceTransactionForm isOpen={showTxForm} onClose={() => setShowTxForm(false)} onSaved={loadDataForUser} accounts={accounts} cards={cards} categories={categories} />
+            <Suspense fallback={null}>
+                {showSalesForm && <SalesForm isOpen={showSalesForm} onClose={() => { setShowSalesForm(false); setEditingSale(null); }} onSaved={loadDataForUser} initialData={editingSale} />}
+                {showTxForm && <FinanceTransactionForm isOpen={showTxForm} onClose={() => setShowTxForm(false)} onSaved={loadDataForUser} accounts={accounts} cards={cards} categories={categories} />}
+                {isBackupModalOpen && <BackupModal isOpen={isBackupModalOpen} mode="RESTORE" onClose={() => setIsBackupModalOpen(false)} onSuccess={() => {}} onRestoreSuccess={loadDataForUser} />}
+                {isClearLocalModalOpen && <BackupModal isOpen={isClearLocalModalOpen} mode="CLEAR" onClose={() => setIsClearLocalModalOpen(false)} onSuccess={() => {}} onRestoreSuccess={loadDataForUser} />}
+                {isBulkDateModalOpen && <BulkDateModal isOpen={isBulkDateModalOpen} onClose={() => setIsBulkDateModalOpen(false)} onConfirm={() => {}} darkMode={true} />}
+            </Suspense>
+
             <ToastContainer toasts={toasts} removeToast={removeToast} />
             {showSnow && <SnowOverlay />}
-            
-            <BackupModal 
-                isOpen={isBackupModalOpen} 
-                mode="RESTORE" 
-                onClose={() => setIsBackupModalOpen(false)} 
-                onSuccess={() => {}} 
-                onRestoreSuccess={loadDataForUser} 
-            />
-            <BackupModal 
-                isOpen={isClearLocalModalOpen} 
-                mode="CLEAR" 
-                onClose={() => setIsClearLocalModalOpen(false)} 
-                onSuccess={() => {}} 
-                onRestoreSuccess={loadDataForUser} 
-            />
-            <BulkDateModal 
-                isOpen={isBulkDateModalOpen} 
-                onClose={() => setIsBulkDateModalOpen(false)} 
-                onConfirm={() => {}} 
-                darkMode={true} 
-            />
         </Layout>
     );
 };

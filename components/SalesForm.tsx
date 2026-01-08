@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Sale, ProductType, Client, SaleStatus } from '../types';
 import { getStoredTable, computeCommissionValues, getClients } from '../services/logic';
@@ -71,7 +72,7 @@ const SalesForm: React.FC<Props> = ({
     setQuoteDate(initialData.quoteDate || '');
     setCloseDate(initialData.completionDate || '');
     setBillDate(initialData.date || '');
-    setIsPendingBilling(!initialData.date);
+    setIsPendingBilling(!initialData.date); // Se não tem data, inicia como pendente
     setObservations(initialData.observations || '');
     setTrackingCode(initialData.trackingCode || '');
   }, [initialData, isOpen]);
@@ -117,7 +118,7 @@ const SalesForm: React.FC<Props> = ({
       valueSold,
       marginPercent: margin,
       quoteDate,
-      completionDate: closeDate,
+      completionDate: closeDate || new Date().toISOString().split('T')[0],
       date: finalBillDate,
       isBilled,
       hasNF: initialData?.hasNF || false,
@@ -133,7 +134,6 @@ const SalesForm: React.FC<Props> = ({
     try {
         if (onSave) await onSave(sale);
         if (onSaved) await onSaved();
-        Logger.info("Audit: Venda gravada com sucesso.");
         onClose();
     } catch (e) {
         Logger.error("Audit: Erro ao gravar venda.", e);
