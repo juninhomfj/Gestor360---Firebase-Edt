@@ -1,12 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, UserModules, UserStatus } from '../types';
 import { listUsers, createUser, updateUser, resendInvitation } from '../services/auth';
-// Fix: Added missing 'atomicClearUserTables' to imports from services/logic
 import { atomicClearUserTables } from '../services/logic';
 import { 
     Trash2, Plus, Shield, Mail, AlertTriangle, 
-    RefreshCw, Edit2, Check, Loader2, Send, Lock, Bomb, X, Clock, Database, ShoppingCart, DollarSign
+    RefreshCw, Edit2, Check, Loader2, Send, Lock, Bomb, X, Clock, Database, ShoppingCart, DollarSign, UserCheck, UserMinus
 } from 'lucide-react';
 import InvitationSentModal from './InvitationSentModal';
 
@@ -32,7 +30,6 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
   const [users, setUsers] = useState<User[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [sendingInviteId, setSendingInviteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   
   const [showInviteSuccess, setShowInviteSuccess] = useState<{ isOpen: boolean, email: string }>({ isOpen: false, email: '' });
@@ -66,58 +63,30 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
       }
   };
 
+  const handleToggleStatus = async (user: User) => {
+      const nextStatus = !user.isActive;
+      try {
+          await updateUser(user.id, { isActive: nextStatus, userStatus: nextStatus ? 'ACTIVE' : 'INACTIVE' });
+          loadUsers();
+      } catch (e: any) {
+          alert("Erro ao alterar status: " + e.message);
+      }
+  };
+
   const handleAtomicClear = async () => {
       if (!resetPassword) return alert("Digite sua senha administrativa para confirmar.");
       if (!hardResetModal.targetUser) return;
-      if (selectedTables.length === 0) return alert("Selecione pelo menos uma tabela para limpar.");
       
-      // Validação de Segurança Firestore (RLS)
-      if (hardResetModal.targetUser.id !== currentUser.id) {
-          alert("Limitação de Segurança: Regras nativas do Firestore impedem que o Client SDK apague dados de outros usuários. Esta ação só funcionará se você estiver limpando sua própria conta.");
-          return;
-      }
-
       setIsResetting(true);
       try {
           await atomicClearUserTables(hardResetModal.targetUser.id, selectedTables);
-          
-          alert(`Tentativa de limpeza concluída! Se você possui permissões de escrita nos documentos, os dados foram resetados.`);
-          
+          alert(`Limpeza atômica concluída.`);
           setHardResetModal({ isOpen: false, targetUser: null });
-          setResetPassword('');
-          setSelectedTables(['sales']);
-          
-          if (hardResetModal.targetUser.id === currentUser.id) {
-              window.location.reload();
-          }
       } catch (e: any) {
           alert("Erro no reset: " + e.message);
       } finally {
           setIsResetting(false);
       }
-  };
-
-  const toggleTableSelection = (id: string) => {
-      setSelectedTables(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
-  };
-
-  const handleOpenEdit = (u: User) => {
-      setEditingId(u.id);
-      setNewName(u.name);
-      setNewEmail(u.email);
-      setNewRole(u.role);
-      setNewModules(u.permissions || DEFAULT_MODULES);
-      setIsFormOpen(true);
-  };
-
-  const resetForm = () => {
-      setIsFormOpen(false);
-      setEditingId(null);
-      setNewName('');
-      setNewEmail('');
-      setNewRole('USER');
-      setNewModules(DEFAULT_MODULES);
-      setError('');
   };
 
   const handleSaveUser = async (e: React.FormEvent) => {
@@ -139,12 +108,23 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
       }
   };
 
-  const getStatusBadge = (status: UserStatus) => {
-      switch (status) {
-          case 'ACTIVE': return <span className="text-emerald-500 font-bold flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div> ATIVO</span>;
-          case 'PENDING': return <span className="text-amber-500 font-bold flex items-center gap-1"><Clock size={12}/> PENDENTE</span>;
-          default: return <span className="text-red-500 font-bold flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-red-500"></div> BLOQUEADO</span>;
-      }
+  const resetForm = () => {
+      setIsFormOpen(false);
+      setEditingId(null);
+      setNewName('');
+      setNewEmail('');
+      setNewRole('USER');
+      setNewModules(DEFAULT_MODULES);
+      setError('');
+  };
+
+  const handleOpenEdit = (u: User) => {
+      setEditingId(u.id);
+      setNewName(u.name);
+      setNewEmail(u.email);
+      setNewRole(u.role);
+      setNewModules(u.permissions || DEFAULT_MODULES);
+      setIsFormOpen(true);
   };
 
   return (
@@ -170,9 +150,9 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
         </div>
 
         {isFormOpen && (
-            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border-2 border-indigo-500/20 animate-in zoom-in-95">
+            <div className="bg-white dark:bg-slate-900 p-8 rounded-3xl border-2 border-indigo-500/20 animate-in zoom-in-95 mb-6">
                 <div className="flex justify-between items-center mb-8">
-                    <h4 className="text-2xl font-black flex items-center gap-2 tracking-tight">
+                    <h4 className="text-2xl font-black flex items-center gap-2">
                         {editingId ? <Edit2 size={24} className="text-amber-500" /> : <Plus size={24} className="text-indigo-500"/>}
                         {editingId ? 'Editar Perfil Root' : 'Configurar Novo Usuário'}
                     </h4>
@@ -235,8 +215,8 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                         <tr>
                             <th className="p-6">Identidade Cloud</th>
                             <th className="p-6">Nível</th>
-                            <th className="p-6">Status Realtime</th>
-                            <th className="p-6 text-center">Gestão de Dados</th>
+                            <th className="p-6">Status</th>
+                            <th className="p-6 text-center">Gestão</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y dark:divide-slate-800">
@@ -244,7 +224,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                             <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors">
                                 <td className="p-6">
                                     <div className="flex items-center gap-4">
-                                        <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-black text-xl shadow-inner shrink-0 overflow-hidden">
+                                        <div className="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-black text-xl shrink-0 overflow-hidden">
                                             {u.profilePhoto ? <img src={u.profilePhoto} className="w-full h-full object-cover" alt="" /> : u.name.charAt(0).toUpperCase()}
                                         </div>
                                         <div>
@@ -258,14 +238,22 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                 <td className="p-6">
                                     <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest ${u.role === 'ADMIN' ? 'bg-amber-100 text-amber-700' : (u.role === 'DEV' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600')}`}>{u.role}</span>
                                 </td>
-                                <td className="p-6">{getStatusBadge(u.userStatus)}</td>
+                                <td className="p-6">
+                                    <button 
+                                        onClick={() => handleToggleStatus(u)}
+                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-xl font-bold text-[10px] transition-all ${u.isActive ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}
+                                    >
+                                        {u.isActive ? <UserCheck size={14}/> : <UserMinus size={14}/>}
+                                        {u.isActive ? 'ATIVO' : 'INATIVO'}
+                                    </button>
+                                </td>
                                 <td className="p-6">
                                     <div className="flex justify-center gap-3">
                                         {(currentUser.role === 'DEV' || currentUser.role === 'ADMIN') && (
                                             <button 
                                                 onClick={() => setHardResetModal({ isOpen: true, targetUser: u })}
                                                 className="p-3 bg-red-500 text-white rounded-xl hover:shadow-lg transition-all active:scale-95"
-                                                title="RESET ATÔMICO SELETIVO"
+                                                title="RESET SELETIVO"
                                             >
                                                 <Bomb size={18}/>
                                             </button>
@@ -283,23 +271,18 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
             </div>
         </div>
 
-        {/* MODAL RESET SELETIVO - RESTAURADA RESPONSIVIDADE E ALTURA */}
+        {/* MODAL RESET SELETIVO */}
         {hardResetModal.isOpen && (
-            <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/95 backdrop-blur-md p-2 md:p-4">
-                <div className="bg-slate-900 border-2 border-red-500 w-full max-w-lg rounded-[2rem] md:rounded-[2.5rem] p-6 md:p-10 shadow-[0_0_50px_rgba(239,68,68,0.3)] animate-in zoom-in-95 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/95 backdrop-blur-md p-4">
+                <div className="bg-slate-900 border-2 border-red-500 w-full max-w-lg rounded-[2.5rem] p-10 shadow-[0_0_50px_rgba(239,68,68,0.3)] animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
                     <div className="text-center mb-8">
-                        <div className="w-16 h-16 md:w-20 md:h-20 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-red-500 shadow-lg shadow-red-500/20">
-                            <Bomb size={32} className="md:size-[40px] animate-pulse" />
+                        <div className="w-20 h-20 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-red-500 shadow-lg shadow-red-500/20">
+                            <Bomb size={40} className="animate-pulse" />
                         </div>
-                        <h3 className="text-2xl md:text-3xl font-black text-white mb-2 uppercase tracking-tighter">Limpeza Atômica</h3>
+                        <h3 className="text-3xl font-black text-white mb-2 uppercase tracking-tighter">Limpeza Atômica</h3>
                         <p className="text-slate-400 text-sm leading-relaxed">
                             Resetando dados de <span className="text-white font-bold">{hardResetModal.targetUser?.name}</span>.
                         </p>
-                        {hardResetModal.targetUser?.id !== currentUser.id && (
-                             <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400 text-[10px] font-bold uppercase leading-tight">
-                                <Shield size={12} className="inline mr-1"/> Regras de Segurança Cloud impedem a limpeza de terceiros via Web Client.
-                             </div>
-                        )}
                     </div>
 
                     <div className="space-y-3 mb-8">
@@ -308,7 +291,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                             {RESETTABLE_TABLES.map(table => (
                                 <button 
                                     key={table.id}
-                                    onClick={() => toggleTableSelection(table.id)}
+                                    onClick={() => setSelectedTables(prev => prev.includes(table.id) ? prev.filter(x => x !== table.id) : [...prev, table.id])}
                                     className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${selectedTables.includes(table.id) ? 'bg-red-500/10 border-red-500 text-red-500' : 'bg-black/40 border-slate-800 text-slate-500'}`}
                                 >
                                     <div className="flex items-center gap-3">
@@ -328,7 +311,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                             <Lock className="absolute left-4 top-3.5 text-slate-500" size={18}/>
                             <input 
                                 type="password" 
-                                placeholder="Senha de Admin"
+                                placeholder="Senha Administrativa"
                                 className="w-full bg-black/60 border-2 border-slate-800 rounded-2xl py-4 pl-12 pr-4 text-white outline-none focus:border-red-500 transition-all font-mono"
                                 value={resetPassword}
                                 onChange={e => setResetPassword(e.target.value)}
@@ -337,7 +320,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                         <button 
                             onClick={handleAtomicClear}
                             disabled={isResetting || !resetPassword || selectedTables.length === 0}
-                            className="w-full py-5 bg-red-600 hover:bg-red-700 text-white font-black rounded-3xl shadow-xl transition-all active:scale-95 disabled:opacity-30 disabled:grayscale flex items-center justify-center gap-3 uppercase text-xs tracking-widest"
+                            className="w-full py-5 bg-red-600 hover:bg-red-700 text-white font-black rounded-3xl shadow-xl transition-all active:scale-95 flex items-center justify-center gap-3 uppercase text-xs tracking-widest"
                         >
                             {isResetting ? <Loader2 size={20} className="animate-spin" /> : "EXECUTAR RESET"}
                         </button>

@@ -6,13 +6,21 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function isActive() {
+      return isSignedIn() && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.isActive == true;
+    }
+
     function isAdmin() {
-      return isSignedIn() && 
-        get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role in ['ADMIN', 'DEV'];
+      return isSignedIn() && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role in ['ADMIN', 'DEV'];
     }
 
     function isOwner() {
       return resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid;
+    }
+
+    // Bloqueio Global de Deleção Física
+    match /{path=**} {
+      allow delete: if false;
     }
 
     match /profiles/{uid} {
@@ -22,28 +30,28 @@ service cloud.firestore {
     }
 
     match /sales/{id} { 
-      allow read: if isSignedIn() && (isOwner() || isAdmin()); 
-      allow write: if isSignedIn() && (isOwner() || isAdmin()); 
+      allow read: if isActive() && (isOwner() || isAdmin()); 
+      allow create: if isActive() && request.resource.data.userId == request.auth.uid;
+      allow update: if isActive() && isOwner();
     }
     
-    match /transactions/{id} { allow read, write: if isSignedIn() && (isOwner() || isAdmin()); }
-    match /accounts/{id} { allow read, write: if isSignedIn() && (isOwner() || isAdmin()); }
-    match /cards/{id} { allow read, write: if isSignedIn() && (isOwner() || isAdmin()); }
-    match /categories/{id} { allow read, write: if isSignedIn() && (isOwner() || isAdmin()); }
-    match /goals/{id} { allow read, write: if isSignedIn() && (isOwner() || isAdmin()); }
-    match /receivables/{id} { allow read, write: if isSignedIn() && (isOwner() || isAdmin()); }
-    match /clients/{id} { allow read, write: if isSignedIn() && (isOwner() || isAdmin()); }
+    match /transactions/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
+    match /accounts/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
+    match /cards/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
+    match /categories/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
+    match /goals/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
+    match /receivables/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
+    match /clients/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
 
     match /internal_messages/{msgId} {
-      allow create: if isSignedIn();
-      allow read: if isSignedIn() && (
+      allow create: if isActive();
+      allow read: if isActive() && (
         resource.data.recipientId == request.auth.uid || 
         resource.data.senderId == request.auth.uid ||
         resource.data.recipientId == "BROADCAST" ||
-        resource.data.recipientId == "ADMIN" && isAdmin() ||
         isAdmin()
       );
-      allow update: if isSignedIn() && (isOwner() || isAdmin());
+      allow update: if isActive() && (isOwner() || isAdmin());
     }
 
     match /commissions_basic/{docId} {

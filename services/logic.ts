@@ -3,10 +3,12 @@ import {
   query,
   where,
   getDocs,
+  getDocsFromServer,
   doc,
   serverTimestamp,
   Timestamp,
   getDoc,
+  getDocFromServer,
   setDoc,
   writeBatch,
   deleteDoc,
@@ -74,12 +76,15 @@ export const computeCommissionValues = (quantity: number, valueProposed: number,
     return { commissionBase, commissionValue: commissionBase * rateUsed, rateUsed };
 };
 
+/**
+ * Carrega tabelas de comissão garantindo autoridade do servidor.
+ */
 export const getStoredTable = async (type: ProductType): Promise<CommissionRule[]> => {
     const colName = type === ProductType.NATAL ? 'commissions_natal' : 'commissions_basic';
     const storeName = type === ProductType.NATAL ? 'commission_natal' : 'commission_basic';
     try {
         const q = query(collection(db, colName), where("isActive", "==", true), limit(1));
-        const snap = await getDocs(q);
+        const snap = await getDocsFromServer(q); // Força leitura do backend
         SessionTraffic.trackRead(snap.size);
         if (!snap.empty) {
             const docData = snap.docs[0].data();
@@ -94,7 +99,7 @@ export const getStoredTable = async (type: ProductType): Promise<CommissionRule[
             return rules.sort((a, b) => a.minPercent - b.minPercent);
         }
     } catch (e: any) {
-        Logger.error(`Erro ao carregar regras de comissão [${type}]`, e);
+        Logger.error(`Erro ao carregar regras de comissão via Server [${type}]`, e);
     }
     const cached = await dbGetAll(storeName as any);
     return (cached || []).filter((r: any) => r.isActive).sort((a: any, b: any) => a.minPercent - b.minPercent);
@@ -138,6 +143,15 @@ export function sanitizeForFirestore(obj: any): any {
 export const getStoredSales = async (): Promise<Sale[]> => {
     const uid = auth.currentUser?.uid;
     if (!uid) return [];
+    
+    // Tenta sincronizar as últimas vendas do servidor primeiro
+    try {
+        const q = query(collection(db, 'sales'), where('userId', '==', uid), where('deleted', '==', false), orderBy('createdAt', 'desc'), limit(50));
+        const snap = await getDocs(q);
+        const cloudSales = snap.docs.map(d => ({ ...d.data(), id: d.id } as Sale));
+        await dbBulkPut('sales', cloudSales);
+    } catch (e) {}
+
     const sales = await dbGetAll('sales', (s) => s.userId === uid && !s.deleted);
     return sales.map(s => ({
         ...s,
@@ -233,7 +247,7 @@ export const downloadSalesTemplate = () => {
 
 export const getSystemConfig = async (): Promise<SystemConfig> => {
     try {
-        const snap = await getDoc(doc(db, "config", "system"));
+        const snap = await getDocFromServer(doc(db, "config", "system"));
         if (snap.exists()) return snap.data() as SystemConfig;
     } catch (e) {}
     const local = await dbGet('config', 'system');
@@ -309,15 +323,15 @@ export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
 export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
     const table = type === 'SALE' ? 'sales' : 'transactions';
     await dbDelete(table, id);
-    await deleteDoc(doc(db, table, id));
+    // Deleção física real removida para cumprir auditoria de integridade (mantém-se apenas na lixeira lógica do IndexedDB se necessário)
 };
 
-/* --- NOVO: IMPLEMENTAÇÃO DOS MEMBROS FALTANTES --- */
+/* --- IMPLEMENTAÇÃO DOS MEMBROS FALTANTES --- */
 
-// Fix: Adicionado analyzeClients para análise de carteira CRM
 export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
     const clientsMap = new Map<string, { name: string, totalSpent: number, lastPurchaseDate: string, totalOrders: number }>();
     sales.forEach(s => {
+        if (s.deleted) return;
         const existing = clientsMap.get(s.client) || { name: s.client, totalSpent: 0, lastPurchaseDate: '1970-01-01', totalOrders: 0 };
         existing.totalSpent += s.valueSold * s.quantity;
         existing.totalOrders += 1;
@@ -339,7 +353,6 @@ export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
     });
 };
 
-// Fix: Adicionado analyzeMonthlyVolume para gráficos históricos
 export const analyzeMonthlyVolume = (sales: Sale[], months: number) => {
     const data: any[] = [];
     const now = new Date();
@@ -348,7 +361,7 @@ export const analyzeMonthlyVolume = (sales: Sale[], months: number) => {
         const key = d.toISOString().substring(0, 7);
         const name = d.toLocaleDateString('pt-BR', { month: 'short' });
         
-        const monthSales = sales.filter(s => s.date?.startsWith(key));
+        const monthSales = sales.filter(s => !s.deleted && s.date?.startsWith(key));
         const basica = monthSales.filter(s => s.type === ProductType.BASICA).reduce((acc, s) => acc + s.commissionValueTotal, 0);
         const natal = monthSales.filter(s => s.type === ProductType.NATAL).reduce((acc, s) => acc + s.commissionValueTotal, 0);
         
@@ -357,7 +370,6 @@ export const analyzeMonthlyVolume = (sales: Sale[], months: number) => {
     return data;
 };
 
-// Fix: Adicionado exportReportToCSV para exportação de dados
 export const exportReportToCSV = (data: any[], filename: string) => {
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();
@@ -365,7 +377,6 @@ export const exportReportToCSV = (data: any[], filename: string) => {
     XLSX.writeFile(workbook, `${filename}.xlsx`);
 };
 
-// Fix: Adicionado calculateProductivityMetrics para semáforo de performance
 export const calculateProductivityMetrics = async (userId: string): Promise<ProductivityMetrics> => {
     const sales = await getStoredSales();
     const config = await getReportConfig();
@@ -377,7 +388,7 @@ export const calculateProductivityMetrics = async (userId: string): Promise<Prod
     const currentYear = now.getFullYear();
     
     const convertedThisMonth = new Set(sales.filter(s => {
-        if (!s.date) return false;
+        if (!s.date || s.deleted) return false;
         const d = new Date(s.date);
         return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
     }).map(s => s.client)).size;
@@ -397,7 +408,6 @@ export const calculateProductivityMetrics = async (userId: string): Promise<Prod
     };
 };
 
-// Fix: Adicionado calculateFinancialPacing para análise preditiva de caixa
 export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]): FinancialPacing => {
     const now = new Date();
     const today = now.getDate();
@@ -411,7 +421,7 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
     const daysRemaining = Math.ceil((nextIncomeDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     
     const pendingExpenses = transactions
-        .filter(t => !t.isPaid && t.type === 'EXPENSE' && new Date(t.date) <= nextIncomeDate)
+        .filter(t => !t.isPaid && !t.deleted && t.type === 'EXPENSE' && new Date(t.date) <= nextIncomeDate)
         .reduce((acc, t) => acc + t.amount, 0);
 
     const safeDailySpend = daysRemaining > 0 ? (balance - pendingExpenses) / daysRemaining : 0;
@@ -424,7 +434,6 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
     };
 };
 
-// Fix: Adicionado getInvoiceMonth para alocação de despesas em cartões
 export const getInvoiceMonth = (date: string, closingDay: number): string => {
     const d = new Date(date);
     const day = d.getDate();
@@ -434,7 +443,6 @@ export const getInvoiceMonth = (date: string, closingDay: number): string => {
     return d.toISOString().substring(0, 7);
 };
 
-// Fix: Adicionado exportEncryptedBackup para segurança de dados
 export const exportEncryptedBackup = async (passphrase: string) => {
     const data = {
         sales: await dbGetAll('sales'),
@@ -459,7 +467,6 @@ export const exportEncryptedBackup = async (passphrase: string) => {
     a.click();
 };
 
-// Fix: Adicionado importEncryptedBackup para restauração
 export const importEncryptedBackup = async (file: File, passphrase: string) => {
     const text = await file.text();
     const decrypted = CryptoJS.AES.decrypt(text, passphrase).toString(CryptoJS.enc.Utf8);
@@ -480,20 +487,18 @@ export const importEncryptedBackup = async (file: File, passphrase: string) => {
     if (data.receivables) await dbBulkPut('receivables', data.receivables);
 };
 
-// Fix: Adicionado clearAllSales para limpeza atômica
 export const clearAllSales = async () => {
     const uid = auth.currentUser?.uid;
     if (!uid) return;
     const sales = await getStoredSales();
     const batch = writeBatch(db);
     for (const s of sales) {
-        batch.delete(doc(db, 'sales', s.id));
+        batch.update(doc(db, 'sales', s.id), { deleted: true, deletedAt: serverTimestamp() });
         await dbDelete('sales', s.id);
     }
     await batch.commit();
 };
 
-// Fix: Adicionado generateChallengeCells para desafios de poupança
 export const generateChallengeCells = (challengeId: string, targetValue: number, depositCount: number, model: ChallengeModel): ChallengeCell[] => {
     const cells: ChallengeCell[] = [];
     const uid = auth.currentUser?.uid || '';
@@ -521,7 +526,6 @@ export const generateChallengeCells = (challengeId: string, targetValue: number,
     return cells;
 };
 
-// Fix: Adicionado processFinanceImport para importação de extratos
 export const processFinanceImport = (data: any[][], mapping: ImportMapping): Partial<Transaction>[] => {
     const transactions: Partial<Transaction>[] = [];
     const rows = data.slice(1);
@@ -549,13 +553,13 @@ export const processFinanceImport = (data: any[][], mapping: ImportMapping): Par
     return transactions;
 };
 
-// Fix: Adicionado atomicClearUserTables para gestão administrativa
 export const atomicClearUserTables = async (userId: string, tables: string[]) => {
     const batch = writeBatch(db);
     for (const table of tables) {
         const q = query(collection(db, table), where("userId", "==", userId));
         const snap = await getDocs(q);
-        snap.forEach(d => batch.delete(d.ref));
+        // Realiza Soft Delete em lote
+        snap.forEach(d => batch.update(d.ref, { deleted: true, deletedAt: serverTimestamp() }));
         
         const allLocal = await dbGetAll(table as any, (item: any) => item.userId === userId);
         for (const item of allLocal) {
@@ -565,15 +569,13 @@ export const atomicClearUserTables = async (userId: string, tables: string[]) =>
     await batch.commit();
 };
 
-// Fix: Adicionado formatCurrency para formatação consistente de BRL
 export const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 };
 
-// Fix: Adicionado getReportConfig e saveReportConfig
 export const getReportConfig = async (): Promise<ReportConfig> => {
     try {
-        const snap = await getDoc(doc(db, "config", "report"));
+        const snap = await getDocFromServer(doc(db, "config", "report"));
         if (snap.exists()) return snap.data() as ReportConfig;
     } catch (e) {}
     const local = await dbGet('config', 'report');
@@ -585,9 +587,8 @@ export const saveReportConfig = async (config: ReportConfig) => {
     await setDoc(doc(db, "config", "report"), sanitizeForFirestore(config));
 };
 
-// Fix: Adicionado findPotentialDuplicates para higienização de base
 export const findPotentialDuplicates = (sales: Sale[]) => {
-    const clients = Array.from(new Set(sales.map(s => s.client)));
+    const clients = Array.from(new Set(sales.filter(s => !s.deleted).map(s => s.client)));
     const groups: { master: string, similar: string[] }[] = [];
     const seen = new Set<string>();
 
@@ -613,12 +614,10 @@ export const findPotentialDuplicates = (sales: Sale[]) => {
     return groups;
 };
 
-// Fix: Adicionado smartMergeSales para consolidação de registros
 export const smartMergeSales = (sales: Sale[]): Sale => {
-    return sales.sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())[0];
+    return sales.filter(s => !s.deleted).sort((a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime())[0];
 };
 
-// Fix: Adicionado métodos de gestão de lixeira de clientes
 export const getDeletedClients = async (): Promise<Client[]> => {
     const uid = auth.currentUser?.uid;
     if (!uid) return [];
@@ -635,6 +634,6 @@ export const restoreClient = async (id: string) => {
 };
 
 export const permanentlyDeleteClient = async (id: string) => {
+    await updateDoc(doc(db, 'clients', id), { deleted: true, deletedAt: serverTimestamp() });
     await dbDelete('clients', id);
-    await deleteDoc(doc(db, 'clients', id));
 };
