@@ -1,4 +1,5 @@
-// types.ts - Centralized Type Definitions for Gestor360
+
+// types.ts - Centralized Type Definitions for Gestor360 (v2.8.0)
 
 export type AppMode = 'SALES' | 'FINANCE' | 'WHATSAPP';
 
@@ -67,16 +68,6 @@ export interface AppNotification {
   read: boolean;
 }
 
-export type NtfyPriority = "min" | "low" | "default" | "high" | "urgent";
-
-export interface NtfyPayload {
-  topic: string;
-  message: string;
-  title?: string;
-  priority?: NtfyPriority;
-  tags?: string[];
-}
-
 export interface InternalMessage {
   id: string;
   senderId: string;
@@ -87,7 +78,7 @@ export interface InternalMessage {
   type: 'CHAT' | 'ACCESS_REQUEST' | 'BROADCAST' | 'BUG_REPORT' | 'SYSTEM';
   timestamp: string;
   read: boolean;
-  deleted: boolean; // Padrão Soft Delete v2.5
+  deleted: boolean;
   relatedModule?: 'sales' | 'finance' | 'ai';
   readBy?: string[];
 }
@@ -135,6 +126,9 @@ export interface Sale {
   clientId?: string;
   boletoStatus?: 'PENDING' | 'SENT' | 'PAID';
 }
+
+// Added SaleFormData for backward compatibility in forms
+export interface SaleFormData extends Partial<Sale> {}
 
 export interface ReportConfig {
   daysForNewClient: number;
@@ -210,6 +204,8 @@ export interface Transaction {
     costCenter?: string;
     tags?: string[];
     cardId?: string | null;
+    reconciled?: boolean; // Novo v2.8.0
+    reconciledAt?: string; // Novo v2.8.0
 }
 
 export interface Receivable {
@@ -236,6 +232,7 @@ export interface DashboardWidgetConfig {
   showRecents: boolean;
   showPacing: boolean;
   showBudgets: boolean;
+  showProjection?: boolean; // Novo v2.8.0
 }
 
 export interface FinancialPacing {
@@ -257,19 +254,6 @@ export interface TransactionCategory {
   userId: string;
 }
 
-export interface SaleFormData {
-  client: string;
-  quantity: number;
-  type: ProductType;
-  valueProposed: number;
-  valueSold: number;
-  marginPercent: number;
-  date: string | null;
-  completionDate: string;
-  isBilled: boolean;
-  observations?: string;
-}
-
 export interface ImportMapping {
   [key: string]: number;
 }
@@ -284,51 +268,30 @@ export interface SystemConfig {
   includeNonAccountingInTotal: boolean;
   fcmServerKey?: string;
   ntfyTopic?: string;
-  modules?: SystemModules;
+  modules?: UserPermissions;
   notificationSound?: string;
   alertSound?: string;
   successSound?: string;
   warningSound?: string;
   theme?: AppTheme;
+  // Added support contact info properties
   supportEmail?: string;
   supportTelegram?: string;
 }
 
-export interface UserPreferences {
-  userId?: string;
-  theme?: AppTheme;
-  hideValues?: boolean;
-  lastMode?: AppMode;
-  lastTab?: string;
-}
-
-export interface AiUsageStats {
-  requests: number;
-  tokens: number;
-}
-
-export interface ProductLabels {
-  [key: string]: string;
-}
-
-export interface DuplicateGroup<T> {
-  id: string;
-  items: T[];
-}
-
-export type SyncStatus = 'PENDING' | 'SYNCING' | 'COMPLETED' | 'FAILED';
-export type SyncTable = 'sales' | 'transactions' | 'accounts' | 'clients' | 'client_transfer_requests' | 'receivables' | 'goals' | 'cards' | 'config' | 'users' | 'sync_queue';
-
 export interface SyncEntry {
   id: number;
-  table: SyncTable;
+  table: string;
   type: 'INSERT' | 'UPDATE' | 'DELETE';
   data: any;
   rowId: string;
-  status: SyncStatus;
+  status: 'PENDING' | 'SYNCING' | 'COMPLETED' | 'FAILED';
   timestamp: number;
   retryCount: number;
 }
+
+// Added SyncTable type for IndexedDB store names
+export type SyncTable = 'users' | 'audit_log' | 'clients' | 'client_transfer_requests' | 'sales' | 'commission_basic' | 'commission_natal' | 'commission_custom' | 'config' | 'accounts' | 'cards' | 'transactions' | 'categories' | 'goals' | 'challenges' | 'challenge_cells' | 'receivables' | 'wa_contacts' | 'wa_tags' | 'wa_campaigns' | 'wa_queue' | 'wa_manual_logs' | 'wa_campaign_stats' | 'internal_messages' | 'sync_queue';
 
 export type ChallengeModel = 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
 
@@ -397,8 +360,6 @@ export interface WATag {
   deleted: boolean;
 }
 
-export type WASpeed = 'SAFE' | 'FAST' | 'INSTANT';
-
 export interface WACampaign {
   id: string;
   name: string;
@@ -408,7 +369,7 @@ export interface WACampaign {
   totalContacts: number;
   sentCount: number;
   config: {
-    speed: WASpeed;
+    speed: 'SAFE' | 'FAST' | 'INSTANT';
     startTime: string;
     endTime: string;
   };
@@ -422,12 +383,10 @@ export interface WACampaign {
   };
   media?: {
     data: string;
-    type: WAMediaType;
+    type: 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
     name: string;
   };
 }
-
-export type WAMediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
 
 export interface WAMessageQueue {
   id: string;
@@ -456,12 +415,10 @@ export interface ManualInteractionLog {
   notes?: string;
   rating?: number;
   error?: {
-    type: WhatsAppErrorCode;
+    type: string;
     description: string;
   };
 }
-
-export type WhatsAppErrorCode = 'BLOCKED_BY_USER' | 'PHONE_NOT_REGISTERED' | 'INVALID_PHONE' | 'NETWORK_ERROR' | 'RATE_LIMITED' | 'UNKNOWN_ERROR';
 
 export interface CampaignStatistics {
   campaignId: string;
@@ -505,12 +462,6 @@ export interface CampaignStatistics {
   };
 }
 
-export interface WASyncConfig {
-  tablesToSync: Array<'wa_contacts' | 'wa_campaigns' | 'wa_delivery_logs' | 'wa_campaign_stats'>;
-  syncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY' | 'MANUAL';
-  includeErrorDetails: boolean;
-}
-
 export interface Release {
   version: string;
   date: string;
@@ -548,4 +499,33 @@ export interface ClientTransferRequest {
   message: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// Added DuplicateGroup interface for deduplication flows
+export interface DuplicateGroup<T> {
+  id: string;
+  items: T[];
+}
+
+// Added WhatsAppErrorCode union for feedback flows
+export type WhatsAppErrorCode = 'BLOCKED_BY_USER' | 'PHONE_NOT_REGISTERED' | 'INVALID_PHONE' | 'NETWORK_ERROR' | 'RATE_LIMITED' | 'UNKNOWN_ERROR';
+
+// Added WASyncConfig interface for WhatsApp synchronization settings
+export interface WASyncConfig {
+  tablesToSync: ('wa_contacts' | 'wa_campaigns' | 'wa_delivery_logs' | 'wa_campaign_stats')[];
+  syncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY' | 'MANUAL';
+  includeErrorDetails: boolean;
+}
+
+// Added WASpeed and WAMediaType unions for campaign wizard
+export type WASpeed = 'SAFE' | 'FAST' | 'INSTANT';
+export type WAMediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
+
+// Added NtfyPayload interface for Firebase Cloud Functions
+export interface NtfyPayload {
+  topic: string;
+  message: string;
+  title?: string;
+  priority?: number;
+  tags?: string[];
 }
