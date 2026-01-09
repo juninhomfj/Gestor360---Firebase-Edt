@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { LayoutDashboard, ShoppingCart, Settings, Menu, X, ShoppingBag, Users, FileText, Wallet, PieChart, Moon, Target, Trophy, Tag, ArrowLeftRight, PiggyBank, List, LogOut, Sun, Palette, ClipboardList, BarChart2, Sparkles, HelpCircle, PartyPopper, CalendarClock, Cloud, MessageCircle, Zap, Trees, Flame, Lock, MessageSquare, Newspaper, Rocket, FlaskConical, Terminal, Snowflake, BookOpen, Calculator, Home } from 'lucide-react';
 import { AppMode, User, AppTheme, AppNotification, SystemModules, InternalMessage } from '../types';
@@ -12,6 +11,7 @@ import { AudioService } from '../services/audioService';
 import InternalChatSystem from './InternalChatSystem'; 
 import { safeInitials } from '../utils/stringUtils';
 import BottomNav from './BottomNav';
+import { Logger } from '../services/logger';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -109,6 +109,7 @@ const Layout: React.FC<LayoutProps> = ({
   const hasAccess = (mod: string) => canAccess(currentUser, mod);
 
   const navigate = (tabId: string) => {
+    Logger.info(`Navegação: Usuário acessou a aba [${tabId}]`);
     setActiveTab(tabId);
     setIsMobileMenuOpen(false);
   };
@@ -158,6 +159,7 @@ const Layout: React.FC<LayoutProps> = ({
     const nextIndex = (currentIndex + 1) % modes.length;
     const nextMode = modes[nextIndex];
 
+    Logger.info(`Módulo: Usuário alterou modo global para [${nextMode}]`);
     setAppMode(nextMode);
     if (nextMode === 'FINANCE') setActiveTab('fin_dashboard');
     else if (nextMode === 'FISCAL') setActiveTab('fiscal_main');
@@ -222,7 +224,7 @@ const Layout: React.FC<LayoutProps> = ({
               <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 text-slate-400 hover:text-white transition-colors">
                 <Menu size={24} />
               </button>
-              <div className="hidden md:block">
+              <div className="flex">
                   <SyncStatus />
               </div>
           </div>

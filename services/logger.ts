@@ -1,4 +1,3 @@
-
 import { dbPut, dbGetAll, initDB } from '../storage/db';
 import { LogEntry, LogLevel } from '../types';
 import { db, auth } from './firebase';
@@ -11,9 +10,13 @@ export const Logger = {
     async log(level: LogLevel, message: string, details?: any) {
         const uid = auth.currentUser?.uid || 'anonymous';
         
-        // Detecção de navegador simplificada
-        const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-        const browser = isIOS ? 'Safari/iOS' : 'Generic/Mobile';
+        // Detecção de navegador robusta para mobile/desktop
+        const ua = navigator.userAgent;
+        let platform = 'Web-Generic';
+        if (/android/i.test(ua)) platform = 'PWA-Android';
+        else if (/iphone|ipad|ipod/i.test(ua)) platform = 'PWA-iOS';
+        else if (/macintosh/i.test(ua)) platform = 'Mac-Desktop';
+        else if (/windows/i.test(ua)) platform = 'Windows-Desktop';
 
         const safeDetails = details ? sanitizeForFirestore(JSON.parse(JSON.stringify(details))) : null;
 
@@ -22,11 +25,11 @@ export const Logger = {
             level,
             message,
             details: safeDetails,
-            userAgent: navigator.userAgent
+            userAgent: platform + ' | ' + ua.substring(0, 50)
         };
 
         try {
-            // Persistência local (IDB) - Pode falhar em Safari Private
+            // Persistência local (IDB)
             try {
                 await dbPut(LOG_STORE, entry);
             } catch (idbErr) {
@@ -41,18 +44,16 @@ export const Logger = {
                     details: safeDetails,
                     userId: uid,
                     userName: auth.currentUser.displayName || 'System User',
-                    browserInfo: browser,
+                    browserInfo: platform,
                     deviceTime: new Date().toISOString(),
                     createdAt: serverTimestamp()
                 });
             }
 
-            // Console output em ambiente dev ou para erros críticos
             if (process.env.NODE_ENV === 'development' || level === 'ERROR' || level === 'CRASH') {
                 console.log(`[${level}] ${message}`, details);
             }
         } catch (e) {
-            // Em último caso, tenta pelo menos o console
             console.error("Critical Failure: Audit Log Error", e);
         }
     },
