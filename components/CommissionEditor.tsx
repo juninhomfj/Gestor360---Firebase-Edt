@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect } from 'react';
 import { CommissionRule, ProductType, User } from '../types';
-import { Save, Plus, Trash2, Download, Upload, AlertCircle, Loader2, Database, ShieldAlert, CheckCircle2, CloudSync, X } from 'lucide-react';
+import { Save, Plus, Trash2, Download, Upload, AlertCircle, Loader2, Database, ShieldAlert, CheckCircle2, RefreshCw, X } from 'lucide-react';
 import { Logger } from '../services/logger';
 import { subscribeToCommissionRules, saveCommissionRules } from '../services/logic';
 
@@ -133,7 +132,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
             <div>
               <h3 className="text-xl font-black text-gray-900 dark:text-white">Editor Global: {type === ProductType.BASICA ? 'Cesta Básica' : 'Natal'}</h3>
               <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest flex items-center gap-1">
-                <CloudSync size={12}/> Live Firestore Sync Active
+                <RefreshCw size={12}/> Live Firestore Sync Active
               </p>
             </div>
           </div>
