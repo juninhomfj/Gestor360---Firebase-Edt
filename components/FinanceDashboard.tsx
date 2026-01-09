@@ -2,7 +2,8 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { FinanceAccount, Transaction, CreditCard as CardType, Receivable, DashboardWidgetConfig, FinancialPacing, TransactionCategory } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, AreaChart, Area, ReferenceLine } from 'recharts';
-import { Wallet, TrendingUp, TrendingDown, DollarSign, Target, Plus, EyeOff, Eye, Settings, X, PiggyBank, ArrowLeftRight, List, Bell, Calculator, AlertCircle, PlayCircle, BarChart3, LineChart, Line, ShieldCheck } from 'lucide-react';
+// Fix: Removed 'LineChart' and 'Line' from lucide-react imports as they are either redundant or non-existent
+import { Wallet, TrendingUp, TrendingDown, DollarSign, Target, Plus, EyeOff, Eye, Settings, X, PiggyBank, ArrowLeftRight, List, Bell, Calculator, AlertCircle, PlayCircle, BarChart3, ShieldCheck } from 'lucide-react';
 import { getSystemConfig, calculateFinancialPacing, getFinanceData, formatCurrency, markAsReconciled } from '../services/logic';
 import { getSession } from '../services/auth'; 
 
@@ -126,7 +127,7 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
           <StatMini icon={<Wallet/>} label="Saldo Contábil" value={formatCurrency(totalBalance)} color="emerald" hide={hideValues} darkMode={darkMode} />
           <StatMini icon={<TrendingDown/>} label="Comprometido" value={formatCurrency(projection.futureExpenses)} color="red" hide={hideValues} darkMode={darkMode} />
           <StatMini icon={<PiggyBank/>} label="Fluxo Pendente" value={formatCurrency(projection.pendingIncome)} color="blue" hide={hideValues} darkMode={darkMode} />
-          <StatMini icon={<LineChart/>} label="Projeção 30d" value={formatCurrency(projection.projected)} color="purple" hide={hideValues} darkMode={darkMode} />
+          <StatMini icon={<TrendingUp/>} label="Projeção 30d" value={formatCurrency(projection.projected)} color="purple" hide={hideValues} darkMode={darkMode} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

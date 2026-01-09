@@ -1,7 +1,7 @@
 
 // types.ts - Centralized Type Definitions for Gestor360 (v3.2.0)
 
-export type AppMode = 'SALES' | 'FINANCE' | 'WHATSAPP';
+export type AppMode = 'SALES' | 'FINANCE' | 'WHATSAPP' | 'FISCAL';
 
 export type UserRole = 'USER' | 'ADMIN' | 'DEV';
 
@@ -18,15 +18,20 @@ export interface UserPermissions {
   dev: boolean;
   settings: boolean;
   news: boolean;
+  fiscal: boolean;
   // Funções Granulares (Enterprise)
-  abc_analysis: boolean;    // Acesso à Curva ABC
-  ltv_details: boolean;     // Visualização de Histórico de LTV
-  ai_retention: boolean;    // Botões de Reativação IA
-  receivables: boolean;     // Contas a Receber
-  distribution: boolean;    // Distribuição de Lucros
-  imports: boolean;         // Importação de Planilhas
-  manual_billing: boolean;  // Faturamento em Massa
-  audit_logs: boolean;      // Acesso aos logs de engenharia
+  abc_analysis: boolean;
+  ltv_details: boolean;
+  ai_retention: boolean;
+  receivables: boolean;
+  distribution: boolean;
+  imports: boolean;
+  manual_billing: boolean;
+  audit_logs: boolean;
+}
+
+export interface UserPrefs {
+  defaultModule?: string;
 }
 
 export type UserModules = UserPermissions;
@@ -54,6 +59,7 @@ export interface User {
   profilePhoto: string;
   tel: string;
   keys?: UserKeys;
+  prefs?: UserPrefs;
   contactVisibility?: 'PUBLIC' | 'PRIVATE';
   fcmToken?: string;
   financialProfile?: {
@@ -62,8 +68,79 @@ export interface User {
   };
 }
 
+// ... tipos restantes inalterados ...
+// --- FISCAL 360 TYPES ---
+
+export type TaxRegime = 'SIMPLES_NACIONAL' | 'LUCRO_PRESUMIDO';
+
+export interface Company {
+  id: string;
+  userId: string;
+  cnpj: string;
+  razaoSocial: string;
+  nomeFantasia: string;
+  uf: string;
+  municipio: string;
+  enderecoFiscal: string;
+  regimeTributario: TaxRegime;
+  cnaePrincipal: { codigo: string; descricao: string };
+  cnaesSecundarios: { codigo: string; descricao: string }[];
+  taxProfileVersion: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FiscalPeriod {
+  id: string;
+  userId: string;
+  companyId: string;
+  year: number;
+  month: number;
+  grossRevenue: number;
+  serviceRevenue?: number;
+  status: 'OPEN' | 'CLOSED';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaxEstimate {
+  id: string;
+  userId: string;
+  companyId: string;
+  periodId: string;
+  regimeTributario: TaxRegime;
+  rulesVersion: string;
+  items: { label: string; value: number; rate: number }[];
+  total: number;
+  generatedAt: string;
+}
+
+export interface TaxRule {
+  id: string;
+  regime: TaxRegime;
+  version: string;
+  effectiveFrom: string;
+  tiers: { min: number; max: number; rate: number; label: string }[];
+  isActive: boolean;
+}
+
+export interface Obligation {
+  id: string;
+  userId: string;
+  companyId: string;
+  type: string;
+  dueDate: string;
+  amount: number;
+  recurrence: 'ONCE' | 'MONTHLY' | 'YEARLY';
+  status: 'PENDING' | 'PAID';
+  notes: string;
+  createdAt: string;
+}
+
+// --- NOTIFICATIONS & MESSAGING ---
+
 export type NotificationType = 'INFO' | 'ALERT' | 'WARNING';
-export type NotificationSource = 'SALES' | 'FINANCE' | 'WHATSAPP' | 'SYSTEM';
+export type NotificationSource = 'SALES' | 'FINANCE' | 'WHATSAPP' | 'SYSTEM' | 'FISCAL';
 
 export interface AppNotification {
   id: string;
@@ -86,7 +163,7 @@ export interface InternalMessage {
   timestamp: string;
   read: boolean;
   deleted: boolean;
-  relatedModule?: 'sales' | 'finance' | 'ai';
+  relatedModule?: 'sales' | 'finance' | 'ai' | 'fiscal';
   readBy?: string[];
 }
 
@@ -264,7 +341,7 @@ export interface ImportMapping {
 
 export interface SystemConfig {
   bootstrapVersion: number;
-  isMaintenanceMode?: boolean; // Novo: Bloqueio global de escrita
+  isMaintenanceMode?: boolean;
   notificationSounds?: {
     enabled: boolean;
     volume: number;
@@ -294,7 +371,7 @@ export interface SyncEntry {
   retryCount: number;
 }
 
-export type SyncTable = 'users' | 'audit_log' | 'clients' | 'client_transfer_requests' | 'sales' | 'commission_basic' | 'commission_natal' | 'commission_custom' | 'config' | 'accounts' | 'cards' | 'transactions' | 'categories' | 'goals' | 'challenges' | 'challenge_cells' | 'receivables' | 'wa_contacts' | 'wa_tags' | 'wa_campaigns' | 'wa_queue' | 'wa_manual_logs' | 'wa_campaign_stats' | 'internal_messages' | 'sync_queue';
+export type SyncTable = 'users' | 'audit_log' | 'clients' | 'client_transfer_requests' | 'sales' | 'commission_basic' | 'commission_natal' | 'commission_custom' | 'config' | 'accounts' | 'cards' | 'transactions' | 'categories' | 'goals' | 'challenges' | 'challenge_cells' | 'receivables' | 'wa_contacts' | 'wa_tags' | 'wa_campaigns' | 'wa_queue' | 'wa_manual_logs' | 'wa_campaign_stats' | 'internal_messages' | 'sync_queue' | 'companies' | 'fiscal_periods' | 'tax_estimates' | 'tax_rules' | 'obligations';
 
 export type ChallengeModel = 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
 

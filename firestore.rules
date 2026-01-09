@@ -27,13 +27,11 @@ service cloud.firestore {
       return resource.data.userId == request.auth.uid || request.resource.data.userId == request.auth.uid;
     }
 
-    // Aliases para compatibilidade com o patch solicitado
     function isAuth() { return isSignedIn(); }
     function isDEV() { return isSignedIn() && profileExists() && getProfile().role == 'DEV'; }
     function myUid() { return request.auth.uid; }
     function hasModule(mod) { return getProfile().permissions[mod] == true; }
 
-    // Bloqueio Global de Deleção Física (Sobrescrito por regras específicas)
     match /{path=**} {
       allow delete: if false;
     }
@@ -44,65 +42,116 @@ service cloud.firestore {
       allow update: if isSignedIn() && (request.auth.uid == uid || isAdmin());
     }
 
-    match /sales/{id} {
+    // --- FISCAL 360 RULES ---
 
-      // READ (USER: apenas próprios com módulo "sales"; DEV: lê tudo)
+    match /companies/{id} {
+      allow read: if isAuth() && isActive() && (resource.data.userId == myUid() || isDEV());
+      allow create: if isAuth() && isActive() && request.resource.data.userId == myUid();
+      allow update: if isAuth() && isActive() && resource.data.userId == myUid();
+    }
+
+    match /fiscal_periods/{id} {
+      allow read: if isAuth() && isActive() && (resource.data.userId == myUid() || isDEV());
+      allow create: if isAuth() && isActive() && hasModule("fiscal") && request.resource.data.userId == myUid();
+      allow update: if isAuth() && isActive() && hasModule("fiscal") && resource.data.userId == myUid();
+    }
+
+    match /tax_estimates/{id} {
+
+      // READ: USER lê somente as próprias estimativas com módulo fiscal; DEV lê tudo
       allow read: if isAuth() && isActive() && (
-        (hasModule("sales") && resource.data.userId == myUid()) ||
+        (hasModule("fiscal") && resource.data.userId == myUid()) ||
         isDEV()
       );
 
-      // CREATE (NÃO ALTERAR: continua estritamente "cada um cria o seu")
-      allow create: if isAuth() && isActive() && hasModule("sales")
-        && request.resource.data.userId == myUid();
-
-      // UPDATE (USER: apenas próprios com módulo "sales"; DEV: atualiza tudo)
-      allow update: if isAuth() && isActive() && (
-        (hasModule("sales") && resource.data.userId == myUid()) ||
-        isDEV()
+      // CREATE: USER pode gerar a própria estimativa (snapshot), mas não editar depois
+      // Hardening mínimo (integridade):
+      // - userId deve ser o próprio
+      // - generatedBy deve ser o próprio
+      // - generatedAt deve existir
+      // - companyId e periodId devem existir
+      // - regimeTributario e rulesVersion devem existir
+      // - total e items devem existir
+      allow create: if isAuth() && isActive() && (
+        isDEV() ||
+        (
+          hasModule("fiscal") &&
+          request.resource.data.userId == myUid() &&
+          request.resource.data.generatedBy == myUid() &&
+          request.resource.data.generatedAt != null &&
+          request.resource.data.companyId != null &&
+          request.resource.data.periodId != null &&
+          request.resource.data.regimeTributario != null &&
+          request.resource.data.rulesVersion != null &&
+          request.resource.data.total != null &&
+          request.resource.data.items != null
+        )
       );
 
-      // DELETE (somente DEV)
+      // UPDATE/DELETE: somente DEV (estimativa é snapshot)
+      allow update, delete: if isAuth() && isActive() && isDEV();
+    }
+
+    match /tax_rules/{id} {
+      allow read: if isAuth();
+      allow write: if isDEV();
+    }
+
+    match /obligations/{id} {
+      allow read: if isAuth() && isActive() && (resource.data.userId == myUid() || isDEV());
+      allow create: if isAuth() && isActive() && hasModule("fiscal") && request.resource.data.userId == myUid();
+      allow update: if isAuth() && isActive() && hasModule("fiscal") && resource.data.userId == myUid();
+      allow delete: if isAuth() && isActive() && (resource.data.userId == myUid() || isDEV());
+    }
+
+    match /sales/{id} {
+      allow read: if isAuth() && isActive() && ((hasModule("sales") && resource.data.userId == myUid()) || isDEV());
+      allow create: if isAuth() && isActive() && hasModule("sales") && request.resource.data.userId == myUid();
+      allow update: if isAuth() && isActive() && ((hasModule("sales") && resource.data.userId == myUid()) || isDEV());
       allow delete: if isAuth() && isActive() && isDEV();
     }
     
-    match /transactions/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
-    match /accounts/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
+    match /transactions/{id} {
+      allow read: if isAuth() && isActive() && ((hasModule("sales") && resource.data.userId == myUid()) || isDEV());
+      allow create: if isAuth() && isActive() && hasModule("sales") && request.resource.data.userId == myUid();
+      allow update: if isAuth() && isActive() && ((hasModule("sales") && resource.data.userId == myUid()) || isDEV());
+      allow delete: if isAuth() && isActive() && isDEV();
+    }
+    
+    match /accounts/{id} {
+      allow read: if isAuth() && isActive() && ((hasModule("sales") && resource.data.userId == myUid()) || isDEV());
+      allow create: if isAuth() && isActive() && hasModule("sales") && request.resource.data.userId == myUid();
+      allow update: if isAuth() && isActive() && ((hasModule("sales") && resource.data.userId == myUid()) || isDEV());
+      allow delete: if isAuth() && isActive() && isDEV();
+    }
+    
     match /cards/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
     match /categories/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
     match /goals/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
-    match /receivables/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
-    match /clients/{id} { allow read, write: if isActive() && (isOwner() || isAdmin()); }
+
+    match /receivables/{id} {
+      allow read: if isAuth() && isActive() && ((hasModule("sales") && resource.data.userId == myUid()) || isDEV());
+      allow create: if isAuth() && isActive() && hasModule("sales") && request.resource.data.userId == myUid();
+      allow update: if isAuth() && isActive() && ((hasModule("sales") && resource.data.userId == myUid()) || isDEV());
+      allow delete: if isAuth() && isActive() && isDEV();
+    }
+
+    match /clients/{id} {
+      allow read: if isAuth() && isActive() && ((hasModule("sales") && resource.data.userId == myUid()) || isDEV());
+      allow create: if isAuth() && isActive() && hasModule("sales") && request.resource.data.userId == myUid();
+      allow update: if isAuth() && isActive() && ((hasModule("sales") && resource.data.userId == myUid()) || isDEV());
+      allow delete: if isAuth() && isActive() && isDEV();
+    }
 
     match /internal_messages/{msgId} {
       allow create: if isActive();
-      allow read: if isActive() && (
-        resource.data.recipientId == request.auth.uid || 
-        resource.data.senderId == request.auth.uid ||
-        resource.data.recipientId == "BROADCAST" ||
-        isAdmin()
-      );
+      allow read: if isActive() && (resource.data.recipientId == request.auth.uid || resource.data.senderId == request.auth.uid || resource.data.recipientId == "BROADCAST" || isAdmin());
       allow update: if isActive() && (isOwner() || isAdmin());
     }
 
-    match /commissions_basic/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    match /commissions_natal/{docId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    match /config/{configId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    match /audit_log/{logId} {
-      allow create: if isSignedIn();
-      allow read: if isAdmin();
-    }
+    match /commissions_basic/{docId} { allow read: if isSignedIn(); allow write: if isAdmin(); }
+    match /commissions_natal/{docId} { allow read: if isSignedIn(); allow write: if isAdmin(); }
+    match /config/{configId} { allow read: if isSignedIn(); allow write: if isAdmin(); }
+    match /audit_log/{logId} { allow create: if isSignedIn(); allow read: if isAdmin(); }
   }
 }

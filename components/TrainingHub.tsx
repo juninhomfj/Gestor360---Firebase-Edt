@@ -111,7 +111,8 @@ const TrainingHub: React.FC<TrainingHubProps> = ({ onClose, darkMode }) => {
                             <div className="animate-in slide-in-from-right duration-500 h-full flex flex-col max-w-2xl mx-auto">
                                 <div className="mb-10 text-center">
                                     <div className={`w-20 h-20 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-2xl ${selectedCourse.color}`}>
-                                        {React.cloneElement(selectedCourse.icon as React.ReactElement, { size: 40 })}
+                                        {/* Fix: Added explicit <any> generic type to resolve "size" property error during cloneElement */}
+                                        {React.cloneElement(selectedCourse.icon as React.ReactElement<any>, { size: 40 })}
                                     </div>
                                     <h4 className="text-3xl font-black mb-3">{selectedCourse.title}</h4>
                                     <p className="text-gray-500 font-medium">{selectedCourse.desc}</p>

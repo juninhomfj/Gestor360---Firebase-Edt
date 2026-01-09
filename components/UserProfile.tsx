@@ -1,45 +1,31 @@
-
 import React, { useState, useRef } from 'react';
 import { User, UserPermissions } from '../types';
 import { logout, updateUser, deactivateUser } from '../services/auth';
 import { requestAndSaveToken } from '../services/pushService';
+import { SYSTEM_MODULES } from '../config/modulesCatalog';
+import { canAccess } from '../services/logic';
 import { 
-  // Add missing X icon import
   Save, User as UserIcon, LogOut, Camera, CheckCircle, 
-  AlertTriangle, Shield, Lock, UserX, ShieldAlert, Bell, BellRing, Loader2, Key, Info, Check, ShieldCheck, X
+  AlertTriangle, Shield, Lock, UserX, ShieldAlert, Bell, BellRing, Loader2, Key, Info, Check, ShieldCheck, X, LayoutDashboard, Smartphone, Mail, Phone
 } from 'lucide-react';
 import { optimizeImage } from '../utils/fileHelper';
 import { safeFirstChar } from '../utils/stringUtils';
 
 interface UserProfileProps {
-  user: User; 
+  user: User;
   onUpdate: (user: User) => void;
 }
-
-// Fix: Added missing properties abc_analysis, ltv_details, ai_retention, manual_billing, audit_logs to DEFAULT_MODULES_FALLBACK
-const DEFAULT_MODULES_FALLBACK: UserPermissions = {
-    sales: true, finance: true, crm: true, whatsapp: false,
-    reports: true, ai: true, dev: false, settings: true,
-    news: true, receivables: true, distribution: true, imports: true,
-    abc_analysis: true, ltv_details: true, ai_retention: true,
-    manual_billing: true, audit_logs: true
-};
 
 const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }) => {
   const [name, setName] = useState(currentUser?.name || '');
   const [username, setUsername] = useState(currentUser?.username || '');
   const [tel, setTel] = useState(currentUser?.tel || '');
   const [profilePhoto, setProfilePhoto] = useState(currentUser?.profilePhoto || '');
-  const [contactVisibility, setContactVisibility] = useState(currentUser?.contactVisibility || 'PUBLIC');
-  const [showPermAudit, setShowPermAudit] = useState(false);
-  
-  // Proteção de inicialização: Se permissions for null/undefined, usa o fallback padrão
-  const [modules, setModules] = useState<UserPermissions>(currentUser?.permissions || DEFAULT_MODULES_FALLBACK);
-  
+  const [contactVisibility, setContactVisibility] = useState(currentUser?.contactVisibility || 'PRIVATE');
   const [isSaving, setIsSaving] = useState(false);
-  const [isRegisteringPush, setIsRegisteringPush] = useState(false);
-  const [showDeactivateConfirm, setShowDeactivateConfirm] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [defaultModule, setDefaultModule] = useState(currentUser?.prefs?.defaultModule || 'home');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSave = async () => {
@@ -48,13 +34,17 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
     setMessage(null);
 
     try {
+      // O usuário comum NÃO pode atualizar 'permissions' ou 'modules' por aqui.
       const updateData = {
         name: name.trim(),
         username: username.trim(),
         tel: tel.trim(),
         profilePhoto: profilePhoto,
         contactVisibility: contactVisibility,
-        permissions: modules
+        prefs: {
+            ...currentUser.prefs,
+            defaultModule: defaultModule
+        }
       };
 
       await updateUser(currentUser.id, updateData);
@@ -62,7 +52,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
       const updatedUser: User = { 
         ...currentUser, 
         ...updateData 
-      };
+      } as User;
 
       localStorage.setItem('sys_session_v1', JSON.stringify(updatedUser));
       onUpdate(updatedUser);
@@ -77,203 +67,133 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
     }
   };
 
-  const handleEnablePush = async () => {
-      if (!currentUser?.id) return;
-      setIsRegisteringPush(true);
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
       try {
-          const token = await requestAndSaveToken(currentUser.id);
-          if (token) {
-              setMessage({ type: 'success', text: 'Notificações Push habilitadas!' });
-          } else {
-              setMessage({ type: 'error', text: 'Permissão de notificação negada.' });
-          }
-      } catch (e) {
-          setMessage({ type: 'error', text: 'Falha ao registrar para notificações.' });
-      } finally {
-          setIsRegisteringPush(false);
-          setTimeout(() => setMessage(null), 3000);
+          const optimized = await optimizeImage(file, 200, 0.8);
+          setProfilePhoto(optimized);
+      } catch (err) {
+          alert("Erro ao processar imagem.");
       }
   };
 
-  const handleDeactivate = async () => {
-    if (!currentUser?.id) return;
-    try {
-      await deactivateUser(currentUser.id);
-      logout();
-    } catch (e) {
-      alert("Erro ao desativar conta.");
-    }
-  };
-
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-        const optimized = await optimizeImage(file, 400, 0.8);
-        setProfilePhoto(optimized);
-    } catch (err) {
-        alert("Erro ao processar imagem.");
-    }
-  };
+  const isAdminOrDev = currentUser.role === 'ADMIN' || currentUser.role === 'DEV';
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20 animate-in fade-in">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
-          <UserIcon className="text-indigo-600" /> Meu Perfil
-        </h1>
-        <button onClick={logout} className="text-red-500 font-bold text-sm hover:bg-red-50 p-2 rounded-lg flex items-center gap-2">
-            <LogOut size={18}/> Sair
-        </button>
+      <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-[2.5rem] p-8 md:p-12 text-white relative overflow-hidden shadow-2xl">
+          <div className="absolute top-0 right-0 p-12 opacity-10">
+              <ShieldCheck size={200}/>
+          </div>
+          <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
+              <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                  <div className="w-32 h-32 rounded-[2.5rem] border-4 border-white/20 overflow-hidden bg-white/10 flex items-center justify-center backdrop-blur-md">
+                      {profilePhoto ? (
+                          <img src={profilePhoto} className="w-full h-full object-cover" alt="Avatar" />
+                      ) : (
+                          <span className="text-4xl font-black">{safeFirstChar(name)}</span>
+                      )}
+                  </div>
+                  <div className="absolute inset-0 bg-black/40 rounded-[2.5rem] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
+                      <Camera size={24} />
+                  </div>
+                  <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handlePhotoSelect} />
+              </div>
+              <div className="text-center md:text-left flex-1">
+                  <h2 className="text-4xl font-black tracking-tighter">{name || 'Seu Nome'}</h2>
+                  <p className="text-indigo-100 opacity-70 font-bold uppercase tracking-[0.2em] text-xs mt-2 flex items-center justify-center md:justify-start gap-2">
+                      <Shield size={14}/> Nível: {currentUser.role}
+                  </p>
+                  <div className="flex flex-wrap justify-center md:justify-start gap-2 mt-6">
+                      <button onClick={() => requestAndSaveToken(currentUser.id)} className="bg-white/10 hover:bg-white/20 backdrop-blur-md px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 border border-white/10">
+                          <BellRing size={16}/> Push Ativo
+                      </button>
+                      <button onClick={logout} className="bg-red-500/20 hover:bg-red-500/40 backdrop-blur-md px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 border border-red-500/30">
+                          <LogOut size={16}/> Sair
+                      </button>
+                  </div>
+              </div>
+          </div>
       </div>
 
       {message && (
-        <div className={`p-4 rounded-xl flex items-center gap-2 text-sm font-bold animate-in slide-in-from-top-2 ${message.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
-          {message.type === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
-          {message.text}
-        </div>
+          <div className={`p-4 rounded-2xl border flex items-center gap-3 animate-in slide-in-from-top-4 ${message.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-red-500/10 border-red-500/30 text-red-500'}`}>
+              {message.type === 'success' ? <CheckCircle size={20}/> : <AlertTriangle size={20}/>}
+              <span className="text-sm font-bold">{message.text}</span>
+          </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="space-y-6">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 flex flex-col items-center shadow-sm">
-                <div className="relative mb-6">
-                  <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-indigo-100 dark:border-slate-800 bg-gray-100 dark:bg-slate-800 flex items-center justify-center shadow-inner">
-                    {profilePhoto ? (
-                        <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" />
-                    ) : (
-                        <div className="text-4xl font-bold text-indigo-300">{safeFirstChar(name || currentUser?.name)}</div>
-                    )}
-                  </div>
-                  <button 
-                    onClick={() => fileInputRef.current?.click()} 
-                    className="absolute bottom-0 right-0 bg-indigo-600 text-white p-2.5 rounded-full shadow-lg border-2 border-white dark:border-slate-900 hover:bg-indigo-700 transition-colors"
-                  >
-                    <Camera size={16} />
-                  </button>
-                </div>
-                <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*" className="hidden" />
-                <div className="text-center">
-                    <p className="font-bold text-gray-900 dark:text-white">@{username || 'usuario'}</p>
-                    <div className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${currentUser?.role === 'DEV' ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/40' : 'bg-indigo-100 text-indigo-700'}`}>
-                        <ShieldCheck size={10} className="mr-1"/> {currentUser?.role || 'USER'}
+             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm">
+                <h3 className="font-black text-gray-700 dark:text-gray-300 mb-6 flex items-center gap-2 border-b dark:border-slate-800 pb-2 uppercase text-xs tracking-widest">
+                    <Smartphone className="text-indigo-500" size={16} /> Contato do Representante
+                </h3>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">WhatsApp Corporativo</label>
+                        <div className="relative">
+                            <Phone size={16} className="absolute left-3 top-3.5 text-gray-500" />
+                            <input className="w-full pl-10 pr-4 py-3 bg-slate-100 dark:bg-slate-950 border border-gray-200 dark:border-slate-700 rounded-xl outline-none" value={tel} onChange={e => setTel(e.target.value)} placeholder="55 11 9..." />
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">Visibilidade na Rede</label>
+                        <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl">
+                            <button onClick={() => setContactVisibility('PUBLIC')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${contactVisibility === 'PUBLIC' ? 'bg-white dark:bg-slate-800 text-emerald-600 shadow' : 'text-gray-500'}`}>Público</button>
+                            <button onClick={() => setContactVisibility('PRIVATE')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${contactVisibility === 'PRIVATE' ? 'bg-white dark:bg-slate-800 text-indigo-600 shadow' : 'text-gray-500'}`}>Privado</button>
+                        </div>
                     </div>
                 </div>
-                
-                <div className="w-full mt-6 pt-6 border-t dark:border-slate-800">
-                    <button 
-                        onClick={handleEnablePush}
-                        disabled={isRegisteringPush}
-                        className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${currentUser?.fcmToken ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-900/20'}`}
-                    >
-                        {isRegisteringPush ? <Loader2 size={16} className="animate-spin"/> : (currentUser?.fcmToken ? <BellRing size={16}/> : <Bell size={16}/>)}
-                        {currentUser?.fcmToken ? 'Notificações Ativas' : 'Habilitar Notificações'}
-                    </button>
-                </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm overflow-hidden">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xs font-black text-gray-400 uppercase flex items-center gap-2 tracking-widest">
-                        <Lock size={14} /> Permissões {currentUser?.role === 'DEV' && <span className="text-[9px] text-purple-500 font-black animate-pulse">(ROOT ACTIVE)</span>}
-                    </h3>
-                    <button onClick={() => setShowPermAudit(!showPermAudit)} className="text-[10px] font-bold text-indigo-500 hover:underline">Auditar</button>
-                </div>
-
-                <div className="grid grid-cols-1 gap-2">
-                    {Object.keys(modules || {}).slice(0, 8).map((mod) => (
-                        <div key={mod} className={`flex items-center justify-between p-2 rounded-lg text-[10px] font-bold uppercase transition-all ${modules[mod as keyof typeof modules] || currentUser?.role === 'DEV' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20' : 'bg-gray-50 text-gray-400 opacity-50'}`}>
-                            <span className="truncate">{mod.replace('_', ' ')}</span>
-                            {(modules[mod as keyof typeof modules] || currentUser?.role === 'DEV') ? <CheckCircle size={12}/> : <Lock size={12}/>}
-                        </div>
-                    ))}
-                    {!showPermAudit && <p className="text-[9px] text-center text-gray-400 mt-2">Clique em auditar para ver o relatório completo.</p>}
-                </div>
-            </div>
+             </div>
           </div>
 
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm">
                 <h3 className="font-black text-gray-700 dark:text-gray-300 mb-6 flex items-center gap-2 border-b dark:border-slate-800 pb-2 uppercase text-xs tracking-widest">
-                    <Shield className="text-indigo-500" size={16} /> Identidade
+                    <UserIcon className="text-indigo-500" size={16} /> Identidade Digital
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    <div className="sm:col-span-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
                         <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">Nome Completo</label>
-                        <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full p-3 border rounded-xl dark:bg-slate-950 dark:border-slate-700 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" />
+                        <input className="w-full p-3 bg-slate-100 dark:bg-slate-950 border border-gray-200 dark:border-slate-700 rounded-xl outline-none" value={name} onChange={e => setName(e.target.value)} />
                     </div>
                     <div>
-                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">Apelido</label>
-                        <input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full p-3 border rounded-xl dark:bg-slate-950 dark:border-slate-700 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" />
-                    </div>
-                    <div>
-                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">Telefone</label>
-                        <input type="tel" value={tel} onChange={e => setTel(e.target.value)} className="w-full p-3 border rounded-xl dark:bg-slate-950 dark:border-slate-700 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all" placeholder="+55..." />
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">Usuário (Username)</label>
+                        <input className="w-full p-3 bg-slate-100 dark:bg-slate-950 border border-gray-200 dark:border-slate-700 rounded-xl outline-none font-mono" value={username} onChange={e => setUsername(e.target.value)} />
                     </div>
                 </div>
             </div>
 
-            {showPermAudit && (
-                <div className="bg-white dark:bg-slate-900 rounded-2xl border-2 border-indigo-500/20 p-8 shadow-xl animate-in zoom-in-95">
-                    <div className="flex justify-between items-center mb-6">
-                        <h3 className="font-black text-indigo-600 flex items-center gap-2 uppercase text-xs tracking-widest"><Key size={16}/> Relatório de Autoridade</h3>
-                        <button onClick={() => setShowPermAudit(false)}><X size={20} className="text-gray-400"/></button>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {Object.keys(modules || {}).map(mod => {
-                            const val = (modules as any)[mod];
-                            const isRootBypass = currentUser?.role === 'DEV';
-                            return (
-                                <div key={mod} className={`p-4 rounded-xl border flex items-center justify-between ${val || isRootBypass ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200' : 'bg-red-50 dark:bg-red-900/10 border-red-200 opacity-60'}`}>
-                                    <div>
-                                        <p className="text-[10px] font-black uppercase text-gray-400 mb-0.5">{mod}</p>
-                                        <p className="text-xs font-bold">{val || isRootBypass ? 'HABILITADO' : 'BLOQUEADO'}</p>
-                                    </div>
-                                    {val || isRootBypass ? <Check className="text-emerald-500"/> : <Lock className="text-red-500" size={16}/>}
-                                </div>
-                            );
-                        })}
-                    </div>
-                    {currentUser?.role === 'DEV' && (
-                        <div className="mt-6 p-4 rounded-xl bg-purple-50 dark:bg-purple-900/20 border border-purple-200 text-purple-700 dark:text-purple-300 text-xs flex gap-3">
-                            <Info size={16} className="shrink-0" />
-                            <p><b>Nota de Engenharia:</b> Seu perfil é tipo <b>DEV</b>. Todas as travas booleanas de UI são ignoradas por padrão (Root Override).</p>
-                        </div>
-                    )}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm">
+                <h3 className="font-black text-gray-700 dark:text-gray-300 mb-6 flex items-center gap-2 border-b dark:border-slate-800 pb-2 uppercase text-xs tracking-widest">
+                    <LayoutDashboard className="text-indigo-500" size={16} /> Preferências de Inicialização
+                </h3>
+                <div>
+                    <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">Módulo principal (Auto-open):</label>
+                    <select 
+                        className="w-full p-3 border rounded-xl dark:bg-slate-950 dark:border-slate-700 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                        value={defaultModule}
+                        onChange={e => setDefaultModule(e.target.value)}
+                    >
+                        <option value="home">Dashboard Geral (Menu)</option>
+                        {SYSTEM_MODULES.filter(m => canAccess(currentUser, m.key)).map(m => (
+                            <option key={m.key} value={m.route}>{m.label}</option>
+                        ))}
+                    </select>
+                    <p className="mt-2 text-xs text-gray-500 italic">Escolha qual tela o sistema deve abrir automaticamente assim que você entrar.</p>
                 </div>
-            )}
+            </div>
 
-            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-6">
-                <button onClick={() => setShowDeactivateConfirm(true)} className="text-red-500 text-xs font-black uppercase tracking-widest hover:underline flex items-center gap-2 transition-all active:scale-95"><UserX size={14}/> Desativar Conta</button>
-                <button 
-                    onClick={handleSave} 
-                    disabled={isSaving} 
-                    className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 px-12 rounded-2xl flex items-center justify-center gap-2 shadow-xl transition-all uppercase text-xs tracking-widest"
-                >
-                    {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
-                    {isSaving ? 'Salvando...' : 'Gravar Alterações'}
+            <div className="flex justify-end gap-4">
+                <button onClick={handleSave} disabled={isSaving} className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl shadow-indigo-900/30 transition-all flex items-center gap-2 uppercase text-xs tracking-widest">
+                    {isSaving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>}
+                    Gravar Alterações
                 </button>
             </div>
           </div>
       </div>
-
-      {showDeactivateConfirm && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in">
-              <div className="bg-white dark:bg-slate-900 w-full max-sm rounded-2xl p-8 shadow-2xl border-2 border-red-500 animate-in zoom-in-95">
-                  <div className="text-center mb-8">
-                      <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <ShieldAlert size={40} className="text-red-600" />
-                      </div>
-                      <h3 className="text-2xl font-bold text-gray-900 dark:text-white">Inativar conta?</h3>
-                      <p className="text-sm text-gray-500 mt-2">Seu acesso será bloqueado imediatamente.</p>
-                  </div>
-                  <div className="flex gap-4">
-                      <button onClick={() => setShowDeactivateConfirm(false)} className="flex-1 py-4 border rounded-xl font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-50">Voltar</button>
-                      <button onClick={handleDeactivate} className="flex-1 py-4 bg-red-600 text-white rounded-xl font-black shadow-lg hover:bg-red-700">Confirmar</button>
-                  </div>
-              </div>
-          </div>
-      )}
     </div>
   );
 };

@@ -5,11 +5,12 @@ import Layout from './components/Layout';
 import Login from './components/Login';
 import RequestReset from './components/RequestReset';
 import LoadingScreen from './components/LoadingScreen';
-import Dashboard from './components/Dashboard'; // Mantido estático para LCP rápida
+import Dashboard from './components/Dashboard'; 
 import ToastContainer, { ToastMessage } from './components/Toast';
 import SnowOverlay from './components/SnowOverlay';
+import { SYSTEM_MODULES } from './config/modulesCatalog';
 
-// Importação Dinâmica (Lazy Loading) para módulos secundários
+// Importação Dinâmica
 const SalesForm = lazy(() => import('./components/SalesForm'));
 const SalesList = lazy(() => import('./components/SalesList'));
 const BoletoControl = lazy(() => import('./components/BoletoControl'));
@@ -29,6 +30,8 @@ const DevRoadmap = lazy(() => import('./components/DevRoadmap'));
 const BackupModal = lazy(() => import('./components/BackupModal'));
 const BulkDateModal = lazy(() => import('./components/BulkDateModal'));
 const TrainingHub = lazy(() => import('./components/TrainingHub'));
+const FiscalModule = lazy(() => import('./components/FiscalModule'));
+const HomeDashboard = lazy(() => import('./components/HomeDashboard'));
 
 import {
     User, Sale, AppMode, AppTheme, FinanceAccount, Transaction, CreditCard,
@@ -89,7 +92,7 @@ const App: React.FC = () => {
         () => (localStorage.getItem('sys_last_mode') as AppMode) || 'SALES'
     );
     const [activeTab, setActiveTab] = useState(
-        () => localStorage.getItem('sys_last_tab') || 'dashboard'
+        () => localStorage.getItem('sys_last_tab') || 'home'
     );
     const [theme, setTheme] = useState<AppTheme>('glass');
 
@@ -175,6 +178,17 @@ const App: React.FC = () => {
         try {
             await bootstrapProductionData();
             await loadDataForUser();
+
+            // Lógica de Redirecionamento Baseada em Preferência
+            const defaultMod = user.prefs?.defaultModule;
+            if (defaultMod && defaultMod !== 'home') {
+                const modInfo = SYSTEM_MODULES.find(m => m.route === defaultMod);
+                if (modInfo && canAccess(user, modInfo.key)) {
+                    setActiveTab(modInfo.route);
+                    setAppMode(modInfo.appMode);
+                }
+            }
+
             setAuthView('APP');
         } catch (e) {
             setAuthView('APP');
@@ -266,6 +280,18 @@ const App: React.FC = () => {
             onClearAllNotifications={handleClearAllNotifications}
         >
             <Suspense fallback={<ModuleLoader />}>
+                {activeTab === 'home' && (
+                    <HomeDashboard 
+                        currentUser={currentUser!} 
+                        darkMode={true} 
+                        onNavigate={(route, mode) => {
+                            setActiveTab(route);
+                            setAppMode(mode);
+                            localStorage.setItem('sys_last_tab', route);
+                            localStorage.setItem('sys_last_mode', mode);
+                        }} 
+                    />
+                )}
                 {activeTab === 'dashboard' && <Dashboard sales={sales} onNewSale={() => setShowSalesForm(true)} darkMode={true} hideValues={hideValues} config={dashboardConfig} onToggleHide={() => setHideValues(!hideValues)} onUpdateConfig={setDashboardConfig} currentUser={currentUser!} salesTargets={salesTargets} onUpdateTargets={setSalesTargets} isAdmin={isAdmin} isDev={isDev} />}
                 {activeTab === 'sales' && <SalesList sales={sales} onEdit={(s) => { setEditingSale(s); setShowSalesForm(true); }} onDelete={(s) => handleSoftDelete('sales', s.id).then(loadDataForUser)} onNew={() => setShowSalesForm(true)} onClearAll={() => setIsClearLocalModalOpen(true)} onRestore={() => setIsBackupModalOpen(true)} onOpenBulkAdvanced={() => setIsBulkDateModalOpen(true)} onBillBulk={() => {}} onDeleteBulk={() => {}} onBulkAdd={() => {}} onRecalculate={() => {}} onNotify={addToast} darkMode={true} />}
                 {activeTab === 'boletos' && <BoletoControl sales={sales} onUpdateSale={async (s) => { await saveSingleSale(s); }} />}
@@ -279,8 +305,9 @@ const App: React.FC = () => {
                 {activeTab === 'fin_categories' && <FinanceCategories categories={categories} onUpdate={() => loadDataForUser()} darkMode={true} />}
                 {activeTab === 'fin_goals' && <FinanceGoals goals={goals} onUpdate={() => loadDataForUser()} darkMode={true} />}
                 {activeTab === 'fin_challenges' && <FinanceChallenges challenges={challenges} cells={cells} onUpdate={() => loadDataForUser()} darkMode={true} />}
+                {activeTab === 'fiscal_main' && <FiscalModule currentUser={currentUser!} darkMode={true} />}
                 {activeTab === 'settings' && <SettingsHub rulesBasic={rulesBasic} rulesNatal={rulesNatal} reportConfig={reportConfig} onSaveRules={handleSaveCommissionRulesInApp} onSaveReportConfig={saveReportConfig} darkMode={true} currentUser={currentUser!} onUpdateUser={setCurrentUser} sales={sales} onUpdateSales={setSales} onNotify={addToast} isAdmin={isAdmin} isDev={isDev} />}
-                {activeTab === 'university' && <TrainingHub onClose={() => setActiveTab('dashboard')} darkMode={true} />}
+                {activeTab === 'university' && <TrainingHub onClose={() => setActiveTab('home')} darkMode={true} />}
                 {activeTab === 'dev_roadmap' && <DevRoadmap />}
             </Suspense>
             

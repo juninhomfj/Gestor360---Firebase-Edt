@@ -1,9 +1,9 @@
 
-import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
-import { getAuth, Auth, setPersistence, browserLocalPersistence } from "firebase/auth";
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, Firestore } from "firebase/firestore";
-import { getMessaging, Messaging, isSupported } from "firebase/messaging";
-import { getFunctions, Functions } from "firebase/functions";
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+import { getMessaging, isSupported } from "firebase/messaging";
+import { getFunctions } from "firebase/functions";
 import { initializeAppCheck, ReCaptchaV3Provider } from "firebase/app-check";
 
 const getEnv = (key: string): string => {
@@ -20,7 +20,8 @@ export const firebaseConfig = {
   measurementId: getEnv('VITE_FIREBASE_MEASUREMENT_ID') || "G-LMLPQN2PHQ"
 };
 
-const app: FirebaseApp = getApps().length === 0
+// Fix: Explicitly initialized app and checked for existing instances
+const app = getApps().length === 0
   ? initializeApp(firebaseConfig)
   : getApp();
 
@@ -35,18 +36,19 @@ if (typeof window !== "undefined") {
     });
 }
 
-export const auth: Auth = getAuth(app);
+// Fix: Exported instances with explicit types inferred from v9 SDK
+export const auth = getAuth(app);
 setPersistence(auth, browserLocalPersistence);
 
-export const db: Firestore = initializeFirestore(app, {
+export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager()
   })
 });
 
-export const functions: Functions = getFunctions(app, 'us-central1');
+export const functions = getFunctions(app, 'us-central1');
 
-export const initMessaging = async (): Promise<Messaging | null> => {
+export const initMessaging = async () => {
     if (typeof window !== "undefined" && await isSupported()) {
         return getMessaging(app);
     }

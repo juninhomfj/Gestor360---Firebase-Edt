@@ -41,7 +41,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         whatsapp: true, reports: true, dev: true, settings: true,
         news: true, receivables: true, distribution: true, imports: true,
         abc_analysis: true, ltv_details: true, ai_retention: true, 
-        manual_billing: true, audit_logs: true
+        manual_billing: true, audit_logs: true, fiscal: true // HABILITADO
     }
 };
 
@@ -472,7 +472,6 @@ export const getTrashItems = async () => {
     if (!uid) return { sales: [], transactions: [] };
     return {
         sales: await dbGetAll('sales', s => s.userId === uid && s.deleted),
-        /* Fix: Use 't.deleted' instead of 's.deleted' in transactions filter to resolve "Cannot find name 's'" error */
         transactions: await dbGetAll('transactions', t => t.userId === uid && t.deleted)
     };
 };
@@ -654,19 +653,12 @@ export const getTicketStats = async (): Promise<number> => {
     }
 };
 
-/**
- * findPotentialDuplicates
- * Analisa a lista de vendas em busca de clientes com nomes similares.
- */
 export const findPotentialDuplicates = (sales: Sale[]) => {
-    // Filtro mandatório: ignora deletados
     const activeSales = sales.filter(sale => !sale.deleted);
-    // Extrai nomes únicos de clientes ativos
     const uniqueNames = Array.from(new Set(activeSales.map(sale => sale.client)));
     const duplicates: { master: string, similar: string[] }[] = [];
     const processed = new Set<string>();
 
-    // Normalização rigorosa para comparação robusta
     const normalize = (str: string) => str.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
 
     for (let i = 0; i < uniqueNames.length; i++) {
@@ -681,7 +673,6 @@ export const findPotentialDuplicates = (sales: Sale[]) => {
             if (processed.has(nameB)) continue;
             
             const normB = normalize(nameB);
-            // Critério de similaridade: exato ou substring significativa
             if (normA === normB || (normA.length > 5 && normB.length > 5 && (normA.includes(normB) || normB.includes(normA)))) {
                 similar.push(nameB);
                 processed.add(nameB);

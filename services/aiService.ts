@@ -1,13 +1,22 @@
-import { GoogleGenAI, Modality } from "@google/genai";
-import { Transaction, Sale } from '../types';
 
-// O acesso deve ser direto ao process.env.API_KEY conforme diretriz de segurança
+import { GoogleGenAI, Modality } from "@google/genai";
+import { Transaction, Sale, Company } from '../types';
+import { getCompany } from './fiscalService';
+
 const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const sendMessageToAi = async (message: string, history: any[], userKeys: any, sales: Sale[] = []) => {
     const ai = getAIClient();
+    const uid = history[0]?.userId || ""; // Mock UID access
     
-    // Filtro mandatório: ignorar itens deletados do contexto da IA
+    let fiscalContext = "Empresa não cadastrada.";
+    if (uid) {
+        const company = await getCompany(uid);
+        if (company) {
+            fiscalContext = `Empresa: ${company.nomeFantasia} (${company.regimeTributario}). Persona Fiscal: ${company.regimeTributario === 'SIMPLES_NACIONAL' ? 'Contador Simples 360' : 'Contador Presumido 360'}.`;
+        }
+    }
+
     const activeSales = sales.filter(s => !s.deleted);
 
     const dataContext = `
@@ -15,6 +24,9 @@ export const sendMessageToAi = async (message: string, history: any[], userKeys:
         - Total de Vendas Ativas: ${activeSales.length}
         - Vendas Faturadas: ${activeSales.filter(s => s.date).length}
         - Comissões a Receber (Brutas): R$ ${activeSales.filter(s => !s.date).reduce((acc, s) => acc + s.commissionValueTotal, 0).toFixed(2)}
+        
+        Contexto Fiscal:
+        ${fiscalContext}
     `;
 
     const contents = history.map(h => ({
@@ -27,7 +39,7 @@ export const sendMessageToAi = async (message: string, history: any[], userKeys:
         contents: contents,
         config: {
             tools: [{ googleSearch: {} }],
-            systemInstruction: "Você é o Consultor Gestor360. Analise dados de vendas e finanças. Se o usuário perguntar sobre notícias ou mercado, use a busca. Responda de forma executiva e estratégica."
+            systemInstruction: `Você é o Consultor Gestor360. ${fiscalContext} Analise dados de vendas e finanças. Se o usuário perguntar sobre notícias ou mercado, use a busca. Responda de forma executiva e estratégica. Se não houver empresa, oriente a cadastrar no módulo Fiscal.`
         },
     });
 

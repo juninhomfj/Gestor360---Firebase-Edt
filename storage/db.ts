@@ -1,7 +1,6 @@
 
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-/* Fix: Added newly created types to the imports to ensure IndexedDB schema consistency */
-import { InternalMessage, User, LogEntry, Sale, CommissionRule, FinanceAccount, CreditCard, Transaction, TransactionCategory, FinanceGoal, Challenge, ChallengeCell, Receivable, WAContact, WATag, WACampaign, WAMessageQueue, ManualInteractionLog, CampaignStatistics, SyncEntry, Client, ClientTransferRequest, SyncTable } from '../types';
+import { InternalMessage, User, LogEntry, Sale, CommissionRule, FinanceAccount, CreditCard, Transaction, TransactionCategory, FinanceGoal, Challenge, ChallengeCell, Receivable, WAContact, WATag, WACampaign, WAMessageQueue, ManualInteractionLog, CampaignStatistics, SyncEntry, Client, ClientTransferRequest, SyncTable, Company, FiscalPeriod, TaxEstimate, TaxRule, Obligation } from '../types';
 
 interface Gestor360DB extends DBSchema {
   users: { key: string; value: User };
@@ -27,6 +26,12 @@ interface Gestor360DB extends DBSchema {
   wa_queue: { key: string; value: WAMessageQueue };
   wa_manual_logs: { key: string; value: ManualInteractionLog };
   wa_campaign_stats: { key: string; value: CampaignStatistics };
+  // Fix: Added missing fiscal stores to schema
+  companies: { key: string; value: Company };
+  fiscal_periods: { key: string; value: FiscalPeriod };
+  tax_estimates: { key: string; value: TaxEstimate };
+  tax_rules: { key: string; value: TaxRule };
+  obligations: { key: string; value: Obligation };
   internal_messages: {
       key: string;
       value: InternalMessage;
@@ -53,13 +58,15 @@ export const initDB = () => {
     const dbName = getDbName();
     dbPromise = openDB<Gestor360DB>(dbName, DB_VERSION, {
       upgrade(db, oldVersion, newVersion, transaction) {
+        // Fix: Included missing fiscal stores in initialization array
         const stores = [
             'users', 'sales', 'accounts', 'transactions', 'clients', 
             'client_transfer_requests', 'commission_basic', 'commission_natal', 
             'commission_custom', 'config', 'cards', 'categories', 'goals', 
             'challenges', 'challenge_cells', 'receivables', 'wa_contacts', 
             'wa_tags', 'wa_campaigns', 'wa_queue', 'wa_manual_logs', 
-            'wa_campaign_stats', 'audit_log'
+            'wa_campaign_stats', 'audit_log',
+            'companies', 'fiscal_periods', 'tax_estimates', 'tax_rules', 'obligations'
         ];
         stores.forEach(s => {
             if (!db.objectStoreNames.contains(s as any)) db.createObjectStore(s as any, { keyPath: s === 'audit_log' ? 'timestamp' : 'id' });
