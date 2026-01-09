@@ -1,3 +1,4 @@
+
 import React, { useState, useRef } from 'react';
 import { User, UserPermissions } from '../types';
 import { logout, updateUser, deactivateUser } from '../services/auth';
@@ -187,7 +188,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
             </div>
 
             <div className="flex justify-end gap-4">
-                <button onClick={handleSave} disabled={isSaving} className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl shadow-indigo-900/30 transition-all flex items-center gap-2 uppercase text-xs tracking-widest">
+                <button onClick={handleSave} disabled={isSaving} className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl shadow-indigo-900/20 transition-all flex items-center gap-2 uppercase text-xs tracking-widest">
                     {isSaving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>}
                     Gravar Alterações
                 </button>

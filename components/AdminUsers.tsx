@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, UserModules, UserStatus } from '../types';
 import { SYSTEM_MODULES } from '../config/modulesCatalog';
@@ -146,7 +147,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                     key={mod.key}
                                     type="button"
                                     onClick={() => setNewModules(prev => ({ ...prev, [mod.key]: !prev[mod.key] }))}
-                                    className={`flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${isEnabled ? 'bg-indigo-500/10 border-indigo-500' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800 opacity-60'}`}
+                                    className={`flex items-center gap-3 p-4 rounded-xl border text-left transition-all ${isEnabled ? 'bg-indigo-50/10 border-indigo-500' : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800 opacity-60'}`}
                                 >
                                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-white shrink-0 ${mod.color}`}>
                                         <mod.icon size={18} />

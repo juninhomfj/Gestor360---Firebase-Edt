@@ -179,13 +179,36 @@ const App: React.FC = () => {
             await bootstrapProductionData();
             await loadDataForUser();
 
-            // Lógica de Redirecionamento Baseada em Preferência
-            const defaultMod = user.prefs?.defaultModule;
-            if (defaultMod && defaultMod !== 'home') {
-                const modInfo = SYSTEM_MODULES.find(m => m.route === defaultMod);
-                if (modInfo && canAccess(user, modInfo.key)) {
-                    setActiveTab(modInfo.route);
-                    setAppMode(modInfo.appMode);
+            // --- Lógica de Redirecionamento e Onboarding (PATCH) ---
+            const onboarded = localStorage.getItem("sys_onboarded_v1") === "true";
+
+            if (!onboarded) {
+                // Força abertura no Home para o onboarding aparecer
+                setActiveTab("home");
+                setAppMode("SALES");
+            } else {
+                // Tenta ler preferência do backend com fallback para campos legados
+                let pref = user.prefs?.defaultModule || 
+                           (user.prefs as any)?.homeModule ||
+                           (user.prefs as any)?.HomeModule ||
+                           (user.prefs as any)?.moduleDefault ||
+                           (user.prefs as any)?.defaultTab ||
+                           null;
+
+                if (pref) {
+                    pref = String(pref).trim();
+                    // Normaliza strings que contenham "home" para a rota principal
+                    if (pref.toLowerCase() === "home" || pref.toLowerCase().includes("home")) {
+                        pref = "home";
+                    }
+                }
+
+                if (pref && pref !== 'home') {
+                    const modInfo = SYSTEM_MODULES.find(m => m.route === pref);
+                    if (modInfo && canAccess(user, modInfo.key)) {
+                        setActiveTab(modInfo.route);
+                        setAppMode(modInfo.appMode);
+                    }
                 }
             }
 
@@ -228,9 +251,7 @@ const App: React.FC = () => {
             setCells(finData.cells || []);
             
             if (rConfig?.daysForLost) setReportConfig(rConfig as ReportConfig);
-        } catch (e) {
-            Logger.error("🚨 Audit: Falha na sincronização de dados.", e);
-        }
+        } catch (e) {}
     };
 
     if (loading) return <LoadingScreen />;
