@@ -113,6 +113,7 @@ const Layout: React.FC<LayoutProps> = ({
     setIsMobileMenuOpen(false);
   };
 
+  // Sidebar Items
   const salesNavItems = [
     { id: 'home', label: 'Menu Principal', icon: Home, show: true },
     { id: 'dashboard', label: 'Indicadores', icon: LayoutDashboard, show: true },
@@ -149,8 +150,6 @@ const Layout: React.FC<LayoutProps> = ({
     return [];
   };
 
-  let currentNavItems = getCurrentNavItems();
-
   const toggleAppMode = () => {
     const modes: AppMode[] = ['SALES', 'FINANCE'];
     if (hasAccess('fiscal')) modes.push('FISCAL');
@@ -163,14 +162,12 @@ const Layout: React.FC<LayoutProps> = ({
     if (nextMode === 'FINANCE') setActiveTab('fin_dashboard');
     else if (nextMode === 'FISCAL') setActiveTab('fiscal_main');
     else setActiveTab('dashboard');
-    
-    setIsMobileMenuOpen(false);
   };
 
   return (
     <div className={`flex h-[100dvh] overflow-hidden transition-all duration-500 relative ${currentStyle.background}`}>
-      {/* ... rest of the Layout component ... */}
-      {/* (Omitindo o corpo repetitivo por brevidade, mas mantendo a lógica de menu atualizada) */}
+      
+      {/* Sidebar Desktop */}
       <aside className={`fixed md:static inset-y-0 left-0 w-72 z-[80] flex flex-col transition-all duration-500 ease-in-out transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} ${currentStyle.sidebar} md:rounded-r-[2.5rem] md:my-4 md:ml-4 md:h-[calc(100vh-2rem)] shadow-2xl`}>
         <div className={`p-8 flex items-center justify-between border-b border-white/5`}>
           <Logo size="sm" variant="full" lightMode={['glass', 'cyberpunk', 'dark'].includes(currentTheme)} planUser={currentUser} />
@@ -180,21 +177,102 @@ const Layout: React.FC<LayoutProps> = ({
         </div>
         
         <nav className="flex-1 p-6 space-y-2 overflow-y-auto custom-scrollbar">
-          {currentNavItems.map((item) => (
-                <button 
-                  key={item.id} 
-                  onClick={() => navigate(item.id)} 
-                  className={`w-full flex items-center space-x-4 px-5 py-4 rounded-2xl transition-all duration-300 group ${activeTab === item.id ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}
-                >
-                    <item.icon size={22} className={`transition-transform duration-300 ${activeTab === item.id ? 'scale-110' : 'group-hover:scale-110'}`} />
-                    <span className="font-black text-[11px] uppercase tracking-widest">{item.label}</span>
-                </button>
+          {getCurrentNavItems().map((item) => (
+            <button 
+              key={item.id} 
+              onClick={() => navigate(item.id)} 
+              className={`w-full flex items-center space-x-4 px-5 py-4 rounded-2xl transition-all duration-300 group ${activeTab === item.id ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}
+            >
+                <item.icon size={22} className={`transition-transform duration-300 ${activeTab === item.id ? 'scale-110' : 'group-hover:scale-110'}`} />
+                <span className="font-black text-[11px] uppercase tracking-widest">{item.label}</span>
+            </button>
           ))}
-          {/* ... Academia e WhatsApp ... */}
+          
+          <div className="pt-6 mt-6 border-t border-white/5">
+                <button onClick={() => navigate('university')} className={`w-full flex items-center space-x-4 px-5 py-4 rounded-2xl transition-all duration-300 group ${activeTab === 'university' ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}>
+                    <BookOpen size={22}/>
+                    <span className="font-black text-[11px] uppercase tracking-widest">Academia 360</span>
+                </button>
+                {hasAccess('whatsapp') && (
+                    <button onClick={() => { setAppMode('WHATSAPP'); navigate('whatsapp_main'); }} className={`w-full flex items-center space-x-4 px-5 py-4 rounded-2xl mt-2 transition-all duration-300 group ${activeTab === 'whatsapp_main' ? 'bg-green-600/20 text-green-400' : currentStyle.navInactive}`}>
+                        <MessageCircle size={22}/>
+                        <span className="font-black text-[11px] uppercase tracking-widest">WhatsApp MK</span>
+                    </button>
+                )}
+          </div>
         </nav>
-        {/* ... rodapé da sidebar ... */}
+
+        <div className="p-6 border-t border-white/5">
+            <button onClick={onLogout} className="w-full flex items-center space-x-4 px-5 py-4 rounded-2xl text-red-400 hover:bg-red-500/10 transition-all font-black text-[11px] uppercase tracking-widest">
+                <LogOut size={22}/>
+                <span>Sair do Sistema</span>
+            </button>
+        </div>
       </aside>
-      {/* ... conteúdo principal ... */}
+
+      {/* Mobile Header Overlay */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] animate-in fade-in" onClick={() => setIsMobileMenuOpen(false)}></div>
+      )}
+
+      {/* Content Area */}
+      <main className="flex-1 flex flex-col min-w-0 relative z-10 md:h-screen">
+        <header className="h-20 flex items-center justify-between px-6 md:px-10 shrink-0">
+          <div className="flex items-center gap-4">
+              <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 text-slate-400 hover:text-white transition-colors">
+                <Menu size={24} />
+              </button>
+              <div className="hidden md:block">
+                  <SyncStatus />
+              </div>
+          </div>
+
+          <div className="flex items-center space-x-2 md:space-x-4">
+            <button onClick={toggleAppMode} className={`px-4 py-2 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest transition-all ${appMode === 'SALES' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : appMode === 'FISCAL' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' : 'bg-blue-500/10 text-blue-400 border-blue-500/30'}`}>
+                {appMode}
+            </button>
+            <div className="w-px h-6 bg-white/10 hidden sm:block"></div>
+            <NotificationCenter notifications={notifications} onNotificationClick={navigate} onClearAll={onClearAllNotifications} />
+            <button onClick={() => setIsChatOpen(true)} className="relative p-2 text-slate-400 hover:text-white transition-colors">
+                <MessageSquare size={22} />
+                {unreadCount > 0 && <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center ring-2 ring-slate-950 animate-pulse">{unreadCount}</span>}
+            </button>
+          </div>
+        </header>
+
+        {/* Padding bottom adicionado para não cobrir conteúdo com a BottomNav em mobile */}
+        <div className="flex-1 overflow-y-auto px-6 md:px-10 pb-32 md:pb-10 custom-scrollbar">
+           {children}
+        </div>
+      </main>
+
+      {/* Floating Action Button */}
+      <FAB 
+        appMode={appMode} 
+        onNewSale={onNewSale} 
+        onNewIncome={onNewIncome} 
+        onNewExpense={onNewExpense} 
+        onNewTransfer={onNewTransfer} 
+        isMobileView={true}
+      />
+
+      {/* Consistência: BottomNav em Mobile (Android/iOS) */}
+      <BottomNav 
+        activeTab={activeTab} 
+        setActiveTab={navigate} 
+        appMode={appMode} 
+        toggleMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)} 
+        hasUnreadMessages={unreadCount > 0} 
+      />
+
+      {isChatOpen && (
+        <InternalChatSystem 
+            currentUser={currentUser} 
+            isOpen={isChatOpen} 
+            onClose={() => setIsChatOpen(false)} 
+            darkMode={['glass', 'cyberpunk', 'dark'].includes(currentTheme)}
+        />
+      )}
     </div>
   );
 };

@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { User, UserPermissions } from '../types';
 import { logout, updateUser, deactivateUser } from '../services/auth';

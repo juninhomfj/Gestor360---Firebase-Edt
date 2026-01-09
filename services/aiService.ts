@@ -1,13 +1,13 @@
 
 import { GoogleGenAI, Modality } from "@google/genai";
-import { Transaction, Sale, Company } from '../types';
+import { Transaction, Sale, Company, Client } from '../types';
 import { getCompany } from './fiscalService';
 
 const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const sendMessageToAi = async (message: string, history: any[], userKeys: any, sales: Sale[] = []) => {
     const ai = getAIClient();
-    const uid = history[0]?.userId || ""; // Mock UID access
+    const uid = history[0]?.userId || ""; 
     
     let fiscalContext = "Empresa não cadastrada.";
     if (uid) {
@@ -39,7 +39,7 @@ export const sendMessageToAi = async (message: string, history: any[], userKeys:
         contents: contents,
         config: {
             tools: [{ googleSearch: {} }],
-            systemInstruction: `Você é o Consultor Gestor360. ${fiscalContext} Analise dados de vendas e finanças. Se o usuário perguntar sobre notícias ou mercado, use a busca. Responda de forma executiva e estratégica. Se não houver empresa, oriente a cadastrar no módulo Fiscal.`
+            systemInstruction: `Você é o Consultor Gestor360. ${fiscalContext} Analise dados de vendas e finanças. Se o usuário perguntar sobre notícias ou mercado, use a busca. Responda de forma executiva e estratégica.`
         },
     });
 
@@ -56,6 +56,40 @@ export const sendMessageToAi = async (message: string, history: any[], userKeys:
         newHistory,
         grounding 
     };
+};
+
+/**
+ * 🎯 ESTRATÉGIA PREDITIVA DE CLIENTE (Etapa 5)
+ * Analisa o histórico de um cliente específico e gera uma proposta comercial otimizada.
+ */
+export const generateClientStrategy = async (client: Client, sales: Sale[]) => {
+    const ai = getAIClient();
+    const historySummary = sales.map(s => `- Data: ${s.date || s.completionDate}, Qtd: ${s.quantity}, Margem: ${s.marginPercent}%, Valor: R$${s.valueSold}`).join('\n');
+    
+    const prompt = `
+        Analise o histórico do cliente "${client.name}" para gerar uma estratégia de reativação ou upgrade:
+        
+        Histórico:
+        ${historySummary}
+
+        Ações solicitadas:
+        1. Classifique a fidelidade (Alta, Média, Risco).
+        2. Identifique o produto de maior interesse (Básica vs Natal).
+        3. Sugira um pitch de venda para WhatsApp que foque em resolver uma dor baseada na sazonalidade ou no volume de compras dele.
+        4. Se as margens estiverem caindo, sugira como renegociar.
+
+        Responda em formato de Dossiê Executivo Curto.
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+            systemInstruction: "Você é um Analista de BI Especialista em Retenção de Clientes (Churn Mitigation)."
+        }
+    });
+
+    return response.text || "Erro ao processar estratégia IA.";
 };
 
 export const generateAudioMessage = async (text: string, voice: string = 'Kore'): Promise<string | null> => {

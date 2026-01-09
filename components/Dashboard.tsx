@@ -1,10 +1,10 @@
 
-import React, { useState, useEffect } from 'react';
-import { Sale, ProductType, DashboardWidgetConfig, Transaction, User, SalesTargets } from '../types'; 
+import React, { useState, useEffect, useMemo } from 'react';
+import { Sale, ProductType, DashboardWidgetConfig, Transaction, User, SalesTargets, Receivable } from '../types'; 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { DollarSign, Gift, ShoppingBasket, Plus, Calendar, Eye, EyeOff, Settings, X, Clock, CheckCircle2, Sparkles, Target, Edit3, ShoppingBag, ArrowRight } from 'lucide-react';
+import { DollarSign, Gift, ShoppingBasket, Plus, Calendar, Eye, EyeOff, Settings, X, Clock, CheckCircle2, Sparkles, Target, Edit3, ShoppingBag, ArrowRight, AlertTriangle, UserMinus } from 'lucide-react';
 import AiConsultant from './AiConsultant'; 
-import { getFinanceData, getSystemConfig } from '../services/logic'; 
+import { getFinanceData, getSystemConfig, formatCurrency as logicFormat, getABCAnalysis, analyzeClients } from '../services/logic'; 
 
 interface DashboardProps {
   sales: Sale[];
@@ -27,19 +27,14 @@ const formatCurrency = (val: number, hidden: boolean) => {
 };
 
 const StatCard: React.FC<{ title: string; value: string; sub: string; icon: React.ReactNode; color: string; darkMode?: boolean }> = ({ title, value, sub, icon, color, darkMode }) => {
-  const bgClass = darkMode 
-    ? 'bg-slate-800/60 backdrop-blur-sm border-slate-700/50' 
-    : 'bg-white border-gray-100'; 
-
+  const bgClass = darkMode ? 'bg-slate-800/60 backdrop-blur-sm border-slate-700/50' : 'bg-white border-gray-100'; 
   return (
     <div className={`${bgClass} rounded-xl p-6 shadow-sm border flex items-start space-x-4 transition-all hover:shadow-md hover:scale-[1.01]`}>
-        <div className={`p-3 rounded-lg ${color} text-white shadow-lg`}>
-        {icon}
-        </div>
+        <div className={`p-3 rounded-lg ${color} text-white shadow-lg`}>{icon}</div>
         <div>
-        <p className={`text-sm font-medium ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>{title}</p>
-        <h3 className={`text-2xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{value}</h3>
-        <p className={`text-xs mt-1 font-medium ${darkMode ? 'text-slate-500' : 'text-gray-500'}`}>{sub}</p>
+            <p className={`text-sm font-medium ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>{title}</p>
+            <h3 className={`text-2xl font-bold mt-1 ${darkMode ? 'text-white' : 'text-gray-900'}`}>{value}</h3>
+            <p className={`text-xs mt-1 font-medium ${darkMode ? 'text-slate-500' : 'text-gray-500'}`}>{sub}</p>
         </div>
     </div>
   );
@@ -53,10 +48,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [showConfig, setShowConfig] = useState(false);
   const [showAi, setShowAi] = useState(false); 
   const [transactions, setTransactions] = useState<Transaction[]>([]); 
+  const [receivables, setReceivables] = useState<Receivable[]>([]); 
   const [aiGlobalEnabled, setAiGlobalEnabled] = useState(false);
-  
-  const [showTargetModal, setShowTargetModal] = useState(false);
-  const [tempTargets, setTempTargets] = useState({ basic: '0', natal: '0' });
 
   const now = new Date();
   const currentMonth = now.getMonth();
@@ -66,34 +59,36 @@ const Dashboard: React.FC<DashboardProps> = ({
   const capitalizedMonth = monthName.charAt(0).toUpperCase() + monthName.slice(1);
 
   useEffect(() => {
-      getSystemConfig().then(cfg => {
-          setAiGlobalEnabled(cfg.modules?.ai ?? true);
+      getSystemConfig().then(cfg => setAiGlobalEnabled(cfg.modules?.ai ?? true));
+      getFinanceData().then(data => {
+          setTransactions(data.transactions || []);
+          setReceivables(data.receivables || []);
       });
   }, []);
 
-  const handleOpenTargetModal = () => {
-      setTempTargets({
-          basic: (salesTargets?.basic || 0).toString(),
-          natal: (salesTargets?.natal || 0).toString()
-      });
-      setShowTargetModal(true);
-  };
+  const overdueCommissions = useMemo(() => {
+      const today = new Date().toISOString().split('T')[0];
+      return receivables.filter(r => r.status === 'PENDING' && r.date < today);
+  }, [receivables]);
 
-  const handleSaveTargets = () => {
-      if (onUpdateTargets) {
-          onUpdateTargets({
-              basic: parseInt(tempTargets.basic) || 0,
-              natal: parseInt(tempTargets.natal) || 0
-          });
-      }
-      setShowTargetModal(false);
-  };
+  // --- RADAR DE CHURN (Etapa 5) ---
+  const churnRisks = useMemo(() => {
+    const reportCfg = { daysForNewClient: 30, daysForInactive: 45, daysForLost: 90 };
+    const analysis = analyzeClients(sales, reportCfg);
+    const abc = getABCAnalysis(sales);
+    
+    return analysis
+        .filter(c => (c.status === 'INACTIVE' || c.status === 'LOST'))
+        .map(c => ({
+            ...c,
+            classification: abc.find(a => a.name === c.name)?.classification || 'C'
+        }))
+        .filter(c => c.classification === 'A' || c.classification === 'B') // Apenas prioridades
+        .sort((a, b) => b.totalSpent - a.totalSpent)
+        .slice(0, 3);
+  }, [sales]);
 
-  const handleOpenAi = async () => {
-      const data = await getFinanceData();
-      setTransactions(data.transactions || []);
-      setShowAi(true);
-  };
+  const handleOpenAi = async () => setShowAi(true);
 
   const activeSales = sales.filter(s => !s.deleted);
 
@@ -101,12 +96,6 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (!s.date) return false;
     const d = new Date(s.date);
     return s.type === ProductType.BASICA && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
-  });
-
-  const natalSalesYear = activeSales.filter(s => {
-    if (!s.date) return false;
-    const d = new Date(s.date);
-    return s.type === ProductType.NATAL && d.getFullYear() === currentYear;
   });
 
   const totalCommissionMonth = activeSales.filter(s => {
@@ -118,6 +107,11 @@ const Dashboard: React.FC<DashboardProps> = ({
   const basicQtyMonth = basicSalesMonth.reduce((acc, curr) => acc + curr.quantity, 0);
   const basicCommissionMonth = basicSalesMonth.reduce((acc, curr) => acc + curr.commissionValueTotal, 0);
   
+  const natalSalesYear = activeSales.filter(s => {
+    if (!s.date) return false;
+    const d = new Date(s.date);
+    return s.type === ProductType.NATAL && d.getFullYear() === currentYear;
+  });
   const natalQtyYear = natalSalesYear.reduce((acc, curr) => acc + curr.quantity, 0);
   const natalCommissionYear = natalSalesYear.reduce((acc, curr) => acc + curr.commissionValueTotal, 0);
   
@@ -128,14 +122,8 @@ const Dashboard: React.FC<DashboardProps> = ({
     for (let i = 11; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = `${d.getFullYear()}-${d.getMonth()}`;
-      months.set(key, {
-        name: d.toLocaleDateString('pt-BR', { month: 'short' }),
-        basica: 0,
-        natal: 0,
-        total: 0,
-      });
+      months.set(key, { name: d.toLocaleDateString('pt-BR', { month: 'short' }), basica: 0, natal: 0, total: 0 });
     }
-
     activeSales.forEach(sale => {
       if (!sale.date) return;
       const d = new Date(sale.date);
@@ -147,7 +135,6 @@ const Dashboard: React.FC<DashboardProps> = ({
         bin.total += sale.commissionValueTotal;
       }
     });
-
     return Array.from(months.values());
   }, [activeSales]);
 
@@ -157,286 +144,126 @@ const Dashboard: React.FC<DashboardProps> = ({
       return dateB - dateA;
   }).slice(0, 5);
 
-  const containerClass = darkMode 
-    ? 'bg-slate-800/60 border-slate-700/50 backdrop-blur-md' 
-    : 'bg-white border-gray-100';
-
-  const isUserAiEnabled = currentUser?.keys?.isGeminiEnabled === true;
-  const showAiButton = aiGlobalEnabled && isUserAiEnabled;
-
-  const basicProgress = salesTargets?.basic ? Math.min((basicQtyMonth / salesTargets.basic) * 100, 100) : 0;
-  const natalProgress = salesTargets?.natal ? Math.min((natalQtyYear / salesTargets.natal) * 100, 100) : 0;
-
-  if (activeSales.length === 0) {
-      return (
-          <div className="flex flex-col items-center justify-center min-h-[70vh] text-center p-6 animate-in fade-in zoom-in duration-500">
-              <div className="bg-indigo-500/10 p-8 rounded-3xl mb-6 border-2 border-dashed border-indigo-500/30">
-                  <ShoppingBag size={64} className="text-indigo-500 mx-auto animate-float" />
-              </div>
-              <h2 className={`text-3xl font-black mb-4 ${darkMode ? 'text-white' : 'text-gray-900'}`}>Sua jornada começa aqui!</h2>
-              <p className={`text-gray-500 dark:text-gray-400 mb-8 max-w-md leading-relaxed`}>
-                  Seu dashboard está pronto para brilhar. Lance sua primeira venda para desbloquear os indicadores de performance e análise estratégica.
-              </p>
-              <button 
-                  onClick={onNewSale}
-                  className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-black flex items-center gap-3 shadow-2xl shadow-indigo-900/30 transition-all active:scale-95"
-              >
-                  Lançar Minha Primeira Venda <ArrowRight size={20}/>
-              </button>
-          </div>
-      );
-  }
+  const containerClass = darkMode ? 'bg-slate-800/60 border-slate-700/50 backdrop-blur-md' : 'bg-white border-gray-100';
 
   return (
-    <div className="space-y-6 relative h-auto">
-      <AiConsultant 
-        isOpen={showAi} 
-        onClose={() => setShowAi(false)} 
-        sales={activeSales} 
-        transactions={transactions} 
-        darkMode={darkMode} 
-        userKeys={currentUser?.keys}
-      />
+    <div className="space-y-6 relative h-auto pb-12">
+      <AiConsultant isOpen={showAi} onClose={() => setShowAi(false)} sales={activeSales} transactions={transactions} darkMode={darkMode} userKeys={currentUser?.keys} />
 
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className={`text-2xl font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Visão Geral</h1>
+          <h1 className={`text-2xl font-black ${darkMode ? 'text-white' : 'text-gray-800'}`}>Visão Geral</h1>
           <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}>Competência: {capitalizedMonth} / {currentYear}</p>
         </div>
         
         <div className="flex gap-2 items-center">
-            {showAiButton && (
-                <>
-                    <button 
-                        onClick={handleOpenAi} 
-                        className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-3 py-2 rounded-lg hover:shadow-lg hover:shadow-purple-500/30 flex items-center gap-2 text-xs font-bold transition-all animate-in zoom-in"
-                        title="Consultor IA"
-                    >
-                        <Sparkles size={16} /> <span className="hidden md:inline">Consultor IA</span>
-                    </button>
-                    <div className="w-px h-6 bg-gray-300 dark:bg-slate-700 mx-1"></div>
-                </>
+            {aiGlobalEnabled && currentUser?.keys?.isGeminiEnabled && (
+                <button onClick={handleOpenAi} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-3 py-2 rounded-lg hover:shadow-lg flex items-center gap-2 text-xs font-bold transition-all animate-in zoom-in">
+                    <Sparkles size={16} /> <span className="hidden md:inline">Consultor IA</span>
+                </button>
             )}
-
-            <button onClick={onToggleHide} className={`p-2 rounded-lg transition-colors ${darkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-white border border-gray-200 hover:bg-gray-50 text-gray-600'}`}>
+            <button onClick={onToggleHide} className={`p-2 rounded-lg transition-colors ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-white border border-gray-200 text-gray-600'}`}>
                 {hideValues ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
-            
-            <button onClick={() => setShowConfig(true)} className={`p-2 rounded-lg transition-colors ${darkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-white border border-gray-200 hover:bg-gray-50 text-gray-600'}`}>
-                <Settings size={20} />
-            </button>
-
-            <button 
-                onClick={onNewSale}
-                className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 flex items-center shadow-sm transition-colors active:scale-95"
-            >
-                <Plus size={20} className="mr-2" />
-                Nova Venda
+            <button onClick={onNewSale} className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 flex items-center shadow-sm active:scale-95 transition-all">
+                <Plus size={20} className="mr-2" /> Nova Venda
             </button>
         </div>
       </div>
       
-      {config.showStats && salesTargets && (salesTargets.basic > 0 || salesTargets.natal > 0) && (
-          <div className={`${containerClass} rounded-xl p-6 shadow-sm border`}>
-              <div className="flex justify-between items-center mb-4">
-                  <h3 className={`text-lg font-bold flex items-center gap-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
-                      <Target size={20} className="text-blue-500"/> Metas de Vendas
-                  </h3>
-                  <button onClick={handleOpenTargetModal} className={`text-xs flex items-center gap-1 font-bold ${darkMode ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-gray-900'}`}>
-                      <Edit3 size={12}/> Editar
+      {/* ALERTA DE OPERAÇÕES CRÍTICAS & RADAR DE CHURN (Etapa 4 + 5) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {overdueCommissions.length > 0 && (
+              <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-between gap-4 animate-in slide-in-from-top-4">
+                  <div className="flex items-center gap-3">
+                      <div className="p-2 bg-red-500 text-white rounded-xl shadow-lg">
+                          <AlertTriangle size={20}/>
+                      </div>
+                      <div>
+                          <p className="font-black text-red-500 uppercase text-[9px] tracking-widest">Recebíveis Atrasados</p>
+                          <p className={`text-xs font-bold ${darkMode ? 'text-red-200' : 'text-red-800'}`}>
+                            {overdueCommissions.length} comissões faturadas pendentes.
+                          </p>
+                      </div>
+                  </div>
+              </div>
+          )}
+
+          {churnRisks.length > 0 && (
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-between gap-4 animate-in slide-in-from-top-4">
+                  <div className="flex items-center gap-3">
+                      <div className="p-2 bg-amber-500 text-white rounded-xl shadow-lg">
+                          <UserMinus size={20}/>
+                      </div>
+                      <div className="flex-1 overflow-hidden">
+                          <p className="font-black text-amber-500 uppercase text-[9px] tracking-widest">Radar de Churn (VIPs)</p>
+                          <p className={`text-xs font-bold truncate ${darkMode ? 'text-amber-200' : 'text-amber-800'}`}>
+                             {churnRisks[0].name} e outros {churnRisks.length - 1} clientes Classe A inativos.
+                          </p>
+                      </div>
+                  </div>
+                  <button onClick={() => { /* Navigate to reports */ }} className="shrink-0 p-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-all">
+                    <ArrowRight size={14}/>
                   </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {salesTargets.basic > 0 && (
-                      <div>
-                          <div className="flex justify-between text-sm mb-1">
-                              <span className={darkMode ? 'text-slate-300' : 'text-gray-600'}>Cestas Básicas (Mês)</span>
-                              <span className={`font-bold ${basicQtyMonth >= salesTargets.basic ? 'text-emerald-500' : (darkMode ? 'text-white' : 'text-gray-900')}`}>
-                                  {basicQtyMonth} / {salesTargets.basic}
-                              </span>
-                          </div>
-                          <div className="w-full h-3 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full transition-all duration-1000 ${basicProgress >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${basicProgress}%` }}></div>
-                          </div>
-                      </div>
-                  )}
-                  {salesTargets.natal > 0 && (
-                      <div>
-                          <div className="flex justify-between text-sm mb-1">
-                              <span className={darkMode ? 'text-slate-300' : 'text-gray-600'}>Cestas Natal (Ano)</span>
-                              <span className={`font-bold ${natalQtyYear >= salesTargets.natal ? 'text-emerald-500' : (darkMode ? 'text-white' : 'text-gray-900')}`}>
-                                  {natalQtyYear} / {salesTargets.natal}
-                              </span>
-                          </div>
-                          <div className="w-full h-3 bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full transition-all duration-1000 ${natalProgress >= 100 ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${natalProgress}%` }}></div>
-                          </div>
-                      </div>
-                  )}
-              </div>
-          </div>
-      )}
+          )}
+      </div>
 
       {config.showStats && (
           <div className={`grid grid-cols-1 ${showNatalCard ? 'sm:grid-cols-2 md:grid-cols-3' : 'sm:grid-cols-2'} gap-6`}>
-            <StatCard 
-              title={`Comissão Estimada (${capitalizedMonth})`} 
-              value={formatCurrency(totalCommissionMonth, hideValues)} 
-              sub="Previsão de recebimento mensal"
-              icon={<DollarSign size={24} />}
-              color="bg-slate-700"
-              darkMode={darkMode}
-            />
-            <StatCard 
-              title={`Cesta Básica (${capitalizedMonth})`} 
-              value={formatCurrency(basicCommissionMonth, hideValues)} 
-              sub={`${basicQtyMonth} cestas vendidas no mês`}
-              icon={<ShoppingBasket size={24} />}
-              color="bg-emerald-500"
-              darkMode={darkMode}
-            />
-            {showNatalCard && (
-              <StatCard 
-                title={`Natal (${currentYear})`} 
-                value={formatCurrency(natalCommissionYear, hideValues)} 
-                sub={`${natalQtyYear} cestas (Acumulado Ano)`}
-                icon={<Gift size={24} />}
-                color="bg-red-500"
-                darkMode={darkMode}
-              />
-            )}
+            <StatCard title={`Comissão Estimada (${capitalizedMonth})`} value={formatCurrency(totalCommissionMonth, hideValues)} sub="Previsão de recebimento mensal" icon={<DollarSign size={24} />} color="bg-indigo-600" darkMode={darkMode} />
+            <StatCard title={`Cesta Básica (${capitalizedMonth})`} value={formatCurrency(basicCommissionMonth, hideValues)} sub={`${basicQtyMonth} cestas vendidas no mês`} icon={<ShoppingBasket size={24} />} color="bg-emerald-500" darkMode={darkMode} />
+            {showNatalCard && <StatCard title={`Natal (${currentYear})`} value={formatCurrency(natalCommissionYear, hideValues)} sub={`${natalQtyYear} cestas (Acumulado Ano)`} icon={<Gift size={24} />} color="bg-red-500" darkMode={darkMode} />}
           </div>
       )}
 
-      {(config.showCharts || config.showRecents) && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pb-12">
-            {config.showCharts && (
-                <div className={`lg:col-span-2 ${containerClass} p-6 rounded-xl shadow-sm border min-w-0 relative min-h-[400px]`}>
-                  <h3 className={`text-lg font-semibold mb-6 flex items-center ${darkMode ? 'text-white' : 'text-gray-800'}`}>
-                    <Calendar className={`w-4 h-4 mr-2 ${darkMode ? 'text-slate-400' : 'text-gray-500'}`}/>
-                    Evolução de Comissões (12 Meses)
-                  </h3>
-                  <div className="h-[300px] w-full">
-                    {hideValues ? (
-                        <div className="h-full flex items-center justify-center text-slate-500">
-                            <EyeOff size={32} />
-                        </div>
-                    ) : (
-                        <ResponsiveContainer width="99%" height="100%">
-                          <LineChart data={chartData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? '#334155' : '#f0f0f0'} />
-                            <XAxis dataKey="name" fontSize={12} tick={{fill: darkMode ? '#94a3b8' : '#6b7280'}} axisLine={false} tickLine={false} />
-                            <YAxis fontSize={12} tickFormatter={(val) => `R$${val}`} tick={{fill: darkMode ? '#94a3b8' : '#6b7280'}} axisLine={false} tickLine={false} width={80} />
-                            <Tooltip 
-                              formatter={(value: number) => formatCurrency(value, false)}
-                              contentStyle={{ 
-                                backgroundColor: darkMode ? '#1e293b' : '#fff', 
-                                borderRadius: '8px', 
-                                border: darkMode ? '1px solid #334155' : '1px solid #e2e8f0', 
-                                color: darkMode ? '#fff' : '#000'
-                              }}
-                            />
-                            <Legend />
-                            <Line isAnimationActive={true} animationDuration={2000} animationEasing="ease-in-out" type="monotone" dataKey="basica" name="Básica" stroke="#10b981" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
-                            <Line isAnimationActive={true} animationDuration={2000} animationEasing="ease-in-out" type="monotone" dataKey="natal" name="Natal" stroke="#ef4444" strokeWidth={3} dot={{r: 4}} activeDot={{r: 6}} />
-                          </LineChart>
-                        </ResponsiveContainer>
-                    )}
-                  </div>
-                </div>
-            )}
-
-            {config.showRecents && (
-                <div className={`${containerClass} p-6 rounded-xl shadow-sm border overflow-hidden`}>
-                  <h3 className={`text-lg font-semibold mb-4 ${darkMode ? 'text-white' : 'text-gray-800'}`}>Últimas Vendas</h3>
-                  <div className="overflow-y-auto max-h-[350px] space-y-3 custom-scrollbar">
-                    {recentSales.map(sale => (
-                      <div key={sale.id} className={`flex flex-col p-3 rounded-lg border-l-4 ${!sale.date ? 'border-orange-500' : 'border-emerald-500'} ${darkMode ? 'bg-slate-900/50' : 'bg-gray-50'}`}>
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className={`font-medium ${darkMode ? 'text-white' : 'text-gray-900'}`}>{sale.client}</div>
-                            <div className={`text-xs ${darkMode ? 'text-slate-500' : 'text-gray-500'}`}>
-                                {sale.type === ProductType.BASICA ? 'Básica' : 'Natal'} • {sale.quantity} und
-                            </div>
-                          </div>
-                          <div className={`text-right font-bold ${darkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
-                            {hideValues ? '••••••' : `+ ${formatCurrency(sale.commissionValueTotal, false)}`}
-                          </div>
-                        </div>
-                        
-                        <div className="mt-2 pt-2 border-t border-dashed border-gray-200 dark:border-slate-700 flex items-center justify-between">
-                            <span className="text-xs text-gray-400">Status: {sale.date ? 'Faturado' : 'Pendente'}</span>
-                        </div>
-                      </div>
-                    ))}
-                    {recentSales.length === 0 && (
-                        <p className={`text-center py-12 ${darkMode ? 'text-slate-500' : 'text-gray-400'}`}>Nenhuma venda recente.</p>
-                    )}
-                  </div>
-                </div>
-            )}
-          </div>
-      )}
-
-      {/* CONFIG MODAL */}
-      {showConfig && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-              <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95`}>
-                  <div className="flex justify-between items-center mb-6">
-                      <h3 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Personalizar Dashboard</h3>
-                      <button onClick={() => setShowConfig(false)}><X className="text-gray-500 hover:text-gray-700"/></button>
-                  </div>
-                  <div className="space-y-2">
-                      <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                          <span className={darkMode ? 'text-gray-200' : 'text-gray-800'}>Metas</span>
-                          <input type="checkbox" checked={config.showStats} onChange={e => onUpdateConfig({...config, showStats: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 accent-indigo-600"/>
-                      </label>
-                      <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                          <span className={darkMode ? 'text-gray-200' : 'text-gray-800'}>Gráficos</span>
-                          <input type="checkbox" checked={config.showCharts} onChange={e => onUpdateConfig({...config, showCharts: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 accent-indigo-600"/>
-                      </label>
-                      <label className="flex items-center justify-between cursor-pointer p-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                          <span className={darkMode ? 'text-gray-200' : 'text-gray-800'}>Vendas Recentes</span>
-                          <input type="checkbox" checked={config.showRecents} onChange={e => onUpdateConfig({...config, showRecents: e.target.checked})} className="w-5 h-5 rounded text-indigo-600 accent-indigo-600"/>
-                      </label>
-                  </div>
-                  <button onClick={() => setShowConfig(false)} className="w-full mt-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg">Salvar Preferências</button>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {config.showCharts && (
+            <div className={`lg:col-span-2 ${containerClass} p-6 rounded-[2.5rem] border min-w-0 min-h-[400px]`}>
+              <h3 className={`text-lg font-black mb-6 flex items-center gap-2 ${darkMode ? 'text-white' : 'text-gray-800'}`}>
+                <Calendar className="text-gray-400" size={20}/> Evolução de Performance
+              </h3>
+              <div className="h-[300px] w-full">
+                {hideValues ? <div className="h-full flex items-center justify-center text-slate-500"><EyeOff size={32} /></div> : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={darkMode ? '#334155' : '#f0f0f0'} />
+                        <XAxis dataKey="name" fontSize={12} tick={{fill: '#6b7280'}} axisLine={false} tickLine={false} />
+                        <YAxis fontSize={12} tickFormatter={(val) => `R$${val}`} tick={{fill: '#6b7280'}} axisLine={false} tickLine={false} width={60} />
+                        <Tooltip contentStyle={{ borderRadius: '15px', border: 'none', backgroundColor: darkMode ? '#1e293b' : '#fff' }} />
+                        <Legend />
+                        <Line type="monotone" dataKey="basica" name="Básica" stroke="#10b981" strokeWidth={4} dot={{r: 4}} activeDot={{r: 6}} />
+                        <Line type="monotone" dataKey="natal" name="Natal" stroke="#ef4444" strokeWidth={4} dot={{r: 4}} activeDot={{r: 6}} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                )}
               </div>
-          </div>
-      )}
+            </div>
+        )}
 
-      {/* TARGET MODAL */}
-      {showTargetModal && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-              <div className={`${darkMode ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'} border rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95`}>
-                  <div className="flex justify-between items-center mb-6">
-                      <h3 className={`text-lg font-bold ${darkMode ? 'text-white' : 'text-gray-800'}`}>Definir Metas de Vendas</h3>
-                      <button onClick={() => setShowTargetModal(false)}><X className="text-gray-500 hover:text-gray-700"/></button>
-                  </div>
-                  <div className="space-y-4">
+        {config.showRecents && (
+            <div className={`${containerClass} p-8 rounded-[2.5rem] border overflow-hidden`}>
+              <h3 className={`text-lg font-black mb-6 ${darkMode ? 'text-white' : 'text-gray-800'}`}>Últimos Lançamentos</h3>
+              <div className="space-y-4">
+                {recentSales.map(sale => (
+                  <div key={sale.id} className={`flex flex-col p-4 rounded-2xl border-l-4 transition-all hover:translate-x-1 ${!sale.date ? 'border-orange-500 bg-orange-500/5' : 'border-emerald-500 bg-emerald-500/5'}`}>
+                    <div className="flex justify-between items-start">
                       <div>
-                          <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Cestas Básicas (Meta Mensal)</label>
-                          <input 
-                              type="number" 
-                              value={tempTargets.basic} 
-                              onChange={e => setTempTargets({...tempTargets, basic: e.target.value})}
-                              className={`w-full p-3 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
-                          />
+                        <div className={`font-black text-sm ${darkMode ? 'text-white' : 'text-gray-900'}`}>{sale.client}</div>
+                        <div className="text-[10px] text-gray-500 uppercase font-black tracking-widest mt-1">
+                            {sale.type === ProductType.BASICA ? 'Básica' : 'Natal'} • {sale.quantity} und
+                        </div>
                       </div>
-                      <div>
-                          <label className={`block text-xs font-bold mb-1 ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Cestas Natal (Meta Anual)</label>
-                          <input 
-                              type="number" 
-                              value={tempTargets.natal} 
-                              onChange={e => setTempTargets({...tempTargets, natal: e.target.value})}
-                              className={`w-full p-3 rounded-xl border ${darkMode ? 'bg-slate-800 border-slate-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
-                          />
+                      <div className={`text-right font-black ${darkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>
+                        {hideValues ? '••••••' : `+ ${formatCurrency(sale.commissionValueTotal, false)}`}
                       </div>
+                    </div>
                   </div>
-                  <button onClick={handleSaveTargets} className="w-full mt-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg">Salvar Metas</button>
+                ))}
               </div>
-          </div>
-      )}
+            </div>
+        )}
+      </div>
     </div>
   );
 };

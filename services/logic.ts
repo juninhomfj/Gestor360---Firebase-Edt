@@ -1,4 +1,3 @@
-
 import {
   collection,
   query,
@@ -41,24 +40,21 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
         whatsapp: true, reports: true, dev: true, settings: true,
         news: true, receivables: true, distribution: true, imports: true,
         abc_analysis: true, ltv_details: true, ai_retention: true, 
-        manual_billing: true, audit_logs: true, fiscal: true // HABILITADO
+        manual_billing: true, audit_logs: true, fiscal: true 
     }
 };
 
 export const validateWriteAccess = async () => {
     const user = getSession();
     if (user?.role === 'DEV') return true;
-    
     const config = await getSystemConfig();
-    if (config.isMaintenanceMode) {
-        throw new Error("SISTEMA EM MANUTENÇÃO: Operação de escrita bloqueada temporariamente.");
-    }
+    if (config.isMaintenanceMode) throw new Error("SISTEMA EM MANUTENÇÃO: Operação de escrita bloqueada.");
     return true;
 };
 
 export const canAccess = (user: User | null, mod: string): boolean => {
     if (!user || !user.isActive) return false;
-    if (user.role === 'DEV') return true; // Bypass total para desenvolvedores
+    if (user.role === 'DEV') return true;
     const perms = user.permissions || {};
     return !!(perms as any)[mod];
 };
@@ -97,6 +93,50 @@ export const SessionTraffic = {
     reads: 0, writes: 0, lastActivity: null as Date | null,
     trackRead(count = 1) { this.reads += count; this.lastActivity = new Date(); },
     trackWrite(count = 1) { this.writes += count; this.lastActivity = new Date(); }
+};
+
+/**
+ * 📈 MOTOR PREDITIVO DE FLUXO DE CAIXA (Etapa 4)
+ * Calcula a evolução do saldo dia a dia para os próximos 30 dias.
+ */
+export const calculatePredictiveCashFlow = (
+    currentBalance: number,
+    receivables: Receivable[],
+    transactions: Transaction[]
+) => {
+    const timeline = [];
+    const now = new Date();
+    let rollingBalance = currentBalance;
+
+    for (let i = 0; i <= 30; i++) {
+        const targetDate = new Date(now);
+        targetDate.setDate(now.getDate() + i);
+        const dateStr = targetDate.toISOString().split('T')[0];
+
+        // Entradas (Comissões efetivadas mas não distribuídas caem no saldo D+0)
+        // Entradas futuras (Receivables pendentes na data específica)
+        const dayIncomes = receivables
+            .filter(r => r.date === dateStr && r.status === 'PENDING')
+            .reduce((acc, r) => acc + (r.value - (r.deductions?.reduce((dAcc, d) => dAcc + d.amount, 0) || 0)), 0);
+
+        // Saídas futuras (Despesas não pagas na data específica)
+        const dayExpenses = transactions
+            .filter(t => t.date === dateStr && !t.isPaid && t.type === 'EXPENSE')
+            .reduce((acc, t) => acc + t.amount, 0);
+
+        rollingBalance += (dayIncomes - dayExpenses);
+
+        timeline.push({
+            date: dateStr,
+            displayDate: targetDate.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }),
+            balance: rollingBalance,
+            income: dayIncomes,
+            expense: dayExpenses,
+            isCritical: rollingBalance < 0
+        });
+    }
+
+    return timeline;
 };
 
 export const clearNotifications = async (userId: string, scope: 'ALL' | 'LOCAL' = 'LOCAL') => {
@@ -546,48 +586,25 @@ export const calculateFinancialPacing = (balance: number, salaryDays: number[], 
 export const processFinanceImport = async (data: any[][], mapping: ImportMapping): Promise<Transaction[]> => {
     const uid = auth.currentUser?.uid;
     if (!uid) return [];
-    
     const rows = data.slice(1);
     const transactions: Transaction[] = [];
-
     rows.forEach(row => {
         const descIndex = mapping['description'];
         const amountIndex = mapping['amount'];
         const dateIndex = mapping['date'];
-        
         const desc = descIndex !== -1 && descIndex !== undefined ? String(row[descIndex] || '') : 'Importação';
         const val = amountIndex !== -1 && amountIndex !== undefined ? ensureNumber(row[amountIndex]) : 0;
         const dateRaw = dateIndex !== -1 && dateIndex !== undefined ? row[dateIndex] : new Date().toISOString();
-        
         let date = new Date().toISOString().split('T')[0];
-        try {
-            if (dateRaw) {
-                const parsedDate = new Date(dateRaw);
-                if (!isNaN(parsedDate.getTime())) {
-                    date = parsedDate.toISOString().split('T')[0];
-                }
-            }
-        } catch (e) {}
-
+        try { if (dateRaw) { const parsedDate = new Date(dateRaw); if (!isNaN(parsedDate.getTime())) date = parsedDate.toISOString().split('T')[0]; } } catch (e) {}
         if (desc && val !== 0) {
             transactions.push({
-                id: crypto.randomUUID(),
-                description: desc,
-                amount: Math.abs(val),
-                type: val > 0 ? 'INCOME' : 'EXPENSE',
-                date,
-                categoryId: 'uncategorized',
-                accountId: '', 
-                isPaid: true,
-                provisioned: false,
-                isRecurring: false,
-                deleted: false,
-                createdAt: new Date().toISOString(),
-                userId: uid
+                id: crypto.randomUUID(), description: desc, amount: Math.abs(val), type: val > 0 ? 'INCOME' : 'EXPENSE',
+                date, categoryId: 'uncategorized', accountId: '', isPaid: true, provisioned: false, isRecurring: false,
+                deleted: false, createdAt: new Date().toISOString(), userId: uid
             } as Transaction);
         }
     });
-
     return transactions;
 };
 
@@ -602,9 +619,7 @@ export const readExcelFile = (file: File): Promise<any[][]> => {
                 const worksheet = workbook.Sheets[sheetName];
                 const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
                 resolve(json as any[][]);
-            } catch (err) {
-                reject(err);
-            }
+            } catch (err) { reject(err); }
         };
         reader.onerror = (ex) => reject(ex);
         reader.readAsArrayBuffer(file);
@@ -613,9 +628,7 @@ export const readExcelFile = (file: File): Promise<any[][]> => {
 
 export const downloadSalesTemplate = () => {
     const headers = ["Data Faturamento (Opcional)", "Data Pedido", "Tipo (Cesta Básica ou Natal)", "Cliente", "Quantidade", "Valor Unitário Proposto", "Valor Total Venda", "Margem (%)", "Observações"];
-    const rows = [
-        ["2025-01-10", "2025-01-05", "Cesta Básica", "Exemplo Cliente LTDA", "100", "80.50", "8050.00", "15.5", "Venda importada"]
-    ];
+    const rows = [["2025-01-10", "2025-01-05", "Cesta Básica", "Exemplo Cliente LTDA", "100", "80.50", "8050.00", "15.5", "Venda importada"]];
     const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -641,16 +654,10 @@ export const saveSales = async (sales: Sale[]) => {
 
 export const getTicketStats = async (): Promise<number> => {
     try {
-        const q = query(
-            collection(db, 'internal_messages'), 
-            where('type', '==', 'BUG_REPORT'), 
-            where('deleted', '==', false)
-        );
+        const q = query(collection(db, 'internal_messages'), where('type', '==', 'BUG_REPORT'), where('deleted', '==', false));
         const snap = await getDocs(q);
         return snap.size;
-    } catch (e) {
-        return 0;
-    }
+    } catch (e) { return 0; }
 };
 
 export const findPotentialDuplicates = (sales: Sale[]) => {
@@ -658,27 +665,21 @@ export const findPotentialDuplicates = (sales: Sale[]) => {
     const uniqueNames = Array.from(new Set(activeSales.map(sale => sale.client)));
     const duplicates: { master: string, similar: string[] }[] = [];
     const processed = new Set<string>();
-
     const normalize = (str: string) => str.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
-
     for (let i = 0; i < uniqueNames.length; i++) {
         const nameA = uniqueNames[i];
         if (processed.has(nameA)) continue;
-        
         const normA = normalize(nameA);
         const similar: string[] = [];
-
         for (let j = i + 1; j < uniqueNames.length; j++) {
             const nameB = uniqueNames[j];
             if (processed.has(nameB)) continue;
-            
             const normB = normalize(nameB);
             if (normA === normB || (normA.length > 5 && normB.length > 5 && (normA.includes(normB) || normB.includes(normA)))) {
                 similar.push(nameB);
                 processed.add(nameB);
             }
         }
-
         if (similar.length > 0) {
             duplicates.push({ master: nameA, similar });
             processed.add(nameA);

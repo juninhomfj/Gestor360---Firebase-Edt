@@ -3,7 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Client, Sale } from '../types';
 import { getSalesByClient, formatCurrency } from '../services/logic';
-import { X, ShoppingBag, History, TrendingUp, DollarSign, Calendar, Loader2, User, Award, BarChart3, Target, FileText } from 'lucide-react';
+import { generateClientStrategy } from '../services/aiService';
+import { X, ShoppingBag, History, TrendingUp, DollarSign, Calendar, Loader2, User, Award, BarChart3, Target, FileText, Sparkles, MessageCircle, ArrowRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 interface ClientDetailsModalProps {
@@ -16,10 +17,15 @@ interface ClientDetailsModalProps {
 const ClientDetailsModal: React.FC<ClientDetailsModalProps> = ({ client, isOpen, onClose, darkMode }) => {
     const [sales, setSales] = useState<Sale[]>([]);
     const [loading, setLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState<'DASHBOARD' | 'AI'>('DASHBOARD');
+    const [aiStrategy, setAiStrategy] = useState<string | null>(null);
+    const [isAiLoading, setIsAiLoading] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
             loadHistory();
+            setAiStrategy(null);
+            setActiveTab('DASHBOARD');
         }
     }, [client.id, isOpen]);
 
@@ -32,6 +38,18 @@ const ClientDetailsModal: React.FC<ClientDetailsModalProps> = ({ client, isOpen,
             console.error("Erro ao carregar histórico", e);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleGenerateStrategy = async () => {
+        setIsAiLoading(true);
+        try {
+            const strategy = await generateClientStrategy(client, sales);
+            setAiStrategy(strategy);
+        } catch (e) {
+            setAiStrategy("Não foi possível gerar a estratégia no momento.");
+        } finally {
+            setIsAiLoading(false);
         }
     };
 
@@ -49,7 +67,7 @@ const ClientDetailsModal: React.FC<ClientDetailsModalProps> = ({ client, isOpen,
 
     return createPortal(
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in">
-            <div className={`w-full max-w-5xl rounded-[2.5rem] shadow-2xl overflow-hidden border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-200'} flex flex-col max-h-[90vh]`}>
+            <div className={`w-full max-w-5xl rounded-[2.5rem] shadow-2xl overflow-hidden border ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-200'} flex flex-col h-[90vh]`}>
                 
                 {/* Header Dossiê */}
                 <div className="p-8 border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-950 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -59,110 +77,115 @@ const ClientDetailsModal: React.FC<ClientDetailsModalProps> = ({ client, isOpen,
                         </div>
                         <div>
                             <h3 className="text-3xl font-black text-gray-900 dark:text-white tracking-tighter">{client.name}</h3>
-                            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Dossiê de Performance Comercial</p>
+                            <div className="flex gap-2 mt-1">
+                                <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Dossiê 360</p>
+                                <div className="w-1 h-1 bg-slate-300 rounded-full my-auto"></div>
+                                <p className="text-xs text-indigo-500 font-bold uppercase tracking-widest">IA Preditiva Ativa</p>
+                            </div>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-3 hover:bg-gray-200 dark:hover:bg-slate-800 rounded-full transition-colors absolute top-6 right-6 md:static">
-                        <X size={24} className="text-gray-400" />
-                    </button>
+                    <div className="flex gap-2">
+                        <div className="flex p-1 bg-gray-200 dark:bg-slate-800 rounded-xl">
+                            <button 
+                                onClick={() => setActiveTab('DASHBOARD')}
+                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'DASHBOARD' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-sm' : 'text-gray-500'}`}
+                            >Histórico</button>
+                            <button 
+                                onClick={() => { setActiveTab('AI'); if(!aiStrategy) handleGenerateStrategy(); }}
+                                className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === 'AI' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-500'}`}
+                            >
+                                <Sparkles size={14}/> Estratégia IA
+                            </button>
+                        </div>
+                        <button onClick={onClose} className="p-3 hover:bg-gray-200 dark:hover:bg-slate-800 rounded-full transition-colors">
+                            <X size={24} className="text-gray-400" />
+                        </button>
+                    </div>
                 </div>
 
-                {/* Body Inteligência */}
-                <div className="flex-1 overflow-y-auto p-8 space-y-10 custom-scrollbar">
-                    
-                    {/* KPIs de LTV */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                        <KPICard label="LTV Total" value={formatCurrency(totalLTV)} icon={<TrendingUp size={20}/>} color="blue" />
-                        <KPICard label="Comissões" value={formatCurrency(totalComm)} icon={<Award size={20}/>} color="emerald" />
-                        <KPICard label="Pedidos" value={sales.length.toString()} icon={<ShoppingBag size={20}/>} color="purple" />
-                        <KPICard label="Margem Média" value={`${avgMargin.toFixed(1)}%`} icon={<Target size={20}/>} color="amber" />
-                    </div>
+                {/* Body Conteúdo */}
+                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                    {activeTab === 'DASHBOARD' ? (
+                        <div className="space-y-10 animate-in fade-in slide-in-from-left-4">
+                            {/* KPIs de LTV */}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                <KPICard label="LTV Total" value={formatCurrency(totalLTV)} icon={<TrendingUp size={20}/>} color="blue" />
+                                <KPICard label="Comissões" value={formatCurrency(totalComm)} icon={<Award size={20}/>} color="emerald" />
+                                <KPICard label="Pedidos" value={sales.length.toString()} icon={<ShoppingBag size={20}/>} color="purple" />
+                                <KPICard label="Margem Média" value={`${avgMargin.toFixed(1)}%`} icon={<Target size={20}/>} color="amber" />
+                            </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                        {/* Monitor de Margem (Chart) */}
-                        <div className="lg:col-span-2 space-y-4">
-                            <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                                <BarChart3 size={16}/> Comportamento de Margem
-                            </h4>
-                            <div className="h-64 w-full p-4 rounded-3xl bg-gray-50 dark:bg-slate-950 border dark:border-slate-800">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={marginData}>
-                                        <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
-                                        <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} />
-                                        <YAxis fontSize={10} axisLine={false} tickLine={false} />
-                                        <Tooltip 
-                                            contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
-                                            formatter={(val: number) => [`${val}%`, 'Margem']}
-                                        />
-                                        <ReferenceLine y={10} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'right', value: 'Min', fill: '#ef4444', fontSize: 10 }} />
-                                        <Bar dataKey="margin" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                                    </BarChart>
-                                </ResponsiveContainer>
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                <div className="lg:col-span-2 space-y-4">
+                                    <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                        <BarChart3 size={16}/> Comportamento de Margem
+                                    </h4>
+                                    <div className="h-64 w-full p-4 rounded-3xl bg-gray-50 dark:bg-slate-950 border dark:border-slate-800">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={marginData}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
+                                                <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} />
+                                                <YAxis fontSize={10} axisLine={false} tickLine={false} />
+                                                <Tooltip 
+                                                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}
+                                                    formatter={(val: number) => [`${val}%`, 'Margem']}
+                                                />
+                                                <ReferenceLine y={10} stroke="#ef4444" strokeDasharray="3 3" />
+                                                <Bar dataKey="margin" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                                <div className="space-y-4">
+                                    <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                                        <FileText size={16}/> Notas do Parceiro
+                                    </h4>
+                                    <div className="p-6 rounded-3xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900 min-h-[150px]">
+                                        <p className="text-sm text-amber-900 dark:text-amber-200 italic leading-relaxed">
+                                            {client.notes || "Nenhuma observação estratégica registrada."}
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-
-                        {/* Notas do Cliente */}
-                        <div className="space-y-4">
-                            <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                                <FileText size={16}/> Notas Operacionais
-                            </h4>
-                            <div className="p-6 rounded-3xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900 min-h-[150px]">
-                                <p className="text-sm text-amber-900 dark:text-amber-200 italic leading-relaxed">
-                                    {client.notes || "Nenhuma observação estratégica registrada para este parceiro."}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Timeline de Pedidos */}
-                    <div className="space-y-6">
-                        <h4 className="text-sm font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                            <History size={16}/> Últimas Transações
-                        </h4>
-
-                        {loading ? (
-                            <div className="py-10 text-center flex flex-col items-center gap-4">
-                                <Loader2 className="animate-spin text-indigo-500" size={40}/>
-                            </div>
-                        ) : sales.length === 0 ? (
-                            <div className="py-10 text-center opacity-30 italic">Nenhum pedido.</div>
-                        ) : (
-                            <div className="grid grid-cols-1 gap-3">
-                                {sales.slice(0, 10).map(sale => (
-                                    <div key={sale.id} className="p-5 rounded-2xl border dark:border-slate-800 bg-white dark:bg-slate-900/50 flex flex-col md:flex-row justify-between items-center gap-4">
-                                        <div className="flex items-center gap-4 w-full md:w-auto">
-                                            <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500">
-                                                <Calendar size={18}/>
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-gray-900 dark:text-white">Pedido #{sale.id.substring(0,8)}</p>
-                                                <p className="text-xs text-slate-500">{new Date(sale.date || sale.completionDate || '').toLocaleDateString('pt-BR')}</p>
-                                            </div>
+                    ) : (
+                        <div className="animate-in fade-in slide-in-from-right-4 h-full flex flex-col">
+                            {isAiLoading ? (
+                                <div className="flex-1 flex flex-col items-center justify-center space-y-4">
+                                    <Loader2 className="animate-spin text-indigo-500" size={48} />
+                                    <p className="text-sm font-black text-gray-400 uppercase tracking-widest animate-pulse">Gemini analisando histórico transacional...</p>
+                                </div>
+                            ) : aiStrategy ? (
+                                <div className="max-w-3xl mx-auto space-y-8">
+                                    <div className="p-8 rounded-[2.5rem] bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/50 shadow-inner">
+                                        <div className="flex items-center gap-3 mb-6">
+                                            <Sparkles className="text-indigo-600" size={24}/>
+                                            <h4 className="text-xl font-black">Plano de Ação Inteligente</h4>
                                         </div>
-                                        
-                                        <div className="grid grid-cols-3 gap-8 w-full md:w-auto text-right">
-                                            <div>
-                                                <p className="text-[9px] font-black text-gray-400 uppercase">Venda</p>
-                                                <p className="font-bold text-gray-700 dark:text-gray-300">{formatCurrency(sale.valueSold)}</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[9px] font-black text-amber-500 uppercase">Margem</p>
-                                                <p className="font-bold text-amber-600">{sale.marginPercent.toFixed(1)}%</p>
-                                            </div>
-                                            <div>
-                                                <p className="text-[9px] font-black text-emerald-500 uppercase">Comissão</p>
-                                                <p className="font-black text-emerald-600">{formatCurrency(sale.commissionValueTotal)}</p>
-                                            </div>
+                                        <div className="prose dark:prose-invert max-w-none text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+                                            {aiStrategy.split('\n').map((line, i) => (
+                                                <p key={i} className="mb-2">{line}</p>
+                                            ))}
                                         </div>
                                     </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
+                                    
+                                    <div className="flex gap-4">
+                                        <button className="flex-1 py-5 bg-emerald-600 text-white font-black rounded-3xl shadow-xl hover:bg-emerald-700 transition-all flex items-center justify-center gap-3 uppercase text-[10px] tracking-widest">
+                                            <MessageCircle size={20}/> Iniciar Abordagem (WhatsApp)
+                                        </button>
+                                        <button onClick={handleGenerateStrategy} className="px-6 py-5 bg-slate-800 text-white rounded-3xl hover:bg-slate-700 transition-all">
+                                            <History size={20}/>
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    )}
                 </div>
 
                 {/* Footer */}
-                <div className="p-6 border-t border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-950 flex justify-end">
+                <div className="p-6 border-t border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-950 flex justify-between items-center px-10">
+                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Dossiê Gerado em {new Date().toLocaleDateString()}</p>
                     <button onClick={onClose} className="px-8 py-3 bg-slate-900 text-white font-black rounded-2xl active:scale-95 transition-all text-[10px] uppercase tracking-widest border border-white/10">Fechar Dossiê</button>
                 </div>
 

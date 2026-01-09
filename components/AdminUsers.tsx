@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, UserModules, UserStatus } from '../types';
 import { SYSTEM_MODULES } from '../config/modulesCatalog';

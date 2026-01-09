@@ -1,4 +1,3 @@
-
 // services/auth.ts
 import {
   getAuth,
@@ -23,7 +22,6 @@ import {
   where
 } from "firebase/firestore";
 
-// Fix: Corrected import path for database utilities from services to storage
 import { dbPut } from "../storage/db";
 import { Logger } from "./logger";
 import { User, UserPermissions } from "../types";
@@ -31,8 +29,6 @@ import { User, UserPermissions } from "../types";
 const auth = getAuth();
 const db = getFirestore();
 
-// Default conservador: NÃO auto-libera módulos sensíveis.
-// DEV/ADMIN habilitam via governança (campo modules).
 const DEFAULT_PERMISSIONS: UserPermissions = {
   sales: true,
   finance: true,
@@ -55,8 +51,8 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
 };
 
 /**
- * 🧱 PROFILE HYDRATION (v1.0/v2.0 Safe)
- * Garante que o perfil Firestore exista e esteja atualizado antes de liberar o App.
+ * 🧱 PROFILE HYDRATION & MIGRATION ENGINE (v3.0)
+ * Garante que o perfil Firestore exista, esteja atualizado e migra campos legados.
  */
 async function getProfileFromFirebase(fbUser: any): Promise<User | null> {
   try {
@@ -74,29 +70,44 @@ async function getProfileFromFirebase(fbUser: any): Promise<User | null> {
         role: isRoot ? "DEV" : "USER",
         isActive: isRoot,
         userStatus: isRoot ? "ACTIVE" : "PENDING",
-        // Ao criar, inicializa ambos para compatibilidade, mas as regras de escrita protegem 'modules'
         modules: isRoot ? { ...DEFAULT_PERMISSIONS, dev: true } : DEFAULT_PERMISSIONS,
         permissions: isRoot ? { ...DEFAULT_PERMISSIONS, dev: true } : DEFAULT_PERMISSIONS,
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        prefs: { defaultModule: 'home' }
       };
       await setDoc(profileRef, newProfile);
       profileSnap = await getDoc(profileRef);
-    } else {
-      // Auto-heal: Se for root mas o banco estiver com role antiga ou inativo, força atualização
-      const data = profileSnap.data();
-      if (isRoot && (data?.role === "USER" || data?.isActive === false)) {
-        await updateDoc(profileRef, {
-          role: "DEV",
-          isActive: true,
-          userStatus: "ACTIVE",
-          updatedAt: serverTimestamp()
-        });
-        profileSnap = await getDoc(profileRef);
-      }
     }
 
     const data = profileSnap.data();
+    let needsMigrationUpdate = false;
+    let migratedPrefs = { ...(data?.prefs || {}) };
+
+    // --- MOTOR DE MIGRAÇÃO DE PREFERÊNCIAS (Etapa 3) ---
+    // Se não temos o campo canônico, mas temos campos antigos, migramos.
+    if (!migratedPrefs.defaultModule) {
+      const legacyValue = data?.HomeModule || data?.homeTab || data?.moduleDefault || data?.prefs?.HomeModule || null;
+      if (legacyValue) {
+        migratedPrefs.defaultModule = legacyValue;
+        needsMigrationUpdate = true;
+        Logger.info(`[Migration] Migrando preferência legada "${legacyValue}" para defaultModule.`);
+      } else {
+        migratedPrefs.defaultModule = 'home';
+      }
+    }
+
+    // Se houve migração ou correção de role para ROOT, atualiza o Firestore de forma silenciosa
+    if (needsMigrationUpdate || (isRoot && (data?.role === "USER" || data?.isActive === false))) {
+        await updateDoc(profileRef, {
+          role: isRoot ? "DEV" : data?.role,
+          isActive: isRoot ? true : data?.isActive,
+          userStatus: isRoot ? "ACTIVE" : data?.userStatus,
+          prefs: migratedPrefs,
+          updatedAt: serverTimestamp()
+        });
+    }
+    // ----------------------------------------------------
 
     const user: User = {
       id: fbUser.uid,
@@ -104,26 +115,23 @@ async function getProfileFromFirebase(fbUser: any): Promise<User | null> {
       username: data?.username || fbUser.email?.split("@")[0] || "user",
       name: data?.name || fbUser.displayName || "Usuário",
       email: data?.email || fbUser.email || "",
-      role: data?.role,
-      isActive: data?.isActive,
+      role: data?.role || 'USER',
+      isActive: data?.isActive ?? true,
       theme: data?.theme || "glass",
       userStatus: data?.userStatus || "PENDING",
       createdAt: data?.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
       updatedAt: data?.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-      // --- PATCH DE CONVERGÊNCIA ---
-      // A UI usa '.permissions', mas o Firestore usa '.modules' como fonte de verdade.
       permissions: data?.modules || data?.permissions || DEFAULT_PERMISSIONS,
-      // -----------------------------
       profilePhoto: data?.profilePhoto || "",
       tel: data?.tel || "",
-      prefs: data?.prefs || {}
+      prefs: migratedPrefs
     };
 
     await dbPut("users", user);
     localStorage.setItem("sys_session_v1", JSON.stringify(user));
     return user;
   } catch (e) {
-    Logger.error("[Auth] Falha crítica na sincronia do perfil", e);
+    Logger.error("[Auth] Falha crítica na sincronia ou migração do perfil", e);
     return null;
   }
 }
@@ -138,7 +146,6 @@ export const updateUser = async (userId: string, data: Partial<User>) => {
   const updateData = { ...data, updatedAt: serverTimestamp() };
   await updateDoc(profileRef, updateData);
 
-  // Atualiza sessão se for o próprio usuário
   const current = getSession();
   if (current?.id === userId) {
     const merged = { ...current, ...data } as User;
@@ -146,7 +153,6 @@ export const updateUser = async (userId: string, data: Partial<User>) => {
   }
 };
 
-// Fix: Exported login function as expected by Login.tsx
 export const login = async (email: string, pass: string): Promise<{ user: User | null; error: string | null }> => {
     try {
         const user = await loginWithEmail(email, pass);
@@ -163,7 +169,6 @@ export const loginWithEmail = async (email: string, pass: string): Promise<User>
   return profile;
 };
 
-// Fix: Exported listUsers function as expected by AdminUsers.tsx
 export const listUsers = async (): Promise<User[]> => {
     try {
         const q = collection(db, "profiles");
@@ -175,11 +180,8 @@ export const listUsers = async (): Promise<User[]> => {
     }
 };
 
-// Fix: Exported createUser function as expected by AdminUsers.tsx
 export const createUser = async (adminId: string, userData: any): Promise<void> => {
     const { name, email, role, modules_config } = userData;
-    // Em um ambiente frontend puro, criamos apenas o documento de perfil.
-    // O usuário deverá usar o link de recuperação para definir sua senha inicial.
     const newUid = crypto.randomUUID();
     const profileRef = doc(db, "profiles", newUid);
     const newProfile = {
@@ -191,22 +193,20 @@ export const createUser = async (adminId: string, userData: any): Promise<void> 
         isActive: true,
         userStatus: 'PENDING',
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        prefs: { defaultModule: 'home' }
     };
     await setDoc(profileRef, newProfile);
 };
 
-// Fix: Exported resendInvitation function as expected by AdminUsers.tsx
 export const resendInvitation = async (email: string): Promise<void> => {
     await sendPasswordResetEmail(auth, email);
 };
 
-// Fix: Exported deactivateUser function as expected by UserProfile.tsx
 export const deactivateUser = async (userId: string): Promise<void> => {
     await updateUser(userId, { isActive: false, userStatus: 'INACTIVE' });
 };
 
-// Fix: Exported changePassword function as expected by PasswordReset.tsx
 export const changePassword = async (userId: string, newPass: string): Promise<void> => {
     if (auth.currentUser && auth.currentUser.uid === userId) {
         await updatePassword(auth.currentUser, newPass);
@@ -215,7 +215,6 @@ export const changePassword = async (userId: string, newPass: string): Promise<v
     }
 };
 
-// Fix: Exported requestPasswordReset function as expected by RequestReset.tsx
 export const requestPasswordReset = async (email: string): Promise<void> => {
     await sendPasswordResetEmail(auth, email);
 };
@@ -223,11 +222,7 @@ export const requestPasswordReset = async (email: string): Promise<void> => {
 export const reloadSession = async (): Promise<User | null> => {
   const fbUser = auth.currentUser;
   if (!fbUser) return null;
-
-  const profile = await getProfileFromFirebase(fbUser);
-  if (!profile) return null;
-
-  return profile;
+  return await getProfileFromFirebase(fbUser);
 };
 
 export const logout = async () => {

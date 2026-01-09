@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
 
 import Layout from './components/Layout';
@@ -96,26 +95,6 @@ const App: React.FC = () => {
     );
     const [theme, setTheme] = useState<AppTheme>('glass');
 
-    const [sales, setSales] = useState<Sale[]>([]);
-    const [clients, setClients] = useState<Client[]>([]);
-    const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
-    const [cards, setCards] = useState<CreditCard[]>([]);
-    const [transactions, setTransactions] = useState<Transaction[]>([]);
-    const [categories, setCategories] = useState<TransactionCategory[]>([]);
-    const [goals, setGoals] = useState<FinanceGoal[]>([]);
-    const [receivables, setReceivables] = useState<Receivable[]>([]);
-    const [challenges, setChallenges] = useState<Challenge[]>([]);
-    const [cells, setCells] = useState<ChallengeCell[]>([]);
-    const [rulesBasic, setRulesBasic] = useState<CommissionRule[]>([]);
-    const [rulesNatal, setRulesNatal] = useState<CommissionRule[]>([]);
-    const [reportConfig, setReportConfig] = useState<ReportConfig>({
-        daysForNewClient: 30, daysForInactive: 60, daysForLost: 180
-    });
-    const [salesTargets, setSalesTargets] = useState<SalesTargets>({ basic: 0, natal: 0 });
-    const [dashboardConfig, setDashboardConfig] = useState<DashboardWidgetConfig>({
-        showStats: true, showCharts: true, showRecents: true, showPacing: true, showBudgets: true
-    });
-
     const addToast = (type: 'SUCCESS' | 'ERROR' | 'INFO', message: string) => {
         const id = crypto.randomUUID();
         setSortedToasts(prev => [...prev, { id, type, message }]);
@@ -149,7 +128,7 @@ const App: React.FC = () => {
         if (initRun.current) return;
         initRun.current = true;
         const init = async () => {
-            Logger.info("🚀 Auditoria: Inicializando Aplicação Gestor360 v2.5.3");
+            Logger.info("🚀 Auditoria: Inicializando Aplicação Gestor360");
             try {
                 await AudioService.preload();
                 const sessionUser = await reloadSession();
@@ -179,38 +158,29 @@ const App: React.FC = () => {
             await bootstrapProductionData();
             await loadDataForUser();
 
-            // --- Lógica de Redirecionamento e Onboarding (PATCH) ---
-            const onboarded = localStorage.getItem("sys_onboarded_v1") === "true";
-
+            // --- REDIRECIONAMENTO CANÔNICO ---
+            const onboarded = localStorage.getItem("sys_v3_onboarded") === "true";
+            
             if (!onboarded) {
-                // Força abertura no Home para o onboarding aparecer
                 setActiveTab("home");
                 setAppMode("SALES");
+                localStorage.setItem("sys_v3_onboarded", "true");
             } else {
-                // Tenta ler preferência do backend com fallback para campos legados
-                let pref = user.prefs?.defaultModule || 
-                           (user.prefs as any)?.homeModule ||
-                           (user.prefs as any)?.HomeModule ||
-                           (user.prefs as any)?.moduleDefault ||
-                           (user.prefs as any)?.defaultTab ||
-                           null;
-
-                if (pref) {
-                    pref = String(pref).trim();
-                    // Normaliza strings que contenham "home" para a rota principal
-                    if (pref.toLowerCase() === "home" || pref.toLowerCase().includes("home")) {
-                        pref = "home";
-                    }
-                }
-
-                if (pref && pref !== 'home') {
+                // Confiamos no campo canônico higienizado pelo Auth Service (Etapa 3)
+                const pref = user.prefs?.defaultModule || 'home';
+                
+                if (pref !== 'home') {
                     const modInfo = SYSTEM_MODULES.find(m => m.route === pref);
                     if (modInfo && canAccess(user, modInfo.key)) {
                         setActiveTab(modInfo.route);
                         setAppMode(modInfo.appMode);
                     }
+                } else {
+                    setActiveTab('home');
+                    setAppMode('SALES');
                 }
             }
+            // ---------------------------------
 
             setAuthView('APP');
         } catch (e) {
@@ -219,6 +189,26 @@ const App: React.FC = () => {
             setLoading(false);
         }
     };
+
+    const [sales, setSales] = useState<Sale[]>([]);
+    const [clients, setClients] = useState<Client[]>([]);
+    const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
+    const [cards, setCards] = useState<CreditCard[]>([]);
+    const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [categories, setCategories] = useState<TransactionCategory[]>([]);
+    const [goals, setGoals] = useState<FinanceGoal[]>([]);
+    const [receivables, setReceivables] = useState<Receivable[]>([]);
+    const [challenges, setChallenges] = useState<Challenge[]>([]);
+    const [cells, setCells] = useState<ChallengeCell[]>([]);
+    const [rulesBasic, setRulesBasic] = useState<CommissionRule[]>([]);
+    const [rulesNatal, setRulesNatal] = useState<CommissionRule[]>([]);
+    const [reportConfig, setReportConfig] = useState<ReportConfig>({
+        daysForNewClient: 30, daysForInactive: 60, daysForLost: 180
+    });
+    const [salesTargets, setSalesTargets] = useState<SalesTargets>({ basic: 0, natal: 0 });
+    const [dashboardConfig, setDashboardConfig] = useState<DashboardWidgetConfig>({
+        showStats: true, showCharts: true, showRecents: true, showPacing: true, showBudgets: true
+    });
 
     const loadDataForUser = async () => {
         try {
@@ -268,7 +258,7 @@ const App: React.FC = () => {
                     </div>
                     <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-tighter">Acesso Bloqueado</h2>
                     <p className="text-slate-400 text-sm mb-8 font-medium leading-relaxed">
-                        Sua licença de uso está inativa. Entre em contato com o suporte.
+                        Sua licença de uso está inativa. Entre em contato com o suporte para reativar seu acesso empresarial.
                     </p>
                     <button onClick={logout} className="w-full py-4 bg-slate-800 hover:bg-red-600 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-xl transition-all uppercase text-[10px] tracking-[0.2em]">
                         <LogOut size={16}/> Sair do Sistema
@@ -308,8 +298,6 @@ const App: React.FC = () => {
                         onNavigate={(route, mode) => {
                             setActiveTab(route);
                             setAppMode(mode);
-                            localStorage.setItem('sys_last_tab', route);
-                            localStorage.setItem('sys_last_mode', mode);
                         }} 
                     />
                 )}
