@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, ArrowRight, LayoutDashboard, ShoppingCart, PieChart, Users, Settings, Moon, Sun, Monitor, LogOut, Plus, DollarSign, User, ShieldCheck } from 'lucide-react';
+import { Search, ArrowRight, LayoutDashboard, ShoppingCart, PieChart, Users, Settings, Moon, Sun, Monitor, LogOut, Plus, DollarSign, User, ShieldCheck, MessageCircle } from 'lucide-react';
 import { AppMode, AppTheme } from '../types';
 import { dbGetAll } from '../storage/db';
 
@@ -27,6 +27,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
       { id: 'goto_sales', label: 'Ir para Vendas', icon: <ShoppingCart size={16}/>, group: 'Navegação', action: () => { setAppMode('SALES'); setActiveTab('sales'); } },
       { id: 'goto_finance', label: 'Ir para Finanças', icon: <PieChart size={16}/>, group: 'Navegação', action: () => { setAppMode('FINANCE'); setActiveTab('fin_dashboard'); } },
       { id: 'goto_crm', label: 'Ir para Hub de Clientes', icon: <Users size={16}/>, group: 'Navegação', action: () => { setAppMode('SALES'); setActiveTab('settings'); } },
+      { id: 'goto_wa', label: 'Ir para WhatsApp Marketing', icon: <MessageCircle size={16} className="text-emerald-500"/>, group: 'Navegação', action: () => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); } },
       { id: 'new_sale', label: 'Nova Venda', icon: <Plus size={16}/>, group: 'Ações', action: () => onNewSale() },
       { id: 'theme_dark', label: 'Tema Escuro', icon: <Moon size={16}/>, group: 'Aparência', action: () => setTheme('dark') },
       { id: 'theme_light', label: 'Tema Claro', icon: <Sun size={16}/>, group: 'Aparência', action: () => setTheme('neutral') },
@@ -43,7 +44,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
       }
   }, [isOpen]);
 
-  // Omni-Search Logic
   useEffect(() => {
       if (search.length < 2) {
           setDbResults([]);
@@ -51,10 +51,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
       }
 
       const performSearch = async () => {
-          const [sales, trans, clients] = await Promise.all([
+          const [sales, trans, clients, campaigns] = await Promise.all([
               dbGetAll('sales'),
               dbGetAll('transactions'),
-              dbGetAll('clients')
+              dbGetAll('clients'),
+              dbGetAll('wa_campaigns')
           ]);
 
           const lower = search.toLowerCase();
@@ -71,6 +72,10 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
 
           trans.filter(t => !t.deleted && t.description.toLowerCase().includes(lower)).forEach(t => {
               results.push({ id: `tx_${t.id}`, label: `Transação: ${t.description}`, group: 'Finanças', icon: <DollarSign size={16} className="text-blue-500"/>, action: () => { setAppMode('FINANCE'); setActiveTab('fin_transactions'); } });
+          });
+
+          campaigns.filter(c => !c.deleted && c.name.toLowerCase().includes(lower)).forEach(c => {
+            results.push({ id: `wa_${c.id}`, label: `Campanha: ${c.name}`, group: 'WhatsApp', icon: <MessageCircle size={16} className="text-emerald-500"/>, action: () => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); } });
           });
 
           setDbResults(results.slice(0, 10));

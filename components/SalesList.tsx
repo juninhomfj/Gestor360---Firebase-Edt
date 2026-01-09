@@ -1,5 +1,7 @@
+
 import React, { useState, useMemo, useRef } from 'react';
-import { Sale, ProductType, SaleFormData } from '../types';
+// Fix: Removed SaleFormData as it is not exported from ../types
+import { Sale, ProductType } from '../types';
 import { 
     Edit2, Plus, Download, Trash2, CalendarCheck, X, ChevronLeft, 
     ChevronRight, ArrowUpDown, AlertTriangle, Search, Clock, CheckCircle, 

@@ -1,5 +1,5 @@
 
-// types.ts - Centralized Type Definitions for Gestor360 (v2.8.0)
+// types.ts - Centralized Type Definitions for Gestor360 (v3.2.0)
 
 export type AppMode = 'SALES' | 'FINANCE' | 'WHATSAPP';
 
@@ -8,6 +8,7 @@ export type UserRole = 'USER' | 'ADMIN' | 'DEV';
 export type UserStatus = 'ACTIVE' | 'PENDING' | 'INACTIVE';
 
 export interface UserPermissions {
+  // Módulos Principais
   sales: boolean;
   finance: boolean;
   crm: boolean;
@@ -17,9 +18,15 @@ export interface UserPermissions {
   dev: boolean;
   settings: boolean;
   news: boolean;
-  receivables: boolean;
-  distribution: boolean;
-  imports: boolean;
+  // Funções Granulares (Enterprise)
+  abc_analysis: boolean;    // Acesso à Curva ABC
+  ltv_details: boolean;     // Visualização de Histórico de LTV
+  ai_retention: boolean;    // Botões de Reativação IA
+  receivables: boolean;     // Contas a Receber
+  distribution: boolean;    // Distribuição de Lucros
+  imports: boolean;         // Importação de Planilhas
+  manual_billing: boolean;  // Faturamento em Massa
+  audit_logs: boolean;      // Acesso aos logs de engenharia
 }
 
 export type UserModules = UserPermissions;
@@ -127,9 +134,6 @@ export interface Sale {
   boletoStatus?: 'PENDING' | 'SENT' | 'PAID';
 }
 
-// Added SaleFormData for backward compatibility in forms
-export interface SaleFormData extends Partial<Sale> {}
-
 export interface ReportConfig {
   daysForNewClient: number;
   daysForInactive: number;
@@ -204,8 +208,8 @@ export interface Transaction {
     costCenter?: string;
     tags?: string[];
     cardId?: string | null;
-    reconciled?: boolean; // Novo v2.8.0
-    reconciledAt?: string; // Novo v2.8.0
+    reconciled?: boolean;
+    reconciledAt?: string;
 }
 
 export interface Receivable {
@@ -232,7 +236,7 @@ export interface DashboardWidgetConfig {
   showRecents: boolean;
   showPacing: boolean;
   showBudgets: boolean;
-  showProjection?: boolean; // Novo v2.8.0
+  showProjection?: boolean;
 }
 
 export interface FinancialPacing {
@@ -260,6 +264,7 @@ export interface ImportMapping {
 
 export interface SystemConfig {
   bootstrapVersion: number;
+  isMaintenanceMode?: boolean; // Novo: Bloqueio global de escrita
   notificationSounds?: {
     enabled: boolean;
     volume: number;
@@ -274,7 +279,6 @@ export interface SystemConfig {
   successSound?: string;
   warningSound?: string;
   theme?: AppTheme;
-  // Added support contact info properties
   supportEmail?: string;
   supportTelegram?: string;
 }
@@ -290,7 +294,6 @@ export interface SyncEntry {
   retryCount: number;
 }
 
-// Added SyncTable type for IndexedDB store names
 export type SyncTable = 'users' | 'audit_log' | 'clients' | 'client_transfer_requests' | 'sales' | 'commission_basic' | 'commission_natal' | 'commission_custom' | 'config' | 'accounts' | 'cards' | 'transactions' | 'categories' | 'goals' | 'challenges' | 'challenge_cells' | 'receivables' | 'wa_contacts' | 'wa_tags' | 'wa_campaigns' | 'wa_queue' | 'wa_manual_logs' | 'wa_campaign_stats' | 'internal_messages' | 'sync_queue';
 
 export type ChallengeModel = 'LINEAR' | 'PROPORTIONAL' | 'CUSTOM';
@@ -337,6 +340,8 @@ export interface LogEntry {
   message: string;
   details?: any;
   userAgent: string;
+  userId?: string;
+  userName?: string;
 }
 
 export type AudioType = 'NOTIFICATION' | 'ALERT' | 'SUCCESS' | 'WARNING';
@@ -369,7 +374,7 @@ export interface WACampaign {
   totalContacts: number;
   sentCount: number;
   config: {
-    speed: 'SAFE' | 'FAST' | 'INSTANT';
+    speed: WASpeed;
     startTime: string;
     endTime: string;
   };
@@ -383,7 +388,7 @@ export interface WACampaign {
   };
   media?: {
     data: string;
-    type: 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
+    type: WAMediaType;
     name: string;
   };
 }
@@ -501,27 +506,22 @@ export interface ClientTransferRequest {
   updatedAt: string;
 }
 
-// Added DuplicateGroup interface for deduplication flows
 export interface DuplicateGroup<T> {
   id: string;
   items: T[];
 }
 
-// Added WhatsAppErrorCode union for feedback flows
 export type WhatsAppErrorCode = 'BLOCKED_BY_USER' | 'PHONE_NOT_REGISTERED' | 'INVALID_PHONE' | 'NETWORK_ERROR' | 'RATE_LIMITED' | 'UNKNOWN_ERROR';
 
-// Added WASyncConfig interface for WhatsApp synchronization settings
 export interface WASyncConfig {
   tablesToSync: ('wa_contacts' | 'wa_campaigns' | 'wa_delivery_logs' | 'wa_campaign_stats')[];
   syncFrequency: 'REALTIME' | 'HOURLY' | 'DAILY' | 'MANUAL';
   includeErrorDetails: boolean;
 }
 
-// Added WASpeed and WAMediaType unions for campaign wizard
 export type WASpeed = 'SAFE' | 'FAST' | 'INSTANT';
 export type WAMediaType = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'DOCUMENT';
 
-// Added NtfyPayload interface for Firebase Cloud Functions
 export interface NtfyPayload {
   topic: string;
   message: string;

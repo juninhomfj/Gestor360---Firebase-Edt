@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Sale, ProductType, DashboardWidgetConfig, Transaction, User, SalesTargets } from '../types'; 
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -94,24 +95,20 @@ const Dashboard: React.FC<DashboardProps> = ({
       setShowAi(true);
   };
 
-  // Filtragem de vendas ativas (não deletadas)
   const activeSales = sales.filter(s => !s.deleted);
 
-  // Vendas de Básica do Mês Vigente
   const basicSalesMonth = activeSales.filter(s => {
     if (!s.date) return false;
     const d = new Date(s.date);
     return s.type === ProductType.BASICA && d.getMonth() === currentMonth && d.getFullYear() === currentYear;
   });
 
-  // Vendas de Natal do Ano Inteiro
   const natalSalesYear = activeSales.filter(s => {
     if (!s.date) return false;
     const d = new Date(s.date);
     return s.type === ProductType.NATAL && d.getFullYear() === currentYear;
   });
 
-  // COMISSÃO TOTAL DO MÊS
   const totalCommissionMonth = activeSales.filter(s => {
       if (!s.date) return false;
       const d = new Date(s.date);
@@ -170,7 +167,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   const basicProgress = salesTargets?.basic ? Math.min((basicQtyMonth / salesTargets.basic) * 100, 100) : 0;
   const natalProgress = salesTargets?.natal ? Math.min((natalQtyYear / salesTargets.natal) * 100, 100) : 0;
 
-  // COMPONENTE DE ESTADO VAZIO
   if (activeSales.length === 0) {
       return (
           <div className="flex flex-col items-center justify-center min-h-[70vh] text-center p-6 animate-in fade-in zoom-in duration-500">
@@ -437,7 +433,7 @@ const Dashboard: React.FC<DashboardProps> = ({
                           />
                       </div>
                   </div>
-                  <button handleSaveTargets={() => handleSaveTargets()} className="w-full mt-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg">Salvar Metas</button>
+                  <button onClick={handleSaveTargets} className="w-full mt-6 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-colors shadow-lg">Salvar Metas</button>
               </div>
           </div>
       )}

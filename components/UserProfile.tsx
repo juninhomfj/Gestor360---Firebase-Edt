@@ -1,10 +1,12 @@
+
 import React, { useState, useRef } from 'react';
 import { User, UserPermissions } from '../types';
 import { logout, updateUser, deactivateUser } from '../services/auth';
 import { requestAndSaveToken } from '../services/pushService';
 import { 
+  // Add missing X icon import
   Save, User as UserIcon, LogOut, Camera, CheckCircle, 
-  AlertTriangle, Shield, Lock, UserX, ShieldAlert, Bell, BellRing, Loader2
+  AlertTriangle, Shield, Lock, UserX, ShieldAlert, Bell, BellRing, Loader2, Key, Info, Check, ShieldCheck, X
 } from 'lucide-react';
 import { optimizeImage } from '../utils/fileHelper';
 import { safeFirstChar } from '../utils/stringUtils';
@@ -14,10 +16,13 @@ interface UserProfileProps {
   onUpdate: (user: User) => void;
 }
 
+// Fix: Added missing properties abc_analysis, ltv_details, ai_retention, manual_billing, audit_logs to DEFAULT_MODULES_FALLBACK
 const DEFAULT_MODULES_FALLBACK: UserPermissions = {
     sales: true, finance: true, crm: true, whatsapp: false,
     reports: true, ai: true, dev: false, settings: true,
-    news: true, receivables: true, distribution: true, imports: true
+    news: true, receivables: true, distribution: true, imports: true,
+    abc_analysis: true, ltv_details: true, ai_retention: true,
+    manual_billing: true, audit_logs: true
 };
 
 const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }) => {
@@ -26,6 +31,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
   const [tel, setTel] = useState(currentUser?.tel || '');
   const [profilePhoto, setProfilePhoto] = useState(currentUser?.profilePhoto || '');
   const [contactVisibility, setContactVisibility] = useState(currentUser?.contactVisibility || 'PUBLIC');
+  const [showPermAudit, setShowPermAudit] = useState(false);
   
   // Proteção de inicialização: Se permissions for null/undefined, usa o fallback padrão
   const [modules, setModules] = useState<UserPermissions>(currentUser?.permissions || DEFAULT_MODULES_FALLBACK);
@@ -149,8 +155,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                 <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*" className="hidden" />
                 <div className="text-center">
                     <p className="font-bold text-gray-900 dark:text-white">@{username || 'usuario'}</p>
-                    <div className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${currentUser?.role === 'DEV' ? 'bg-purple-100 text-purple-700' : 'bg-indigo-100 text-indigo-700'}`}>
-                        <Shield size={10} className="mr-1"/> {currentUser?.role || 'USER'}
+                    <div className={`mt-2 inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${currentUser?.role === 'DEV' ? 'bg-purple-600 text-white shadow-lg shadow-purple-900/40' : 'bg-indigo-100 text-indigo-700'}`}>
+                        <ShieldCheck size={10} className="mr-1"/> {currentUser?.role || 'USER'}
                     </div>
                 </div>
                 
@@ -166,18 +172,22 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                 </div>
             </div>
 
-            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm">
-                <h3 className="text-xs font-black text-gray-400 uppercase mb-4 flex items-center gap-2 tracking-widest">
-                    <Lock size={14} /> Permissões
-                </h3>
-                <div className="grid grid-cols-2 lg:grid-cols-1 gap-2">
-                    {/* Proteção: Garante que modules nunca seja null para o Object.keys */}
-                    {Object.keys(modules || {}).map((mod) => (
-                        <div key={mod} className={`flex items-center justify-between p-2 rounded-lg text-[10px] font-bold uppercase transition-all ${modules[mod as keyof typeof modules] ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20' : 'bg-gray-50 text-gray-400 opacity-50'}`}>
-                            <span className="truncate">{mod}</span>
-                            {modules[mod as keyof typeof modules] ? <CheckCircle size={12}/> : <Lock size={12}/>}
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm overflow-hidden">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-xs font-black text-gray-400 uppercase flex items-center gap-2 tracking-widest">
+                        <Lock size={14} /> Permissões {currentUser?.role === 'DEV' && <span className="text-[9px] text-purple-500 font-black animate-pulse">(ROOT ACTIVE)</span>}
+                    </h3>
+                    <button onClick={() => setShowPermAudit(!showPermAudit)} className="text-[10px] font-bold text-indigo-500 hover:underline">Auditar</button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-2">
+                    {Object.keys(modules || {}).slice(0, 8).map((mod) => (
+                        <div key={mod} className={`flex items-center justify-between p-2 rounded-lg text-[10px] font-bold uppercase transition-all ${modules[mod as keyof typeof modules] || currentUser?.role === 'DEV' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20' : 'bg-gray-50 text-gray-400 opacity-50'}`}>
+                            <span className="truncate">{mod.replace('_', ' ')}</span>
+                            {(modules[mod as keyof typeof modules] || currentUser?.role === 'DEV') ? <CheckCircle size={12}/> : <Lock size={12}/>}
                         </div>
                     ))}
+                    {!showPermAudit && <p className="text-[9px] text-center text-gray-400 mt-2">Clique em auditar para ver o relatório completo.</p>}
                 </div>
             </div>
           </div>
@@ -202,6 +212,36 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                     </div>
                 </div>
             </div>
+
+            {showPermAudit && (
+                <div className="bg-white dark:bg-slate-900 rounded-2xl border-2 border-indigo-500/20 p-8 shadow-xl animate-in zoom-in-95">
+                    <div className="flex justify-between items-center mb-6">
+                        <h3 className="font-black text-indigo-600 flex items-center gap-2 uppercase text-xs tracking-widest"><Key size={16}/> Relatório de Autoridade</h3>
+                        <button onClick={() => setShowPermAudit(false)}><X size={20} className="text-gray-400"/></button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        {Object.keys(modules || {}).map(mod => {
+                            const val = (modules as any)[mod];
+                            const isRootBypass = currentUser?.role === 'DEV';
+                            return (
+                                <div key={mod} className={`p-4 rounded-xl border flex items-center justify-between ${val || isRootBypass ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200' : 'bg-red-50 dark:bg-red-900/10 border-red-200 opacity-60'}`}>
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase text-gray-400 mb-0.5">{mod}</p>
+                                        <p className="text-xs font-bold">{val || isRootBypass ? 'HABILITADO' : 'BLOQUEADO'}</p>
+                                    </div>
+                                    {val || isRootBypass ? <Check className="text-emerald-500"/> : <Lock className="text-red-500" size={16}/>}
+                                </div>
+                            );
+                        })}
+                    </div>
+                    {currentUser?.role === 'DEV' && (
+                        <div className="mt-6 p-4 rounded-xl bg-purple-50 dark:bg-purple-900/20 border border-purple-200 text-purple-700 dark:text-purple-300 text-xs flex gap-3">
+                            <Info size={16} className="shrink-0" />
+                            <p><b>Nota de Engenharia:</b> Seu perfil é tipo <b>DEV</b>. Todas as travas booleanas de UI são ignoradas por padrão (Root Override).</p>
+                        </div>
+                    )}
+                </div>
+            )}
 
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4 pt-6">
                 <button onClick={() => setShowDeactivateConfirm(true)} className="text-red-500 text-xs font-black uppercase tracking-widest hover:underline flex items-center gap-2 transition-all active:scale-95"><UserX size={14}/> Desativar Conta</button>

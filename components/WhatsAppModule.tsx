@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { MessageCircle, Users, Send, Play, CheckCircle, Plus, ExternalLink, Copy, ArrowRight, BarChart2, Wand2, Smartphone, Volume2, Loader2, Sparkles, TrendingUp, DollarSign, UploadCloud } from 'lucide-react';
+import { MessageCircle, Users, Send, Play, CheckCircle, Plus, ExternalLink, Copy, ArrowRight, BarChart2, Wand2, Smartphone, Volume2, Loader2, Sparkles, TrendingUp, DollarSign, UploadCloud, Archive, RotateCcw } from 'lucide-react';
 import { WAContact, WATag, WACampaign, WAMessageQueue, Sale } from '../types';
 import { getWAContacts, getWATags, getWACampaigns, saveWACampaign, createCampaignQueue, getWAQueue, updateQueueStatus, copyToClipboard, openWhatsAppWeb, copyImageToClipboard, exportWAContactsToServer, createWACampaignRemote } from '../services/whatsappService';
 import { WhatsAppManualLogger } from '../services/whatsappLogger';
+import { archiveWACampaign } from '../services/logic';
 import { generateAudioMessage } from '../services/aiService';
 import WhatsAppPreview from './WhatsAppPreview';
 import WhatsAppCampaignWizard from './WhatsAppCampaignWizard';
@@ -22,6 +23,7 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
   const [contacts, setContacts] = useState<WAContact[]>([]);
   const [tags, setTags] = useState<WATag[]>([]);
   const [campaigns, setCampaigns] = useState<WACampaign[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
   const [activeCampaign, setActiveCampaign] = useState<WACampaign | null>(null);
   const [queue, setQueue] = useState<WAMessageQueue[]>([]);
   const [currentItem, setCurrentItem] = useState<WAMessageQueue | null>(null);
@@ -65,6 +67,11 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
       
       const logId = await WhatsAppManualLogger.startInteraction(campaign.id, contacts.find(c => c.id === pending[0].contactId)!, campaign.config.speed);
       setActiveLogId(logId);
+  };
+
+  const handleArchive = async (campaignId: string, status: boolean) => {
+      await archiveWACampaign(campaignId, status);
+      loadData();
   };
 
   const handleExportToServer = async () => {
@@ -115,6 +122,8 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
           }
       }
   };
+
+  const visibleCampaigns = campaigns.filter(c => (c as any).isArchived === showArchived);
 
   return (
     <div className="flex flex-col h-[calc(100vh-6rem)] animate-in fade-in duration-500">
@@ -189,19 +198,35 @@ const WhatsAppModule: React.FC<WhatsAppModuleProps> = ({ darkMode, sales = [] })
                         </div>
                     </div>
 
+                    <div className="flex justify-between items-center px-2">
+                        <h4 className="text-xs font-black text-gray-400 uppercase tracking-widest">{showArchived ? 'Campanhas Arquivadas' : 'Campanhas Ativas'}</h4>
+                        <button onClick={() => setShowArchived(!showArchived)} className="text-[10px] font-bold text-indigo-500 flex items-center gap-1 hover:underline">
+                            {showArchived ? <RotateCcw size={12}/> : <Archive size={12}/>}
+                            {showArchived ? 'Ver Ativas' : 'Ver Arquivadas'}
+                        </button>
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {campaigns.map(c => (
+                        {visibleCampaigns.map(c => (
                             <div key={c.id} className={`p-6 rounded-2xl border transition-all hover:shadow-lg ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-100 shadow-sm'}`}>
-                                <h4 className="font-bold text-lg truncate">{c.name}</h4>
+                                <div className="flex justify-between items-start mb-2">
+                                    <h4 className="font-bold text-lg truncate flex-1">{c.name}</h4>
+                                    <button onClick={() => handleArchive(c.id, !showArchived)} className="p-1.5 text-gray-400 hover:text-indigo-500 rounded-lg">
+                                        {showArchived ? <RotateCcw size={16}/> : <Archive size={16}/>}
+                                    </button>
+                                </div>
                                 <div className="flex gap-2 mt-2">
                                     <span className="text-[10px] font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">{c.totalContacts} Contatos</span>
                                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${c.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{c.status}</span>
                                 </div>
                                 <button onClick={() => handleStartCampaign(c)} className="w-full mt-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2">
-                                    <Play size={16} fill="currentColor" /> Retomar Disparos
+                                    <Play size={16} fill="currentColor" /> {showArchived ? 'Visualizar' : 'Retomar Disparos'}
                                 </button>
                             </div>
                         ))}
+                        {visibleCampaigns.length === 0 && (
+                            <div className="col-span-full py-12 text-center text-gray-400 text-sm italic">Nenhuma campanha {showArchived ? 'arquivada' : 'ativa'} encontrada.</div>
+                        )}
                     </div>
                 </div>
             )}

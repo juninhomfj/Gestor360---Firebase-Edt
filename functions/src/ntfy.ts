@@ -61,7 +61,7 @@ export const sendNtfyNotification = functions.https.onCall(async (data: NtfyPayl
     };
 
     if (title) headers['Title'] = title;
-    // Fix: Convert priority number to string for headers
+    // Conversão explícita para string exigida pela biblioteca fetch
     if (priority) headers['Priority'] = String(priority);
     if (tags && Array.isArray(tags)) headers['Tags'] = tags.join(',');
 

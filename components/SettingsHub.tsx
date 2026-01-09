@@ -2,8 +2,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CommissionRule, ProductType, ReportConfig, SystemConfig, AppTheme, User, Sale, AudioType } from '../types';
 import CommissionEditor from './CommissionEditor';
-import ClientManagementHub from './ClientManagementHub'; // Atualizado
-import { Settings, Shield, Volume2, Trash2, User as UserIcon, Activity, Hammer, X, ArrowLeft, Users, Save, Bell, Key, Terminal, Eraser } from 'lucide-react';
+import ClientManagementHub from './ClientManagementHub';
+import { Settings as SettingsIcon, Shield, Volume2, Trash2, User as UserIcon, Activity, Hammer, X, ArrowLeft, Users, Save, Bell, Key, Terminal, Eraser, BookOpen, Sparkles, ToggleLeft, ToggleRight, Layout, Info, HardDrive, ShieldAlert } from 'lucide-react';
 import { getSystemConfig, saveSystemConfig, DEFAULT_SYSTEM_CONFIG } from '../services/logic';
 import { auth } from '../services/firebase';
 import { fileToBase64, optimizeImage } from '../utils/fileHelper';
@@ -14,6 +14,8 @@ import AdminUsers from './AdminUsers';
 import DevRoadmap from './DevRoadmap';
 import TrashBin from './TrashBin'; 
 import AdminMessaging from './AdminMessaging';
+import TrainingHub from './TrainingHub';
+import AuditLogExplorer from './AuditLogExplorer';
 
 interface SettingsHubProps {
   rulesBasic: CommissionRule[];
@@ -37,7 +39,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
   darkMode, onThemeChange, currentUser, onUpdateUser, sales, onUpdateSales, onNotify,
   isAdmin, isDev
 }) => {
-  const [activeTab, setActiveTab] = useState<'PROFILE' | 'SYSTEM' | 'USERS' | 'CLOUD' | 'COMMISSIONS' | 'ROADMAP' | 'SOUNDS' | 'TRASH' | 'CLIENTS' | 'MESSAGING' | 'LOGS'>('PROFILE');
+  const [activeTab, setActiveTab] = useState<'PROFILE' | 'SYSTEM' | 'USERS' | 'COMMISSIONS' | 'ROADMAP' | 'SOUNDS' | 'TRASH' | 'CLIENTS' | 'MESSAGING' | 'LOGS' | 'UNIVERSITY' | 'AUDIT_FULL'>('PROFILE');
   const [commissionTab, setCommissionTab] = useState<ProductType>(ProductType.BASICA); 
   const [showMobileContent, setShowMobileContent] = useState(false);
   
@@ -57,19 +59,25 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
 
   useEffect(() => {
       const loadConfig = async () => {
-          const cfg = await getSystemConfig();
-          setSystemConfig(cfg);
-          
-          if (cfg.notificationSounds) {
-              setNotificationSound(cfg.notificationSound || cfg.notificationSounds.sound || '');
-              setSoundEnabled(cfg.notificationSounds.enabled);
-              setSoundVolume(cfg.notificationSounds.volume);
-          } else {
-              setNotificationSound(cfg.notificationSound || '');
+          try {
+              const cfg = await getSystemConfig();
+              if (!cfg) return;
+
+              setSystemConfig(cfg);
+              
+              if (cfg.notificationSounds) {
+                  setNotificationSound(cfg.notificationSound || cfg.notificationSounds.sound || '');
+                  setSoundEnabled(!!cfg.notificationSounds.enabled);
+                  setSoundVolume(cfg.notificationSounds.volume ?? 1);
+              } else {
+                  setNotificationSound(cfg.notificationSound || '');
+              }
+              setAlertSound(cfg.alertSound || '');
+              setSuccessSound(cfg.successSound || '');
+              setWarningSound(cfg.warningSound || '');
+          } catch (err) {
+              console.error("[SettingsHub] Failed to load config", err);
           }
-          setAlertSound(cfg.alertSound || '');
-          setSuccessSound(cfg.successSound || '');
-          setWarningSound(cfg.warningSound || '');
       };
       loadConfig();
   }, []);
@@ -79,8 +87,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
       if (!file) return;
       try {
           const base64 = await fileToBase64(file);
-          if (uploadingFor === 'GENERAL') setNotificationSound(base64);
-          else if (uploadingFor === 'NOTIFICATION') setNotificationSound(base64);
+          if (uploadingFor === 'GENERAL' || uploadingFor === 'NOTIFICATION') setNotificationSound(base64);
           else if (uploadingFor === 'ALERT') setAlertSound(base64);
           else if (uploadingFor === 'SUCCESS') setSuccessSound(base64);
           else if (uploadingFor === 'WARNING') setWarningSound(base64);
@@ -102,6 +109,16 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
           await Logger.clearLogs();
           onNotify('INFO', 'Logs locais limpos.');
       }
+  };
+
+  const toggleGlobalModule = (mod: string) => {
+      const current = systemConfig.modules || DEFAULT_SYSTEM_CONFIG.modules!;
+      const nextModules = { ...current, [mod]: !(current as any)[mod] };
+      setSystemConfig({ ...systemConfig, modules: nextModules });
+  };
+
+  const toggleMaintenance = () => {
+      setSystemConfig({ ...systemConfig, isMaintenanceMode: !systemConfig.isMaintenanceMode });
   };
 
   const handleSaveSystemSettings = async () => {
@@ -127,20 +144,25 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
       setShowMobileContent(true);
   };
 
-  const NavBtn = ({ id, icon: Icon, label, show = true }: any) => {
+  const NavBtn = ({ id, icon: Icon, label, show = true, badge }: any) => {
       if (!show) return null;
       const active = activeTab === id;
+      if (!Icon) return null;
+
       return (
           <button 
             onClick={() => handleTabSelect(id)}
-            className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-xl transition-all mb-1 text-left ${
+            className={`w-full flex items-center justify-between px-4 py-3 text-sm font-bold rounded-xl transition-all mb-1 text-left ${
                 active 
                 ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/20'
                 : (darkMode ? 'text-slate-400 hover:bg-white/5 hover:text-white' : 'text-gray-600 hover:bg-gray-100')
             }`}
           >
-              <Icon size={18} className={active ? 'text-white' : 'text-indigo-500'} />
-              {label}
+              <div className="flex items-center gap-3">
+                <Icon size={18} className={active ? 'text-white' : 'text-indigo-500'} />
+                {label}
+              </div>
+              {badge && <span className="px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[8px] font-black">{badge}</span>}
           </button>
       )
   };
@@ -154,12 +176,13 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
            <div className={`p-4 rounded-2xl border ${darkMode ? 'bg-slate-900/50 border-slate-800' : 'bg-white border-gray-200'} shadow-sm`}>
                <h2 className="px-2 mb-4 text-[10px] font-black uppercase tracking-widest text-indigo-500">Perfil & App</h2>
                <NavBtn id="PROFILE" icon={UserIcon} label="Meu Perfil" />
+               <NavBtn id="UNIVERSITY" icon={BookOpen} label="Training Center" badge="ONBOARD" />
                <NavBtn id="SOUNDS" icon={Volume2} label="Sons & Avisos" />
                <NavBtn id="LOGS" icon={Terminal} label="Logs & Diagnóstico" />
-               <NavBtn id="SYSTEM" icon={Settings} label="Sistema (Admin)" show={isAdmin} />
+               <NavBtn id="SYSTEM" icon={SettingsIcon} label="Sistema (Admin)" show={isAdmin} />
                
                <h2 className="px-2 mb-4 mt-6 text-[10px] font-black uppercase tracking-widest text-indigo-500">Módulos</h2>
-               <NavBtn id="COMMISSIONS" icon={Settings} label="Tabelas de Comissão" />
+               <NavBtn id="COMMISSIONS" icon={SettingsIcon} label="Tabelas de Comissão" />
                <NavBtn id="CLIENTS" icon={Users} label="Gestão de Clientes" />
                <NavBtn id="TRASH" icon={Trash2} label="Lixeira" />
 
@@ -168,6 +191,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
                        <div className="my-6 border-t dark:border-slate-800 border-gray-100"></div>
                        <h2 className="px-2 mb-4 text-[10px] font-black uppercase tracking-widest text-amber-500">Administração</h2>
                        <NavBtn id="USERS" icon={Shield} label="Usuários Cloud" />
+                       <NavBtn id="AUDIT_FULL" icon={HardDrive} label="Audit Global" />
                        <NavBtn id="MESSAGING" icon={Bell} label="Comunicados Hub" />
                        <NavBtn id="ROADMAP" icon={Hammer} label="Roadmap" />
                    </>
@@ -187,8 +211,10 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
 
            <div className="space-y-6">
                {activeTab === 'PROFILE' && <UserProfile user={currentUser} onUpdate={onUpdateUser} />}
+               {activeTab === 'UNIVERSITY' && <TrainingHub onClose={() => setActiveTab('PROFILE')} darkMode={!!darkMode} />}
                {activeTab === 'USERS' && (isAdmin || isDev) && <AdminUsers currentUser={currentUser} />}
                {activeTab === 'MESSAGING' && (isAdmin || isDev) && <AdminMessaging currentUser={currentUser} darkMode={!!darkMode} />}
+               {activeTab === 'AUDIT_FULL' && (isAdmin || isDev) && <AuditLogExplorer darkMode={!!darkMode} />}
                
                {activeTab === 'LOGS' && (
                     <div className={`p-8 rounded-2xl border shadow-sm animate-in fade-in slide-in-from-right-2 ${darkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-gray-100'}`}>
@@ -222,8 +248,49 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
                             <h3 className="text-xl font-black">Infraestrutura Administrativa</h3>
                         </div>
                         
-                        <div className="space-y-6">
-                            <div className="p-5 rounded-2xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-800">
+                        <div className="space-y-10">
+                            {/* Módulos Globais */}
+                            <div className="p-6 rounded-3xl bg-slate-50 dark:bg-slate-800/30 border border-gray-200 dark:border-slate-800">
+                                <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+                                    <Layout size={14} className="text-indigo-500" /> Interruptores de Módulos Globais
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {['ai', 'whatsapp', 'sales', 'finance', 'receivables', 'reports'].map((mod) => {
+                                        const isEnabled = (systemConfig.modules as any)?.[mod] ?? true;
+                                        return (
+                                            <button 
+                                                key={mod}
+                                                onClick={() => toggleGlobalModule(mod)}
+                                                className={`p-4 rounded-2xl border flex items-center justify-between transition-all ${isEnabled ? 'bg-white dark:bg-slate-800 border-emerald-500/30 shadow-md' : 'bg-gray-100 dark:bg-black/20 border-gray-200 dark:border-slate-800 opacity-60'}`}
+                                            >
+                                                <span className="text-xs font-black uppercase tracking-wider">{mod}</span>
+                                                {isEnabled ? <ToggleRight className="text-emerald-500" size={28}/> : <ToggleLeft className="text-gray-400" size={28}/>}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <div className="mt-4 flex gap-2 text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-900/10 p-3 rounded-xl border border-amber-100 dark:border-amber-800">
+                                    <Info size={14} className="shrink-0"/>
+                                    <p>Estes controles afetam a visibilidade dos módulos para <b>todos os usuários</b> do sistema, exceto Desenvolvedores.</p>
+                                </div>
+                            </div>
+
+                            {/* MODO MANUTENÇÃO (NEW) */}
+                            <div className={`p-6 rounded-3xl border transition-all ${systemConfig.isMaintenanceMode ? 'bg-red-500/10 border-red-500 shadow-lg shadow-red-900/20' : 'bg-slate-50 dark:bg-slate-800/30 border-gray-200'}`}>
+                                <div className="flex items-center justify-between mb-4">
+                                    <h4 className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${systemConfig.isMaintenanceMode ? 'text-red-500' : 'text-gray-400'}`}>
+                                        <ShieldAlert size={14} /> Modo de Manutenção Global
+                                    </h4>
+                                    <button onClick={toggleMaintenance}>
+                                        {systemConfig.isMaintenanceMode ? <ToggleRight className="text-red-500" size={32}/> : <ToggleLeft className="text-gray-400" size={32}/>}
+                                    </button>
+                                </div>
+                                <p className="text-xs text-gray-500 leading-relaxed">
+                                    Ao ativar o Modo de Manutenção, o sistema bloqueia qualquer nova inserção ou edição de dados (Vendas/Financeiro) para todos os usuários comum. Apenas <b>DEV (Root)</b> permanece com permissões de escrita ativas. Use para backups estruturais ou atualizações de banco.
+                                </p>
+                            </div>
+
+                            <div className="p-6 rounded-3xl bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-800">
                                 <label className="block text-xs font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest mb-3 flex items-center gap-2">
                                     <Bell size={14}/> Notificações Push (Gateway)
                                 </label>
@@ -243,7 +310,7 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
 
                         <div className="mt-10 pt-6 border-t dark:border-slate-800 flex justify-end">
                             <button onClick={handleSaveSystemSettings} className="w-full md:w-auto px-10 py-4 bg-indigo-600 text-white font-black rounded-xl active:scale-95 transition-all shadow-xl hover:bg-indigo-700 uppercase text-xs tracking-widest">
-                               <Save size={18} className="inline mr-2"/> Gravar Chave FCM
+                               <Save size={18} className="inline mr-2"/> Gravar Alterações Globais
                             </button>
                         </div>
                     </div>
@@ -258,8 +325,6 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
                     <div className="overflow-x-hidden">
                         <CommissionEditor 
                             type={commissionTab} 
-                            initialRules={commissionTab === ProductType.BASICA ? rulesBasic : rulesNatal} 
-                            onSave={(t, r) => onSaveRules(t, r)} 
                             readOnly={!isDev && !isAdmin} 
                             currentUser={currentUser} 
                         />
@@ -303,9 +368,10 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
                                 value={notificationSound} 
                                 onUpload={() => openUpload('GENERAL')} 
                                 onTest={() => {
+                                    if (!notificationSound) return;
                                     const a = new Audio(notificationSound);
                                     a.volume = soundVolume;
-                                    a.play();
+                                    a.play().catch(() => {});
                                 }} 
                                 onDelete={() => setNotificationSound('')} 
                             />
@@ -314,9 +380,10 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
                                 value={alertSound} 
                                 onUpload={() => openUpload('ALERT')} 
                                 onTest={() => {
+                                    if (!alertSound) return;
                                     const a = new Audio(alertSound);
                                     a.volume = soundVolume;
-                                    a.play();
+                                    a.play().catch(() => {});
                                 }} 
                                 onDelete={() => setAlertSound('')} 
                             />
@@ -325,9 +392,10 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
                                 value={successSound} 
                                 onUpload={() => openUpload('SUCCESS')} 
                                 onTest={() => {
+                                    if (!successSound) return;
                                     const a = new Audio(successSound);
                                     a.volume = soundVolume;
-                                    a.play();
+                                    a.play().catch(() => {});
                                 }} 
                                 onDelete={() => setSuccessSound('')} 
                             />
@@ -336,9 +404,10 @@ const SettingsHub: React.FC<SettingsHubProps> = ({
                                 value={warningSound} 
                                 onUpload={() => openUpload('WARNING')} 
                                 onTest={() => {
+                                    if (!warningSound) return;
                                     const a = new Audio(warningSound);
                                     a.volume = soundVolume;
-                                    a.play();
+                                    a.play().catch(() => {});
                                 }} 
                                 onDelete={() => setWarningSound('')} 
                             />

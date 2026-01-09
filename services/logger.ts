@@ -1,8 +1,9 @@
+
 import { dbPut, dbGetAll, initDB } from '../storage/db';
 import { LogEntry, LogLevel } from '../types';
 import { db, auth } from './firebase';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { sanitizeForFirestore } from './logic';
+import { sanitizeForFirestore } from '../utils/firestoreUtils';
 
 const LOG_STORE = 'audit_log';
 
@@ -10,6 +11,10 @@ export const Logger = {
     async log(level: LogLevel, message: string, details?: any) {
         const uid = auth.currentUser?.uid || 'anonymous';
         
+        // Detecção de navegador simplificada
+        const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+        const browser = isIOS ? 'Safari/iOS' : 'Generic/Mobile';
+
         const safeDetails = details ? sanitizeForFirestore(JSON.parse(JSON.stringify(details))) : null;
 
         const entry: LogEntry = {
@@ -21,8 +26,14 @@ export const Logger = {
         };
 
         try {
-            await dbPut(LOG_STORE, entry);
+            // Persistência local (IDB) - Pode falhar em Safari Private
+            try {
+                await dbPut(LOG_STORE, entry);
+            } catch (idbErr) {
+                console.warn("[Logger] Falha ao gravar localmente:", idbErr);
+            }
             
+            // Persistência Cloud (Principal)
             if (auth.currentUser) {
                 const cloudLogRef = doc(collection(db, "audit_log"));
                 await setDoc(cloudLogRef, {
@@ -30,14 +41,18 @@ export const Logger = {
                     details: safeDetails,
                     userId: uid,
                     userName: auth.currentUser.displayName || 'System User',
+                    browserInfo: browser,
+                    deviceTime: new Date().toISOString(),
                     createdAt: serverTimestamp()
                 });
             }
 
-            if (process.env.NODE_ENV === 'development') {
+            // Console output em ambiente dev ou para erros críticos
+            if (process.env.NODE_ENV === 'development' || level === 'ERROR' || level === 'CRASH') {
                 console.log(`[${level}] ${message}`, details);
             }
         } catch (e) {
+            // Em último caso, tenta pelo menos o console
             console.error("Critical Failure: Audit Log Error", e);
         }
     },
@@ -58,10 +73,10 @@ export const Logger = {
         this.log('CRASH', error.message, { stack: error.stack, componentStack });
     },
 
-    async getLogs(limit = 200): Promise<LogEntry[]> {
+    async getLogs(limitVal = 200): Promise<LogEntry[]> {
         try {
             const allLogs = await dbGetAll(LOG_STORE);
-            return allLogs.sort((a: LogEntry, b: LogEntry) => b.timestamp - a.timestamp).slice(0, limit);
+            return allLogs.sort((a: LogEntry, b: LogEntry) => b.timestamp - a.timestamp).slice(0, limitVal);
         } catch (e) {
             return [];
         }

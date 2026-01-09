@@ -1,14 +1,14 @@
 {
-  "name": "Gestor 360 - BASELINE STABLE",
-  "description": "Sistema V1.0.0 - Baseline funcional com parsing robusto de leitura e auditoria de funcionalidades concluída.",
-  "version": "1.0.0",
+  "name": "Gestor 360 - ENTERPRISE ANALYTICS",
+  "description": "Sistema V3.1.5 - Governança global de módulos, Auditoria de Autoridade Root e University 360 Expandida.",
+  "version": "3.1.5",
   "releaseDate": "2025-02-27",
   "features": [
-    "Auth: Firebase Authentication Nativo",
-    "Database: Cloud Firestore com persistência sincronizada",
-    "Security: Reset administrativo via Admin SDK (Cloud Function)",
-    "Engine: Parser decimal Zero-Migration na camada de leitura",
-    "UI: SalesList otimizado com paginação e filtros combinados"
+    "BI: Classificação ABC (Pareto) automática por faturamento",
+    "Admin: Toggles globais de módulos (System Override)",
+    "Training: University 360 com guias para WhatsApp, Finanças e IA",
+    "Security: Widget de Auditoria de Permissões no Perfil do Usuário",
+    "Core: Bypass de segurança Root para perfis de engenharia (DEV)"
   ],
   "requestFramePermissions": [
     "camera",

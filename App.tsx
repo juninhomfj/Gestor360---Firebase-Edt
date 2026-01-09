@@ -33,14 +33,14 @@ import {
     User, Sale, AppMode, AppTheme, FinanceAccount, Transaction, CreditCard,
     TransactionCategory, FinanceGoal, Challenge, ChallengeCell, Receivable,
     CommissionRule, ReportConfig, SalesTargets, ProductType,
-    DashboardWidgetConfig, Client
+    DashboardWidgetConfig, Client, AppNotification
 } from './types';
 
 import {
     getStoredSales, getFinanceData, getSystemConfig, getReportConfig,
     getStoredTable, saveSingleSale, getClients,
     saveCommissionRules, bootstrapProductionData, saveReportConfig,
-    canAccess, handleSoftDelete
+    canAccess, handleSoftDelete, clearNotifications
 } from './services/logic';
 
 import { reloadSession, logout } from './services/auth';
@@ -50,7 +50,6 @@ import { ShieldAlert, LogOut, Loader2 } from 'lucide-react';
 
 type AuthView = 'LOGIN' | 'REQUEST_RESET' | 'APP' | 'ERROR' | 'LOADING' | 'BLOCKED';
 
-// Loader minimalista para transições de módulos lazy
 const ModuleLoader = () => (
     <div className="flex flex-col items-center justify-center min-h-[400px] animate-in fade-in duration-500">
         <Loader2 className="text-indigo-500 animate-spin mb-4" size={40} />
@@ -75,6 +74,7 @@ const App: React.FC = () => {
     const [showSnow, setShowSnow] = useState(() => localStorage.getItem('sys_snow_enabled') === 'true');
     
     const [toasts, setSortedToasts] = useState<ToastMessage[]>([]);
+    const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
     const { isDev, isAdmin } = useMemo(() => {
         if (!currentUser) return { isDev: false, isAdmin: false };
@@ -99,9 +99,10 @@ const App: React.FC = () => {
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [categories, setCategories] = useState<TransactionCategory[]>([]);
     const [goals, setGoals] = useState<FinanceGoal[]>([]);
+    const [receivables, setReceivables] = useState<Receivable[]>([]);
+    // Added missing state for challenges and challenge cells
     const [challenges, setChallenges] = useState<Challenge[]>([]);
     const [cells, setCells] = useState<ChallengeCell[]>([]);
-    const [receivables, setReceivables] = useState<Receivable[]>([]);
     const [rulesBasic, setRulesBasic] = useState<CommissionRule[]>([]);
     const [rulesNatal, setRulesNatal] = useState<CommissionRule[]>([]);
     const [reportConfig, setReportConfig] = useState<ReportConfig>({
@@ -119,6 +120,15 @@ const App: React.FC = () => {
 
     const removeToast = (id: string) => {
         setSortedToasts(prev => prev.filter(t => t.id !== id));
+    };
+
+    const handleClearAllNotifications = async () => {
+        if (!currentUser) return;
+        setNotifications([]);
+        if (isAdmin) {
+            await clearNotifications(currentUser.id, 'ALL');
+            addToast('INFO', 'Histórico de notificações limpo para toda a rede.');
+        }
     };
 
     const handleSaveCommissionRulesInApp = async (type: ProductType, rules: CommissionRule[]) => {
@@ -200,6 +210,9 @@ const App: React.FC = () => {
             setCategories(finData.categories || []);
             setGoals(finData.goals || []);
             setReceivables(finData.receivables || []);
+            // Correctly update challenges and cells state from loaded finance data
+            setChallenges(finData.challenges || []);
+            setCells(finData.cells || []);
             
             if (rConfig?.daysForLost) setReportConfig(rConfig as ReportConfig);
         } catch (e) {
@@ -250,6 +263,8 @@ const App: React.FC = () => {
             isDev={isDev}
             showSnow={showSnow}
             onToggleSnow={() => { setShowSnow(!showSnow); localStorage.setItem('sys_snow_enabled', String(!showSnow)); }}
+            notifications={notifications}
+            onClearAllNotifications={handleClearAllNotifications}
         >
             <Suspense fallback={<ModuleLoader />}>
                 {activeTab === 'dashboard' && <Dashboard sales={sales} onNewSale={() => setShowSalesForm(true)} darkMode={true} hideValues={hideValues} config={dashboardConfig} onToggleHide={() => setHideValues(!hideValues)} onUpdateConfig={setDashboardConfig} currentUser={currentUser!} salesTargets={salesTargets} onUpdateTargets={setSalesTargets} isAdmin={isAdmin} isDev={isDev} />}

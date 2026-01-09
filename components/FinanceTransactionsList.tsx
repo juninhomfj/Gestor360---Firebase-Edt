@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import TransactionSettleModal from './TransactionSettleModal';
 import FinanceImportModal from './FinanceImportModal';
-import { processFinanceImport, readExcelFile, exportReportToCSV, saveFinanceData, markAsReconciled } from '../services/logic';
+import { processFinanceImport, readExcelFile, exportReportToCSV, saveFinanceData, markAsReconciled, bulkMarkAsReconciled } from '../services/logic';
 
 interface FinanceTransactionsListProps {
   transactions: Transaction[];
@@ -28,8 +28,9 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
   const [filterMonth, setFilterMonth] = useState('');
   
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState<number | 'ALL'>(10);
+  const [itemsPerPage, setItemsPerPage] = useState<number | 'ALL'>(25);
   
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [settleModalOpen, setSettleModalOpen] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
 
@@ -37,8 +38,6 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importData, setImportData] = useState<any[][]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [previewAttachment, setPreviewAttachment] = useState<string | null>(null);
 
   useEffect(() => {
       setViewMode(initialFilter);
@@ -77,6 +76,12 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
       await markAsReconciled(txId, !current);
   };
 
+  const handleBulkReconcile = async (status: boolean) => {
+      if (selectedIds.length === 0) return;
+      await bulkMarkAsReconciled(selectedIds, status);
+      setSelectedIds([]);
+  };
+
   const getTypeIcon = (type: string) => {
       if (type === 'INCOME') return <TrendingUp size={18} className="text-emerald-500" />;
       if (type === 'EXPENSE') return <TrendingDown size={18} className="text-red-500" />;
@@ -99,6 +104,20 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
 
   return (
       <div className="space-y-6">
+          
+          {selectedIds.length > 0 && (
+              <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[100] bg-slate-900 text-white px-6 py-4 rounded-3xl shadow-2xl flex items-center gap-6 animate-in slide-in-from-bottom-10 border border-white/10">
+                  <span className="font-black text-xs uppercase tracking-widest">{selectedIds.length} Itens Selecionados</span>
+                  <div className="h-8 w-px bg-white/20"></div>
+                  <div className="flex gap-2">
+                      <button onClick={() => handleBulkReconcile(true)} className="flex items-center gap-2 px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/40 rounded-xl text-xs font-black uppercase transition-all">
+                          <ShieldCheck size={16}/> Conciliar
+                      </button>
+                      <button onClick={() => setSelectedIds([])} className="p-2 hover:bg-white/10 rounded-full"><X size={18}/></button>
+                  </div>
+              </div>
+          )}
+
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div className="flex p-1 bg-gray-100 dark:bg-slate-800 rounded-xl">
                   <button onClick={() => setViewMode('ALL')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${viewMode === 'ALL' ? 'bg-white dark:bg-slate-700 text-blue-600 shadow-sm' : 'text-gray-500'}`}>TODOS</button>
@@ -147,6 +166,9 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
                   <table className="w-full text-sm text-left">
                       <thead className={`text-[10px] font-black uppercase tracking-widest ${darkMode ? 'bg-slate-800 text-slate-400' : 'bg-gray-50 text-gray-600'}`}>
                           <tr>
+                              <th className="p-4 w-10 text-center">
+                                  <input type="checkbox" onChange={e => setSelectedIds(e.target.checked ? filtered.map(t => t.id) : [])} checked={selectedIds.length === filtered.length && filtered.length > 0} />
+                              </th>
                               <th className="p-4 w-10">Audit</th>
                               <th className="p-4">Data</th>
                               <th className="p-4">Descrição</th>
@@ -157,7 +179,10 @@ const FinanceTransactionsList: React.FC<FinanceTransactionsListProps> = ({
                       </thead>
                       <tbody className={`divide-y ${darkMode ? 'divide-slate-700' : 'divide-gray-100'}`}>
                           {paginatedTransactions.map(t => (
-                              <tr key={t.id} className={`${darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-gray-50'} ${t.reconciled ? 'opacity-60' : ''}`}>
+                              <tr key={t.id} className={`${darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-gray-50'} ${t.reconciled ? 'opacity-60' : ''} ${selectedIds.includes(t.id) ? 'bg-indigo-500/10' : ''}`}>
+                                  <td className="p-4 text-center">
+                                      <input type="checkbox" checked={selectedIds.includes(t.id)} onChange={() => setSelectedIds(prev => prev.includes(t.id) ? prev.filter(id => id !== t.id) : [...prev, t.id])} />
+                                  </td>
                                   <td className="p-4 text-center">
                                       <button 
                                         onClick={() => handleToggleReconciliation(t.id, !!t.reconciled)}

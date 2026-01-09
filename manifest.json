@@ -2,7 +2,7 @@
 {
   "name": "Gestor360 - Inteligência Comercial",
   "short_name": "Gestor360",
-  "description": "Sistema de Gestão de Vendas, Comissões e Finanças",
+  "description": "Sistema de Gestão de Vendas, Comissões e Finanças Enterprise",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#020617",
@@ -23,14 +23,15 @@
     },
     {
       "src": "/favicon.svg",
-      "sizes": "384x384",
-      "type": "image/svg+xml"
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
     },
     {
       "src": "/favicon.svg",
       "sizes": "512x512",
       "type": "image/svg+xml",
-      "purpose": "any"
+      "purpose": "maskable"
     }
   ]
 }

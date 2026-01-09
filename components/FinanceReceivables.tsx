@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Receivable, Sale, FinanceAccount, CommissionDeduction } from '../types';
-import { Plus, CheckCircle, Clock, Trash2, Download, AlertTriangle, Edit2, X, DollarSign, Calendar, FileText } from 'lucide-react';
+import { Plus, CheckCircle, Clock, Trash2, Download, AlertTriangle, Edit2, X, DollarSign, Calendar, FileText, AlertCircle } from 'lucide-react';
 import ImportCommissionsModal from './ImportCommissionsModal';
 import { auth } from '../services/firebase';
 
@@ -34,9 +34,19 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
 
   const sortedReceivables = [...receivables].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
+  const getStatusBadge = (r: Receivable) => {
+      if (r.distributed) return { label: 'Distribuído', class: 'bg-purple-100 text-purple-700' };
+      if (r.status === 'EFFECTIVE') return { label: 'Efetivado', class: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+      
+      const now = new Date().toISOString().split('T')[0];
+      if (r.date === now) return { label: 'Vence Hoje', class: 'bg-blue-100 text-blue-700 border-blue-200 animate-pulse' };
+      if (r.date < now) return { label: 'Atrasado', class: 'bg-red-100 text-red-700 border-red-200' };
+      
+      return { label: 'Pendente', class: 'bg-yellow-100 text-yellow-700 border-yellow-200' };
+  };
+
   const handleSaveNew = () => {
       if (!formData.description || !formData.value) return;
-      // Fix: Included missing required properties for Receivable
       const newItem: Receivable = {
           id: crypto.randomUUID(),
           description: formData.description,
@@ -56,7 +66,6 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
   const handleImport = (description: string, totalValue: number, deductions: CommissionDeduction[]) => {
       const dateStr = new Date().toISOString().split('T')[0];
       if (totalValue > 0) {
-          // Fix: Included missing required properties for Receivable
           const newRec: Receivable = {
               id: crypto.randomUUID(),
               description: description,
@@ -84,12 +93,10 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
       setEditDedAmount('');
   };
 
-  // --- EFFECTIVE LOGIC ---
   const openEffectiveModal = (item: Receivable) => {
       setEffectiveModal({ isOpen: true, item });
       setEffDate(new Date().toISOString().split('T')[0]);
       setEffMode('FULL');
-      // Calculate net for the input placeholder
       const net = calculateNet(item);
       setEffAmountPaid(net.toFixed(2));
   };
@@ -109,22 +116,19 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
       const remaining = netTotal - paidAmount;
       const updatedReceivables = [...receivables];
 
-      // Strategy: Update current item to EFFECTIVE/PAID portion
       const effectiveItemIndex = updatedReceivables.findIndex(r => r.id === item.id);
       if (effectiveItemIndex !== -1) {
           updatedReceivables[effectiveItemIndex] = {
               ...item,
               date: effDate,
               status: 'EFFECTIVE',
-              value: paidAmount, // Set directly to net paid
-              deductions: [], // Clear deductions as they are accounted for
+              value: paidAmount, 
+              deductions: [], 
               description: item.description + (effMode === 'PARTIAL' ? ' (Parcial)' : '')
           };
       }
 
-      // If Partial, create NEW PENDING item for remaining
       if (remaining > 0.01) {
-          // Fix: Included missing required properties for Receivable
           updatedReceivables.push({
               id: crypto.randomUUID(),
               description: item.description + ' (Restante)',
@@ -397,6 +401,7 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
                 <tbody className={`divide-y ${darkMode ? 'divide-slate-700' : 'divide-gray-100'}`}>
                     {sortedReceivables.map(r => {
                         const net = calculateNet(r);
+                        const badge = getStatusBadge(r);
                         return (
                             <tr key={r.id} className={darkMode ? 'hover:bg-slate-800' : 'hover:bg-gray-50'}>
                                 <td className={`px-4 py-3 ${darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
@@ -406,7 +411,15 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
                                 <td className={`px-4 py-3 text-right ${darkMode ? 'text-gray-400' : 'text-gray-600'}`}>R$ {r.value.toFixed(2)}</td>
                                 <td className="px-4 py-3 text-right text-red-400">-{ (r.value - net).toFixed(2) }</td>
                                 <td className="px-4 py-3 text-right font-bold text-emerald-500">R$ {net.toFixed(2)}</td>
-                                <td className="px-4 py-3 text-center">{r.distributed ? (<span className="px-2 py-1 rounded text-[10px] bg-purple-100 text-purple-700">Distribuído</span>) : (<button onClick={() => openEditModal(r)} className={`px-2 py-1 rounded text-[10px] font-bold border ${r.status === 'EFFECTIVE' ? 'bg-emerald-100 text-emerald-700 border-emerald-200' : 'bg-yellow-100 text-yellow-700 border-yellow-200'}`}>{r.status === 'EFFECTIVE' ? 'Efetivado' : 'Pendente'}</button>)}</td>
+                                <td className="px-4 py-3 text-center">
+                                    <button 
+                                        onClick={() => !r.distributed && openEditModal(r)} 
+                                        className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${badge.class}`}
+                                        disabled={r.distributed}
+                                    >
+                                        {badge.label}
+                                    </button>
+                                </td>
                                 <td className="px-4 py-3 text-center flex justify-center gap-2">
                                     {r.status === 'PENDING' && (
                                         <button onClick={() => openEffectiveModal(r)} className="text-emerald-500 hover:text-emerald-400 p-1.5 rounded hover:bg-emerald-500/10 transition-colors" title="Efetivar Rápido">
@@ -430,6 +443,7 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
           <div className="md:hidden p-3 space-y-3">
               {sortedReceivables.map(r => {
                   const net = calculateNet(r);
+                  const badge = getStatusBadge(r);
                   return (
                       <div key={r.id} className={`p-3 rounded-lg border ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-gray-200'}`}>
                           <div className="flex justify-between items-start">
@@ -443,7 +457,13 @@ const FinanceReceivables: React.FC<FinanceReceivablesProps> = ({
                               </div>
                           </div>
                           <div className={`mt-2 pt-2 border-t flex justify-between items-center ${darkMode ? 'border-slate-700' : 'border-gray-100'}`}>
-                              <div>{r.distributed ? (<span className="px-2 py-1 rounded text-[10px] bg-purple-100 text-purple-700">Distribuído</span>) : (<button onClick={() => openEditModal(r)} className={`px-2 py-1 rounded text-[10px] font-bold border ${r.status === 'EFFECTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-yellow-100 text-yellow-700'}`}>{r.status === 'EFFECTIVE' ? 'Efetivado' : 'Pendente'}</button>)}</div>
+                              <button 
+                                onClick={() => !r.distributed && openEditModal(r)} 
+                                className={`px-2 py-1 rounded text-[10px] font-bold border ${badge.class}`}
+                                disabled={r.distributed}
+                              >
+                                  {badge.label}
+                              </button>
                               <div className="flex gap-2">
                                   {r.status === 'PENDING' && <button onClick={() => openEffectiveModal(r)} className="text-emerald-500"><CheckCircle size={16}/></button>}
                                   <button onClick={() => openEditModal(r)} className="text-blue-500"><Edit2 size={16}/></button>

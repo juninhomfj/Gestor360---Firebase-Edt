@@ -24,10 +24,13 @@ import { dbPut } from "../storage/db";
 import { User, UserPermissions, UserStatus } from "../types";
 import { Logger } from "./logger";
 
+// Fix: Added missing properties abc_analysis, ltv_details, ai_retention, manual_billing, audit_logs to DEFAULT_PERMISSIONS
 const DEFAULT_PERMISSIONS: UserPermissions = {
     sales: true, finance: true, crm: true, whatsapp: false,
     reports: true, ai: true, dev: false, settings: true,
-    news: true, receivables: true, distribution: true, imports: true
+    news: true, receivables: true, distribution: true, imports: true,
+    abc_analysis: true, ltv_details: true, ai_retention: true,
+    manual_billing: true, audit_logs: true
 };
 
 /**

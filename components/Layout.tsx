@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { LayoutDashboard, ShoppingCart, Settings, Menu, X, ShoppingBag, Users, FileText, Wallet, PieChart, Moon, Target, Trophy, Tag, ArrowLeftRight, PiggyBank, List, LogOut, Sun, Palette, ClipboardList, BarChart2, Sparkles, HelpCircle, PartyPopper, CalendarClock, Cloud, MessageCircle, Zap, Trees, Flame, Lock, MessageSquare, Newspaper, Rocket, FlaskConical, Terminal, Snowflake } from 'lucide-react';
 import { AppMode, User, AppTheme, AppNotification, SystemModules, InternalMessage } from '../types';
@@ -10,6 +11,7 @@ import Logo from './Logo';
 import { AudioService } from '../services/audioService';
 import InternalChatSystem from './InternalChatSystem'; 
 import { safeInitials } from '../utils/stringUtils';
+import BottomNav from './BottomNav';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -30,12 +32,14 @@ interface LayoutProps {
   isDev: boolean;
   showSnow: boolean;
   onToggleSnow: () => void;
+  notifications: AppNotification[];
+  onClearAllNotifications: () => void;
 }
 
 const THEME_CONFIG: Record<AppTheme, { background: string; sidebar: string; navActive: (mode: AppMode) => string; navInactive: string }> = {
     glass: {
         background: 'bg-slate-950 animate-aurora', 
-        sidebar: 'bg-slate-900/80 md:bg-black/30 backdrop-blur-2xl border-r border-white/10 text-gray-100 shadow-[4px_0_24px_rgba(0,0,0,0.5)]',
+        sidebar: 'bg-slate-900/90 md:bg-black/30 backdrop-blur-2xl border-r border-white/10 text-gray-100 shadow-[4px_0_24px_rgba(0,0,0,0.5)]',
         navActive: (mode) => mode === 'SALES' 
             ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] backdrop-blur-md' 
             : (mode === 'WHATSAPP' ? 'bg-green-500/20 text-green-300 ring-1 ring-green-500/50' : 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)]'),
@@ -72,7 +76,8 @@ const Layout: React.FC<LayoutProps> = ({
     currentUser, onLogout,
     onNewSale, onNewIncome, onNewExpense, onNewTransfer,
     isAdmin, isDev,
-    showSnow, onToggleSnow
+    showSnow, onToggleSnow,
+    notifications, onClearAllNotifications
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -112,7 +117,7 @@ const Layout: React.FC<LayoutProps> = ({
     { id: 'reports', label: 'Relatórios & BI', icon: BarChart2, show: hasAccess('reports') },
     { id: 'sales', label: 'Minhas Vendas', icon: ShoppingCart, show: true },
     { id: 'boletos', label: 'Tarefas (Envios)', icon: ClipboardList, show: true }, 
-    { id: 'settings', label: 'Configurações', icon: Settings, show: true }, 
+    { id: 'settings', label: 'Clientes & Config', icon: Settings, show: true }, 
   ];
 
   const financeNavItems = [
@@ -143,98 +148,106 @@ const Layout: React.FC<LayoutProps> = ({
   return (
     <div className={`flex h-[100dvh] overflow-hidden transition-all duration-500 relative ${currentStyle.background}`}>
       
-      {/* Backdrop Mobile */}
+      {/* Backdrop Mobile Sidebar */}
       {isMobileMenuOpen && (
         <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] md:hidden animate-in fade-in duration-300"
+          className="fixed inset-0 bg-black/60 backdrop-blur-md z-[70] md:hidden animate-in fade-in duration-300"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
 
       {/* Sidebar - Desktop & Mobile Drawer */}
-      <aside className={`fixed md:static inset-y-0 left-0 w-64 z-[70] flex flex-col transition-all duration-300 transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} ${currentStyle.sidebar}`}>
-        <div className={`p-6 flex items-center justify-between border-b border-white/5`}>
+      <aside className={`fixed md:static inset-y-0 left-0 w-72 z-[80] flex flex-col transition-all duration-500 ease-in-out transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} ${currentStyle.sidebar} md:rounded-r-[2.5rem] md:my-4 md:ml-4 md:h-[calc(100vh-2rem)] shadow-2xl`}>
+        <div className={`p-8 flex items-center justify-between border-b border-white/5`}>
           <Logo size="sm" variant="full" lightMode={['glass', 'cyberpunk', 'dark'].includes(currentTheme)} planUser={currentUser} />
-          <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden text-white/50 hover:text-white">
-            <X size={20} />
+          <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden text-white/50 hover:text-white p-2">
+            <X size={24} />
           </button>
         </div>
         
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto custom-scrollbar">
+        <nav className="flex-1 p-6 space-y-2 overflow-y-auto custom-scrollbar">
           {currentNavItems.map((item) => (
                 <button 
                   key={item.id} 
                   onClick={() => navigate(item.id)} 
-                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 group ${activeTab === item.id ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}
+                  className={`w-full flex items-center space-x-4 px-5 py-4 rounded-2xl transition-all duration-300 group ${activeTab === item.id ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}
                 >
-                    <item.icon size={20} className={`transition-transform duration-300 ${activeTab === item.id ? 'scale-110' : 'group-hover:scale-110'}`} />
-                    <span className="font-bold text-sm">{item.label}</span>
+                    <item.icon size={22} className={`transition-transform duration-300 ${activeTab === item.id ? 'scale-110' : 'group-hover:scale-110'}`} />
+                    <span className="font-black text-sm uppercase tracking-widest">{item.label}</span>
                 </button>
           ))}
 
-          <div className="pt-2 border-t border-white/5 space-y-1">
+          <div className="pt-4 mt-4 border-t border-white/5 space-y-2">
               <button 
                 onClick={onToggleSnow}
-                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-300 ${showSnow ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/50' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                className={`w-full flex items-center space-x-4 px-5 py-4 rounded-2xl transition-all duration-300 ${showSnow ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/50' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
               >
-                <Snowflake size={20} className={showSnow ? 'animate-spin-slow' : ''} />
-                <span className="font-bold text-sm">Let it Snow ❄️</span>
+                <Snowflake size={22} className={showSnow ? 'animate-spin-slow' : ''} />
+                <span className="font-black text-sm uppercase tracking-widest">Let it Snow ❄️</span>
               </button>
 
               {hasAccess('whatsapp') && (
-                  <button onClick={() => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center px-4 py-3 rounded-xl transition-all duration-300 border ${appMode === 'WHATSAPP' ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500 shadow-lg shadow-emerald-900/20' : 'text-slate-400 border-transparent hover:bg-white/5'}`}>
-                      <MessageCircle size={18} className="mr-3" /> <span className="font-bold text-sm">WhatsApp 360</span>
+                  <button onClick={() => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center px-5 py-4 rounded-2xl transition-all duration-300 border ${appMode === 'WHATSAPP' ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500 shadow-lg shadow-emerald-900/20' : 'text-slate-400 border-transparent hover:bg-white/5'}`}>
+                      <MessageCircle size={22} className="mr-4" /> <span className="font-black text-sm uppercase tracking-widest">WhatsApp 360</span>
                   </button>
               )}
               {isDev && (
-                  <button onClick={() => { setActiveTab('dev_roadmap'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl transition-all duration-200 ${activeTab === 'dev_roadmap' ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 'text-slate-400 hover:bg-white/5'}`}>
-                      <Terminal size={20} className="text-amber-500" /> <span className="font-bold text-sm">Engenharia Root</span>
+                  <button onClick={() => { setActiveTab('dev_roadmap'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center space-x-4 px-5 py-4 rounded-2xl transition-all duration-200 ${activeTab === 'dev_roadmap' ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 'text-slate-400 hover:bg-white/5'}`}>
+                      <Terminal size={22} className="text-amber-500" /> <span className="font-black text-sm uppercase tracking-widest">Engenharia Root</span>
                   </button>
               )}
           </div>
         </nav>
 
-        <div className={`p-4 border-t border-white/5 space-y-3`}>
+        <div className={`p-6 border-t border-white/5 space-y-4 bg-black/20`}>
             <div className="px-2 flex justify-between items-center">
                 <SyncStatus />
-                <button onClick={() => setIsChatOpen(true)} className="relative p-2 text-slate-400 hover:text-white transition-colors">
-                    <MessageSquare size={20} /> {unreadCount > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>}
+                <button onClick={() => setIsChatOpen(true)} className="relative p-2 text-slate-400 hover:text-white transition-colors bg-white/5 rounded-xl">
+                    <MessageSquare size={20} /> {unreadCount > 0 && <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse"></span>}
                 </button>
             </div>
-            <div className="flex items-center gap-3 px-2">
+            <div className="flex items-center gap-3 px-2 py-3 bg-white/5 rounded-2xl border border-white/5">
                 <UserAvatar />
                 <div className="overflow-hidden">
                     <p className="text-sm font-black truncate">{currentUser?.name || "Usuário"}</p>
                     <span className="text-[9px] font-black uppercase text-indigo-500 tracking-widest">{currentUser?.role || "USER"}</span>
                 </div>
             </div>
-            <button onClick={toggleAppMode} className={`w-full py-2.5 rounded-xl font-black text-xs uppercase tracking-widest border transition-all active:scale-95 ${appMode === 'SALES' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 border-blue-500' : 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20 border-emerald-500'}`}>{`Ir para ${appMode === 'SALES' ? 'Finanças' : 'Vendas'}`}</button>
-            <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 text-red-500 hover:text-red-400 text-xs font-black uppercase tracking-widest py-2 transition-colors"><LogOut size={16} /> Sair</button>
+            <button onClick={toggleAppMode} className={`w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest border transition-all active:scale-95 shadow-xl ${appMode === 'SALES' ? 'bg-blue-600 text-white shadow-blue-900/30 border-blue-500' : 'bg-emerald-600 text-white shadow-emerald-900/30 border-emerald-500'}`}>{`Ir para ${appMode === 'SALES' ? 'Finanças' : 'Vendas'}`}</button>
+            <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 text-red-500 hover:text-red-400 text-[10px] font-black uppercase tracking-[0.2em] py-2 transition-colors"><LogOut size={16} /> Sair do Sistema</button>
         </div>
       </aside>
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden z-10 relative">
-        <header className="md:hidden h-16 flex items-center justify-between px-4 z-[50] bg-slate-950 border-b border-white/5 shrink-0">
+        <header className="md:hidden h-20 flex items-center justify-between px-6 z-[50] bg-slate-950/50 backdrop-blur-md border-b border-white/5 shrink-0 safe-pt">
           <Logo size="xs" variant="full" lightMode />
           <div className="flex items-center gap-3">
-              <SyncStatus />
-              <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-white p-2 hover:bg-white/10 rounded-xl transition-all">
+              <NotificationCenter notifications={notifications} onNotificationClick={() => {}} onClearAll={onClearAllNotifications} />
+              <button onClick={() => setIsMobileMenuOpen(true)} className="text-white p-2.5 bg-white/5 rounded-xl transition-all active:scale-90 border border-white/10">
                 <Menu size={24} />
               </button>
           </div>
         </header>
 
-        {/* This container MUST allow scrolling and respect design max-width */}
         <main className="flex-1 overflow-y-auto relative custom-scrollbar scroll-smooth">
-          <div className="max-w-7xl mx-auto w-full px-4 md:px-8 py-8 pb-32">
+          <div className="max-w-7xl mx-auto w-full px-4 md:px-8 py-8 pb-40 md:pb-32">
             {children}
           </div>
         </main>
         
-        {/* FAB position adjustment for mobile */}
+        {/* Bottom Navigation for Mobile */}
+        <BottomNav 
+            activeTab={activeTab} 
+            setActiveTab={navigate} 
+            appMode={appMode} 
+            toggleMenu={() => setIsMobileMenuOpen(true)}
+            hasUnreadMessages={unreadCount > 0}
+        />
+
+        {/* FAB position adjustment for mobile to avoid BottomNav overlap */}
         <div className="relative z-[40]">
-           <FAB appMode={appMode} onNewSale={onNewSale} onNewIncome={onNewIncome} onNewExpense={onNewExpense} onNewTransfer={onNewTransfer} />
+           <FAB appMode={appMode} onNewSale={onNewSale} onNewIncome={onNewIncome} onNewExpense={onNewExpense} onNewTransfer={onNewTransfer} isMobileView={true} />
         </div>
       </div>
 

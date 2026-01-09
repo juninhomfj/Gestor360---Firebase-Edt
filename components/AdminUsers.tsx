@@ -1,10 +1,11 @@
+
 import React, { useState, useEffect } from 'react';
 import { User, UserRole, UserModules, UserStatus } from '../types';
 import { listUsers, createUser, updateUser, resendInvitation } from '../services/auth';
 import { atomicClearUserTables } from '../services/logic';
 import { 
     Trash2, Plus, Shield, Mail, AlertTriangle, 
-    RefreshCw, Edit2, Check, Loader2, Send, Lock, Bomb, X, Clock, Database, ShoppingCart, DollarSign, UserCheck, UserMinus
+    RefreshCw, Edit2, Check, Loader2, Send, Lock, Bomb, X, Clock, Database, ShoppingCart, DollarSign, UserCheck, UserMinus, BarChart, Settings as SettingsIcon, Brain, Sparkles, Files
 } from 'lucide-react';
 import InvitationSentModal from './InvitationSentModal';
 import { safeFirstChar, safeShort } from '../utils/stringUtils';
@@ -17,6 +18,8 @@ const DEFAULT_MODULES: UserModules = {
     sales: true, finance: true, whatsapp: false, crm: true,
     ai: true, dev: false, reports: true, news: true,
     receivables: true, distribution: true, imports: true, settings: true,
+    abc_analysis: false, ltv_details: false, ai_retention: false,
+    manual_billing: false, audit_logs: false
 };
 
 const RESETTABLE_TABLES = [
@@ -124,7 +127,9 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
       setNewName(u.name || "");
       setNewEmail(u.email || "");
       setNewRole(u.role || "USER");
-      setNewModules(u.permissions || DEFAULT_MODULES);
+      
+      // Merge com default modules para garantir que novas chaves existam na UI
+      setNewModules({ ...DEFAULT_MODULES, ...(u.permissions || {}) });
       setIsFormOpen(true);
   };
 
@@ -180,7 +185,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                             ))}
                         </div>
 
-                        <label className="block text-xs font-black text-gray-500 uppercase mb-4 tracking-widest">Módulos Ativos</label>
+                        <label className="block text-xs font-black text-gray-500 uppercase mb-4 tracking-widest">Controle de Módulos (Granular)</label>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             {Object.keys(DEFAULT_MODULES).map((mod) => (
                                 <button
@@ -192,7 +197,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                     <div className={`w-5 h-5 rounded flex items-center justify-center border ${newModules[mod as keyof UserModules] ? 'bg-emerald-50 text-white' : 'border-gray-300'}`}>
                                         {newModules[mod as keyof UserModules] && <Check size={14}/>}
                                     </div>
-                                    <span className={`text-[10px] font-black uppercase tracking-wide ${newModules[mod as keyof UserModules] ? 'text-emerald-600' : 'text-gray-400'}`}>{mod}</span>
+                                    <span className={`text-[10px] font-black uppercase tracking-wide ${newModules[mod as keyof UserModules] ? 'text-emerald-600' : 'text-gray-400'}`}>{mod.replace('_', ' ')}</span>
                                 </button>
                             ))}
                         </div>
@@ -240,7 +245,7 @@ const AdminUsers: React.FC<AdminUsersProps> = ({ currentUser }) => {
                                         </div>
                                     </td>
                                     <td className="p-6">
-                                        <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest ${u.role === 'ADMIN' ? 'bg-amber-100 text-amber-700' : (u.role === 'DEV' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600')}`}>{u.role}</span>
+                                        <span className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest ${u.role === 'ADMIN' ? 'bg-amber-100 text-amber-700' : (u.role === 'DEV' ? 'bg-purple-100 text-purple-700 shadow-lg shadow-purple-500/20' : 'bg-gray-100 text-gray-600')}`}>{u.role}</span>
                                     </td>
                                     <td className="p-6">
                                         <button 

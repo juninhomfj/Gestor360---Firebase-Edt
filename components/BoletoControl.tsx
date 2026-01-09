@@ -1,7 +1,9 @@
 
 import React, { useState } from 'react';
-import { Sale, ProductType, SaleFormData } from '../types';
+// Fix: Removed SaleFormData as it is not exported from ../types
+import { Sale, ProductType } from '../types';
 import { CheckCircle, Clock, Truck, Send, Search, ClipboardList, AlertCircle, Calendar } from 'lucide-react';
+import { AudioService } from '../services/audioService';
 
 interface BoletoControlProps {
   sales: Sale[];
@@ -24,6 +26,9 @@ const BoletoControl: React.FC<BoletoControlProps> = ({ sales, onUpdateSale }) =>
   });
 
   const handleStatusChange = (sale: Sale, newStatus: 'PENDING' | 'SENT' | 'PAID') => {
+    if (newStatus === 'PAID') {
+        AudioService.play('SUCCESS');
+    }
     const updatedSale: Sale = { ...sale, boletoStatus: newStatus };
     onUpdateSale(updatedSale);
   };

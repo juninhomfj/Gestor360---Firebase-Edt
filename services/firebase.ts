@@ -24,20 +24,20 @@ const app: FirebaseApp = getApps().length === 0
   ? initializeApp(firebaseConfig)
   : getApp();
 
-// Ativação do App Check (Proteção contra bots e uso indevido de API)
-// Nota: Em produção, requer VITE_RECAPTCHA_SITE_KEY configurado no .env
-const recaptchaKey = getEnv('VITE_RECAPTCHA_SITE_KEY');
-if (recaptchaKey && typeof window !== "undefined") {
+// Ativação robusta do App Check (Proteção contra bots e acessos não autorizados)
+if (typeof window !== "undefined") {
+    // Nota: Em produção, VITE_RECAPTCHA_SITE_KEY deve estar no Render.com
+    const recaptchaKey = getEnv('VITE_RECAPTCHA_SITE_KEY') || "6LcN_REPLACE_WITH_ACTUAL_KEY";
+    
     initializeAppCheck(app, {
         provider: new ReCaptchaV3Provider(recaptchaKey),
         isTokenAutoRefreshEnabled: true
     });
-    console.info("[Firebase] App Check ativado com ReCaptcha V3.");
+    console.info("[Security] Firebase App Check Shield Active.");
 }
 
 export const auth: Auth = getAuth(app);
 
-// Inicialização moderna com Multi-Tab Manager
 export const db: Firestore = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager()

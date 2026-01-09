@@ -1,10 +1,8 @@
 
 import React, { useMemo, useState, useEffect } from 'react';
 import { FinanceAccount, Transaction, CreditCard as CardType, Receivable, DashboardWidgetConfig, FinancialPacing, TransactionCategory } from '../types';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, AreaChart, Area } from 'recharts';
-// Added ShieldCheck to lucide-react imports
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, AreaChart, Area, ReferenceLine } from 'recharts';
 import { Wallet, TrendingUp, TrendingDown, DollarSign, Target, Plus, EyeOff, Eye, Settings, X, PiggyBank, ArrowLeftRight, List, Bell, Calculator, AlertCircle, PlayCircle, BarChart3, LineChart, Line, ShieldCheck } from 'lucide-react';
-// Added markAsReconciled to services/logic imports
 import { getSystemConfig, calculateFinancialPacing, getFinanceData, formatCurrency, markAsReconciled } from '../services/logic';
 import { getSession } from '../services/auth'; 
 
@@ -96,6 +94,12 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
     return months;
   }, [transactions]);
 
+  const avgMonthlyExpense = useMemo(() => {
+      const last3Months = chartData.slice(-3);
+      const total = last3Months.reduce((acc, m) => acc + m.saidas, 0);
+      return total / 3;
+  }, [chartData]);
+
   const cardStyle = darkMode ? 'glass-panel border-slate-700' : 'bg-white border-gray-100 shadow-sm';
 
   return (
@@ -162,7 +166,10 @@ const FinanceDashboard: React.FC<FinanceDashboardProps> = ({
                                   <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
                               </linearGradient>
                           </defs>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} strokeOpacity={0.1} />
+                          <XAxis dataKey="name" axisLine={false} tickLine={false} fontSize={10} />
                           <Area type="monotone" dataKey="entradas" stroke="#8b5cf6" strokeWidth={3} fillOpacity={1} fill="url(#colorProj)" />
+                          <ReferenceLine y={avgMonthlyExpense} stroke="#ef4444" strokeDasharray="3 3" label={{ position: 'right', value: 'Breakeven', fill: '#ef4444', fontSize: 10 }} />
                           <Tooltip contentStyle={{ borderRadius: '15px', border: 'none', backgroundColor: '#0f172a', color: '#fff' }} />
                       </AreaChart>
                   </ResponsiveContainer>

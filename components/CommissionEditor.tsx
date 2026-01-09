@@ -1,223 +1,277 @@
+
 import React, { useState, useEffect } from 'react';
 import { CommissionRule, ProductType, User } from '../types';
-import { Save, Plus, Trash2, Lock, Download, Upload, AlertCircle, Loader2 } from 'lucide-react';
+import { Save, Plus, Trash2, Download, Upload, AlertCircle, Loader2, Database, ShieldAlert, CheckCircle2, CloudSync, X } from 'lucide-react';
 import { Logger } from '../services/logger';
+import { subscribeToCommissionRules, saveCommissionRules } from '../services/logic';
 
 interface CommissionEditorProps {
-  initialRules: CommissionRule[];
   type: ProductType;
-  onSave: (type: ProductType, rules: CommissionRule[]) => void;
-  readOnly?: boolean;
   currentUser: User;
+  readOnly?: boolean;
 }
 
-const CommissionEditor: React.FC<CommissionEditorProps> = ({ initialRules, type, onSave, readOnly = false, currentUser }) => {
-  const [rules, setRules] = useState<{ id: string; minPercent: string; maxPercent: string; commissionRate: string; }[]>([]);
-  const [isDirty, setIsDirty] = useState(false);
+const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, readOnly = false }) => {
+  const [rules, setRules] = useState<CommissionRule[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [permissionError, setPermissionError] = useState(false);
 
   useEffect(() => {
-    if (initialRules && Array.isArray(initialRules)) {
-      const sanitized = initialRules
-        .filter(r => r && typeof r === 'object')
-        .sort((a, b) => (a.minPercent || 0) - (b.minPercent || 0))
-        .map(r => {
-          let rate = r.commissionRate || 0;
-          if (rate > 1) rate = rate / 100; 
+    setLoading(true);
+    const unsubscribe = subscribeToCommissionRules(type, (newRules) => {
+        setRules(newRules);
+        setLoading(false);
+        setHasChanges(false);
+    });
+    return () => unsubscribe();
+  }, [type]);
 
-          return {
-            id: r.id || crypto.randomUUID(),
-            minPercent: (r.minPercent || 0).toString(),
-            maxPercent: r.maxPercent === null ? '' : (r.maxPercent || '').toString(),
-            commissionRate: (rate * 100).toFixed(2).replace(/\.00$/, '')
-          };
-        });
-      setRules(sanitized);
-      setIsDirty(false);
-    }
-  }, [type, initialRules]);
-
-  const handleChange = (id: string, field: string, value: string) => {
+  const handleFieldChange = (id: string, field: keyof CommissionRule, value: any) => {
     if (readOnly) return;
-    setRules(prev => prev.map(r => r.id === id ? { ...r, [field]: value.replace(',', '.') } : r));
-    setIsDirty(true);
+    setRules(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+    setHasChanges(true);
   };
 
-  const addRule = () => {
-    setRules([...rules, { id: crypto.randomUUID(), minPercent: '0', maxPercent: '', commissionRate: '0' }]);
-    setIsDirty(true);
+  const addRow = () => {
+    if (readOnly) return;
+    const newRule: CommissionRule = {
+      id: `new_${Date.now()}`,
+      minPercent: 0,
+      maxPercent: null,
+      commissionRate: 0,
+      isActive: true
+    };
+    setRules([...rules, newRule]);
+    setHasChanges(true);
   };
 
-  const removeRule = (id: string) => {
-    setRules(rules.filter(r => r.id !== id));
-    setIsDirty(true);
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
+  const deactivateRow = async (id: string) => {
+    if (readOnly) return;
+    if (!confirm("Desativar esta faixa de comissão? Ela desaparecerá da interface imediatamente.")) return;
+    
+    // Filtra localmente primeiro para resposta instantânea
+    const updatedRules = rules.filter(r => r.id !== id);
+    setRules(updatedRules);
+    
+    // Salva no banco
     try {
-        Logger.info(`Audit: Usuário clicou em salvar parâmetros da tabela global [${type}].`);
-        const finalRules: CommissionRule[] = rules.map(r => ({
-          id: r.id,
-          minPercent: parseFloat(r.minPercent) || 0,
-          maxPercent: r.maxPercent === '' ? null : parseFloat(r.maxPercent),
-          commissionRate: (parseFloat(r.commissionRate) || 0) / 100,
-          isActive: true
-        }));
-        await onSave(type, finalRules);
-        setIsDirty(false);
+        setIsSaving(true);
+        await saveCommissionRules(type, updatedRules);
+        Logger.info(`Audit: Faixa de comissão desativada na tabela [${type}].`);
+    } catch (e: any) {
+        alert("Erro ao desativar. Verifique suas permissões.");
+        setPermissionError(true);
     } finally {
         setIsSaving(false);
     }
   };
 
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCommit = async () => {
+    if (readOnly) return;
+    setIsSaving(true);
+    try {
+      await saveCommissionRules(type, rules);
+      setHasChanges(false);
+      setPermissionError(false);
+    } catch (e: any) {
+      if (e.code === 'permission-denied') {
+        setPermissionError(true);
+      }
+      alert("Falha ao salvar no banco de dados. " + e.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    Logger.info(`Audit: Importando arquivo JSON de comissões [${type}]: ${file.name}`);
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const result = event.target?.result;
-        if (typeof result !== 'string') return;
-        
-        const imported = JSON.parse(result);
-        if (imported && Array.isArray(imported)) {
-          const validRules = imported
-            .filter(r => r && typeof r === 'object')
-            .map((r: any) => {
-                let rate = parseFloat(r.commissionRate) || 0;
-                if (rate > 0 && rate < 1) rate = rate * 100;
-                
-                return {
-                    id: r.id || crypto.randomUUID(),
-                    minPercent: (r.minPercent ?? 0).toString(),
-                    maxPercent: r.maxPercent === null ? '' : (r.maxPercent ?? '').toString(),
-                    commissionRate: rate.toFixed(2).replace(/\.00$/, '')
-                };
-            });
-            
-          if (validRules.length > 0) {
-              setRules(validRules);
-              setIsDirty(true);
-          } else {
-              alert("O arquivo não contém regras de comissão válidas.");
-          }
-        } else {
-            alert("Formato de arquivo inválido. O JSON deve ser uma lista (Array) de regras.");
+        const imported = JSON.parse(event.target?.result as string);
+        if (Array.isArray(imported)) {
+          setRules(imported.map((r, i) => ({
+            id: `imp_${Date.now()}_${i}`,
+            minPercent: r.minPercent || 0,
+            maxPercent: r.maxPercent ?? null,
+            commissionRate: r.commissionRate || 0,
+            isActive: true
+          })));
+          setHasChanges(true);
         }
-      } catch (err) {
-        Logger.error("Audit: Falha ao processar arquivo JSON.", err);
-        alert("Erro no formato do arquivo. Certifique-se de que é um JSON válido de regras.");
-      }
+      } catch (err) { alert("JSON inválido."); }
     };
     reader.readAsText(file);
     e.target.value = '';
   };
 
+  if (loading) {
+    return (
+        <div className="flex flex-col items-center justify-center p-20 text-gray-500">
+            <Loader2 className="animate-spin mb-4" size={32}/>
+            <p className="text-xs font-black uppercase tracking-widest">Sincronizando com Firestore...</p>
+        </div>
+    );
+  }
+
+  const isAdminOrDev = currentUser.role === 'ADMIN' || currentUser.role === 'DEV';
+
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-slate-700 overflow-hidden relative">
-      <div className={`p-4 border-b dark:border-slate-700 bg-gray-50 dark:bg-slate-950 flex justify-between items-center`}>
-        <div className="flex items-center gap-2">
-          <h3 className="text-lg font-bold">Tabela de Comissão: {type === ProductType.BASICA ? 'Cesta Básica' : 'Natal'}</h3>
-          {readOnly && <span className="text-[9px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-black uppercase tracking-widest">Global / Somente Leitura</span>}
-        </div>
-        <div className="flex gap-2">
-          {!readOnly && (
-            <>
-              <label className="p-2 cursor-pointer hover:bg-black/5 dark:hover:bg-white/10 rounded text-gray-600 dark:text-gray-400 transition-colors" title="Importar Tabela">
-                <Upload size={18} />
-                <input type="file" className="hidden" accept=".json" onChange={handleImport} />
-              </label>
-              <button
-                onClick={() => {
-                  Logger.info(`Audit: Exportando tabela [${type}].`);
-                  const finalRules = rules.map(r => ({
-                    id: r.id,
-                    minPercent: parseFloat(r.minPercent) || 0,
-                    maxPercent: r.maxPercent === '' ? null : parseFloat(r.maxPercent),
-                    commissionRate: (parseFloat(r.commissionRate) || 0) / 100,
-                    isActive: true
-                  }));
-                  const blob = new Blob([JSON.stringify(finalRules, null, 2)], { type: 'application/json' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `tabela_comissao_${type.toLowerCase()}.json`;
-                  a.click();
-                }}
-                className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded text-gray-600 dark:text-gray-400 transition-colors"
-                title="Exportar Tabela"
-              >
-                <Download size={18} />
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+    <div className="space-y-6 animate-in fade-in duration-500">
+      
+      {permissionError && (
+          <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-2xl flex items-center gap-3 text-red-500 text-sm font-bold">
+              <ShieldAlert size={20}/>
+              <span>Acesso Negado: Você não tem permissão para alterar tabelas globais. Contate um Administrador Root.</span>
+          </div>
+      )}
 
-      <div className="p-6">
-        <div className="grid grid-cols-12 gap-2 mb-4 text-[10px] font-black uppercase text-gray-400 tracking-widest">
-          <div className="col-span-3">Margem Min (%)</div>
-          <div className="col-span-3">Margem Max (%)</div>
-          <div className="col-span-4">Comissão (%)</div>
-          <div className="col-span-2"></div>
-        </div>
-
-        <div className="space-y-2">
-          {rules.map((rule) => (
-            <div key={rule?.id || Math.random()} className="grid grid-cols-12 gap-2 items-center animate-in fade-in duration-300">
-              <div className="col-span-3">
-                <input type="number" step="0.01" className="w-full bg-transparent border rounded p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white" value={rule.minPercent} onChange={(e) => handleChange(rule.id, 'minPercent', e.target.value)} disabled={readOnly} />
-              </div>
-              <div className="col-span-3">
-                <input type="number" step="0.01" className="w-full bg-transparent border rounded p-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none dark:text-white" value={rule.maxPercent} placeholder="Acima" onChange={(e) => handleChange(rule.id, 'maxPercent', e.target.value)} disabled={readOnly} />
-              </div>
-              <div className="col-span-4">
-                <div className="relative">
-                  <input type="number" step="0.01" className="w-full bg-transparent border-2 border-emerald-500/20 rounded p-2 text-sm font-bold focus:border-emerald-500 outline-none dark:text-white" value={rule.commissionRate} onChange={(e) => handleChange(rule.id, 'commissionRate', e.target.value)} disabled={readOnly} />
-                  <span className="absolute right-3 top-2 text-xs font-bold text-emerald-600">%</span>
-                </div>
-              </div>
-              <div className="col-span-2 flex justify-center">
-                {!readOnly && (
-                  <button onClick={() => removeRule(rule.id)} className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors">
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </div>
+      <div className="bg-white dark:bg-slate-900 rounded-[2rem] border border-gray-200 dark:border-slate-800 shadow-xl overflow-hidden">
+        <div className="p-6 border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-950 flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-4">
+            <div className={`p-3 rounded-2xl ${type === ProductType.NATAL ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+              <Database size={24} />
             </div>
-          ))}
-          {(rules || []).length === 0 && (
-            <div className="text-center py-12 bg-gray-50 dark:bg-slate-950/50 rounded-xl border border-dashed border-gray-200 dark:border-slate-800">
-              <p className="text-gray-400 text-sm italic">Nenhuma regra definida.</p>
-            </div>
-          )}
-        </div>
-
-        {!readOnly && (
-          <div className="mt-8 flex flex-col sm:flex-row justify-between items-center gap-4 border-t border-gray-100 dark:border-slate-800 pt-6">
-            <button onClick={addRule} className="w-full sm:w-auto text-sm font-bold text-indigo-500 flex items-center justify-center gap-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 px-4 py-2 rounded-lg transition-all">
-              <Plus size={16} /> Adicionar Faixa
-            </button>
-            
-            <div className="flex items-center gap-4 w-full sm:w-auto">
-              {isDirty && !isSaving && (
-                <span className="text-[10px] font-black text-amber-500 uppercase animate-pulse flex items-center gap-1">
-                  <AlertCircle size={12}/> Alterações Pendentes
-                </span>
-              )}
-              <button 
-                onClick={handleSave} 
-                disabled={!isDirty || isSaving} 
-                className={`w-full sm:w-auto px-10 py-3 rounded-xl font-black uppercase text-xs tracking-widest transition-all flex items-center justify-center gap-2 ${isDirty ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/20 hover:bg-emerald-700 active:scale-95' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
-              >
-                {isSaving ? <Loader2 size={16} className="animate-spin"/> : <Save size={16}/>}
-                {isSaving ? 'Gravando...' : 'Salvar Tabela Master'}
-              </button>
+            <div>
+              <h3 className="text-xl font-black text-gray-900 dark:text-white">Editor: {type === ProductType.BASICA ? 'Cesta Básica' : 'Natal'}</h3>
+              <p className="text-xs text-gray-500 font-bold uppercase tracking-widest flex items-center gap-1">
+                <CloudSync size={12}/> Live Database View
+              </p>
             </div>
           </div>
+
+          <div className="flex gap-2">
+            {!readOnly && isAdminOrDev && (
+                <>
+                    <label className="p-3 cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-800 rounded-xl text-gray-500 transition-all" title="Importar JSON">
+                        <Upload size={20} />
+                        <input type="file" className="hidden" accept=".json" onChange={handleImportJson} />
+                    </label>
+                    <button
+                        onClick={() => {
+                            const blob = new Blob([JSON.stringify(rules, null, 2)], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url; a.download = `comissao_${type.toLowerCase()}.json`; a.click();
+                        }}
+                        className="p-3 hover:bg-gray-200 dark:hover:bg-slate-800 rounded-xl text-gray-500 transition-all"
+                        title="Exportar JSON"
+                    >
+                        <Download size={20} />
+                    </button>
+                </>
+            )}
+          </div>
+        </div>
+
+        <div className="p-6 overflow-x-auto">
+            <table className="w-full text-sm text-left">
+                <thead className="text-[10px] font-black uppercase text-gray-400 tracking-[0.2em] border-b dark:border-slate-800">
+                    <tr>
+                        <th className="p-4">Margem Mínima (%)</th>
+                        <th className="p-4">Margem Máxima (%)</th>
+                        <th className="p-4">Alíquota Comissão (%)</th>
+                        <th className="p-4 text-center">Gestão</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y dark:divide-slate-800">
+                    {rules.map((rule) => (
+                        <tr key={rule.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors group">
+                            <td className="p-4">
+                                <input 
+                                    type="number" step="0.01" 
+                                    className="bg-transparent font-bold text-gray-900 dark:text-white outline-none focus:text-indigo-500 w-full"
+                                    value={rule.minPercent} 
+                                    onChange={(e) => handleFieldChange(rule.id, 'minPercent', parseFloat(e.target.value))}
+                                    disabled={readOnly || !isAdminOrDev}
+                                />
+                            </td>
+                            <td className="p-4">
+                                <input 
+                                    type="number" step="0.01" 
+                                    placeholder="Sem limite"
+                                    className="bg-transparent font-bold text-gray-900 dark:text-white outline-none focus:text-indigo-500 w-full"
+                                    value={rule.maxPercent === null ? '' : rule.maxPercent} 
+                                    onChange={(e) => handleFieldChange(rule.id, 'maxPercent', e.target.value === '' ? null : parseFloat(e.target.value))}
+                                    disabled={readOnly || !isAdminOrDev}
+                                />
+                            </td>
+                            <td className="p-4">
+                                <div className="flex items-center gap-1 text-emerald-600 font-black">
+                                    <input 
+                                        type="number" step="0.001" 
+                                        className="bg-transparent outline-none w-16 text-right"
+                                        value={rule.commissionRate} 
+                                        onChange={(e) => handleFieldChange(rule.id, 'commissionRate', parseFloat(e.target.value))}
+                                        disabled={readOnly || !isAdminOrDev}
+                                    />
+                                    <span>%</span>
+                                </div>
+                            </td>
+                            <td className="p-4 text-center">
+                                {!readOnly && isAdminOrDev && (
+                                    <button 
+                                        onClick={() => deactivateRow(rule.id)}
+                                        className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                                        title="Desativar Linha"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                )}
+                            </td>
+                        </tr>
+                    ))}
+                    {rules.length === 0 && (
+                        <tr>
+                            <td colSpan={4} className="p-12 text-center text-gray-500 italic">
+                                Nenhuma regra ativa no banco de dados.
+                            </td>
+                        </tr>
+                    )}
+                </tbody>
+            </table>
+        </div>
+
+        {!readOnly && isAdminOrDev && (
+            <div className="p-6 border-t border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-950 flex flex-col md:flex-row justify-between items-center gap-4">
+                <button 
+                    onClick={addRow}
+                    className="w-full md:w-auto px-6 py-3 rounded-xl border-2 border-dashed border-gray-300 dark:border-slate-700 text-gray-500 font-bold hover:border-indigo-500 hover:text-indigo-500 transition-all flex items-center justify-center gap-2"
+                >
+                    <Plus size={18}/> Nova Faixa de Margem
+                </button>
+
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                    {hasChanges && (
+                        <span className="text-[10px] font-black text-amber-500 uppercase animate-pulse flex items-center gap-1">
+                            <AlertCircle size={14}/> Pendente de Escrita
+                        </span>
+                    )}
+                    <button 
+                        onClick={handleCommit}
+                        disabled={!hasChanges || isSaving}
+                        className={`w-full md:w-auto px-10 py-4 rounded-2xl font-black uppercase text-xs tracking-widest transition-all flex items-center justify-center gap-3 shadow-xl ${hasChanges ? 'bg-indigo-600 text-white shadow-indigo-900/30 hover:bg-indigo-700 active:scale-95' : 'bg-gray-200 dark:bg-slate-800 text-gray-400 cursor-not-allowed'}`}
+                    >
+                        {isSaving ? <Loader2 size={18} className="animate-spin"/> : <Save size={18}/>}
+                        Gravar no Firestore
+                    </button>
+                </div>
+            </div>
         )}
+      </div>
+
+      <div className="p-6 bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-800 rounded-3xl flex gap-4">
+          <ShieldAlert className="text-indigo-600 dark:text-indigo-400 shrink-0" size={24}/>
+          <div>
+              <h4 className="font-bold text-indigo-900 dark:text-indigo-300 text-sm">Controle de Propagação</h4>
+              <p className="text-xs text-indigo-700 dark:text-indigo-400 mt-1 leading-relaxed">
+                  As alterações feitas nesta tela são propagadas para todos os usuários do sistema em tempo real. 
+                  Vendas já faturadas não serão recalculadas retroativamente a menos que o botão "Recalc" seja utilizado no módulo de vendas.
+              </p>
+          </div>
       </div>
     </div>
   );
