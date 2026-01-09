@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { LayoutDashboard, ShoppingCart, Settings, Menu, X, ShoppingBag, Users, FileText, Wallet, PieChart, Moon, Target, Trophy, Tag, ArrowLeftRight, PiggyBank, List, LogOut, Sun, Palette, ClipboardList, BarChart2, Sparkles, HelpCircle, PartyPopper, CalendarClock, Cloud, MessageCircle, Zap, Trees, Flame, Lock, MessageSquare, Newspaper, Rocket, FlaskConical, Terminal, Snowflake } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Settings, Menu, X, ShoppingBag, Users, FileText, Wallet, PieChart, Moon, Target, Trophy, Tag, ArrowLeftRight, PiggyBank, List, LogOut, Sun, Palette, ClipboardList, BarChart2, Sparkles, HelpCircle, PartyPopper, CalendarClock, Cloud, MessageCircle, Zap, Trees, Flame, Lock, MessageSquare, Newspaper, Rocket, FlaskConical, Terminal, Snowflake, BookOpen } from 'lucide-react';
 import { AppMode, User, AppTheme, AppNotification, SystemModules, InternalMessage } from '../types';
 import { getSystemConfig, canAccess } from '../services/logic';
 import { getMessages } from '../services/internalChat';
@@ -41,8 +41,8 @@ const THEME_CONFIG: Record<AppTheme, { background: string; sidebar: string; navA
         background: 'bg-slate-950 animate-aurora', 
         sidebar: 'bg-slate-900/90 md:bg-black/30 backdrop-blur-2xl border-r border-white/10 text-gray-100 shadow-[4px_0_24px_rgba(0,0,0,0.5)]',
         navActive: (mode) => mode === 'SALES' 
-            ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)] backdrop-blur-md' 
-            : (mode === 'WHATSAPP' ? 'bg-green-500/20 text-green-300 ring-1 ring-green-500/50' : 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.2)]'),
+            ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.2)]' 
+            : (mode === 'WHATSAPP' ? 'bg-green-500/20 text-green-300 ring-1 ring-green-500/50' : 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/50'),
         navInactive: 'text-slate-400 hover:bg-white/5 hover:text-white transition-all duration-200'
     },
     neutral: {
@@ -97,15 +97,13 @@ const Layout: React.FC<LayoutProps> = ({
           setUnreadCount(unread);
       };
       loadMsgs();
-      const interval = setInterval(loadMsgs, 10000); 
+      const interval = setInterval(loadMsgs, 15000); 
       return () => clearInterval(interval);
   }, [currentUser, isAdmin]);
 
   const currentStyle = THEME_CONFIG[currentTheme] || THEME_CONFIG['glass'];
   
-  const hasAccess = (mod: string) => {
-      return canAccess(currentUser, mod);
-  };
+  const hasAccess = (mod: string) => canAccess(currentUser, mod);
 
   const navigate = (tabId: string) => {
     setActiveTab(tabId);
@@ -114,10 +112,10 @@ const Layout: React.FC<LayoutProps> = ({
 
   const salesNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, show: true },
-    { id: 'reports', label: 'Relatórios & BI', icon: BarChart2, show: hasAccess('reports') },
-    { id: 'sales', label: 'Minhas Vendas', icon: ShoppingCart, show: true },
-    { id: 'boletos', label: 'Tarefas (Envios)', icon: ClipboardList, show: true }, 
-    { id: 'settings', label: 'Clientes & Config', icon: Settings, show: true }, 
+    { id: 'reports', label: 'Inteligência (BI)', icon: BarChart2, show: hasAccess('reports') },
+    { id: 'sales', label: 'Gestão de Vendas', icon: ShoppingCart, show: true },
+    { id: 'boletos', label: 'Controle Operacional', icon: ClipboardList, show: true }, 
+    { id: 'settings', label: 'Hub de Clientes', icon: Users, show: true }, 
   ];
 
   const financeNavItems = [
@@ -126,7 +124,7 @@ const Layout: React.FC<LayoutProps> = ({
     { id: 'fin_distribution', label: 'Distribuição', icon: ArrowLeftRight, show: hasAccess('distribution') },
     { id: 'fin_transactions', label: 'Extrato', icon: List, show: true }, 
     { id: 'fin_manager', label: 'Contas & Cartões', icon: Wallet, show: true },
-    { id: 'fin_categories', label: 'Categorias', icon: Tag, show: true },
+    { id: 'fin_categories', label: 'Orçamentos', icon: Tag, show: true },
     { id: 'fin_goals', label: 'Metas', icon: Target, show: true },
     { id: 'fin_challenges', label: 'Desafios', icon: Trophy, show: true },
     { id: 'settings', label: 'Configurações', icon: Settings, show: true },
@@ -135,28 +133,19 @@ const Layout: React.FC<LayoutProps> = ({
   let currentNavItems = (appMode === 'SALES' ? salesNavItems : (appMode === 'FINANCE' ? financeNavItems : [])).filter(i => i.show);
 
   const toggleAppMode = () => {
-    setAppMode(appMode === 'SALES' ? 'FINANCE' : 'SALES');
-    setActiveTab(appMode === 'SALES' ? 'fin_dashboard' : 'dashboard');
+    const nextMode = appMode === 'SALES' ? 'FINANCE' : 'SALES';
+    setAppMode(nextMode);
+    setActiveTab(nextMode === 'FINANCE' ? 'fin_dashboard' : 'dashboard');
     setIsMobileMenuOpen(false);
-  };
-
-  const UserAvatar = () => {
-      if (currentUser?.profilePhoto) return <img src={currentUser.profilePhoto} className="w-8 h-8 rounded-full object-cover border border-white/20" alt="Avatar"/>;
-      return <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold border border-white/20 shadow-sm">{safeInitials(currentUser?.name)}</div>;
   };
 
   return (
     <div className={`flex h-[100dvh] overflow-hidden transition-all duration-500 relative ${currentStyle.background}`}>
       
-      {/* Backdrop Mobile Sidebar */}
       {isMobileMenuOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 backdrop-blur-md z-[70] md:hidden animate-in fade-in duration-300"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[70] md:hidden animate-in fade-in" onClick={() => setIsMobileMenuOpen(false)} />
       )}
 
-      {/* Sidebar - Desktop & Mobile Drawer */}
       <aside className={`fixed md:static inset-y-0 left-0 w-72 z-[80] flex flex-col transition-all duration-500 ease-in-out transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} ${currentStyle.sidebar} md:rounded-r-[2.5rem] md:my-4 md:ml-4 md:h-[calc(100vh-2rem)] shadow-2xl`}>
         <div className={`p-8 flex items-center justify-between border-b border-white/5`}>
           <Logo size="sm" variant="full" lightMode={['glass', 'cyberpunk', 'dark'].includes(currentTheme)} planUser={currentUser} />
@@ -173,27 +162,22 @@ const Layout: React.FC<LayoutProps> = ({
                   className={`w-full flex items-center space-x-4 px-5 py-4 rounded-2xl transition-all duration-300 group ${activeTab === item.id ? currentStyle.navActive(appMode) : currentStyle.navInactive}`}
                 >
                     <item.icon size={22} className={`transition-transform duration-300 ${activeTab === item.id ? 'scale-110' : 'group-hover:scale-110'}`} />
-                    <span className="font-black text-sm uppercase tracking-widest">{item.label}</span>
+                    <span className="font-black text-[11px] uppercase tracking-widest">{item.label}</span>
                 </button>
           ))}
 
           <div className="pt-4 mt-4 border-t border-white/5 space-y-2">
               <button 
-                onClick={onToggleSnow}
-                className={`w-full flex items-center space-x-4 px-5 py-4 rounded-2xl transition-all duration-300 ${showSnow ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/50' : 'text-slate-400 hover:bg-white/5 hover:text-white'}`}
+                onClick={() => { navigate('university'); }}
+                className={`w-full flex items-center space-x-4 px-5 py-4 rounded-2xl transition-all duration-300 ${activeTab === 'university' ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-400 hover:bg-white/5'}`}
               >
-                <Snowflake size={22} className={showSnow ? 'animate-spin-slow' : ''} />
-                <span className="font-black text-sm uppercase tracking-widest">Let it Snow ❄️</span>
+                <BookOpen size={22} />
+                <span className="font-black text-[11px] uppercase tracking-widest">Academia 360</span>
               </button>
 
               {hasAccess('whatsapp') && (
-                  <button onClick={() => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center px-5 py-4 rounded-2xl transition-all duration-300 border ${appMode === 'WHATSAPP' ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-500 shadow-lg shadow-emerald-900/20' : 'text-slate-400 border-transparent hover:bg-white/5'}`}>
-                      <MessageCircle size={22} className="mr-4" /> <span className="font-black text-sm uppercase tracking-widest">WhatsApp 360</span>
-                  </button>
-              )}
-              {isDev && (
-                  <button onClick={() => { setActiveTab('dev_roadmap'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center space-x-4 px-5 py-4 rounded-2xl transition-all duration-200 ${activeTab === 'dev_roadmap' ? 'bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50' : 'text-slate-400 hover:bg-white/5'}`}>
-                      <Terminal size={22} className="text-amber-500" /> <span className="font-black text-sm uppercase tracking-widest">Engenharia Root</span>
+                  <button onClick={() => { setAppMode('WHATSAPP'); setActiveTab('whatsapp_main'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center px-5 py-4 rounded-2xl transition-all duration-300 border ${appMode === 'WHATSAPP' ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-900/20' : 'text-slate-400 border-transparent hover:bg-white/5'}`}>
+                      <MessageCircle size={22} className="mr-4" /> <span className="font-black text-[11px] uppercase tracking-widest">WhatsApp 360</span>
                   </button>
               )}
           </div>
@@ -207,24 +191,23 @@ const Layout: React.FC<LayoutProps> = ({
                 </button>
             </div>
             <div className="flex items-center gap-3 px-2 py-3 bg-white/5 rounded-2xl border border-white/5">
-                <UserAvatar />
+                <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-bold border border-white/20 shadow-sm">{safeInitials(currentUser?.name)}</div>
                 <div className="overflow-hidden">
                     <p className="text-sm font-black truncate">{currentUser?.name || "Usuário"}</p>
                     <span className="text-[9px] font-black uppercase text-indigo-500 tracking-widest">{currentUser?.role || "USER"}</span>
                 </div>
             </div>
-            <button onClick={toggleAppMode} className={`w-full py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest border transition-all active:scale-95 shadow-xl ${appMode === 'SALES' ? 'bg-blue-600 text-white shadow-blue-900/30 border-blue-500' : 'bg-emerald-600 text-white shadow-emerald-900/30 border-emerald-500'}`}>{`Ir para ${appMode === 'SALES' ? 'Finanças' : 'Vendas'}`}</button>
+            <button onClick={toggleAppMode} className={`w-full py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest border transition-all active:scale-95 shadow-xl ${appMode === 'SALES' ? 'bg-blue-600 text-white shadow-blue-900/30 border-blue-500' : 'bg-emerald-600 text-white shadow-emerald-900/30 border-emerald-500'}`}>{`Mudar para ${appMode === 'SALES' ? 'Finanças' : 'Vendas'}`}</button>
             <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 text-red-500 hover:text-red-400 text-[10px] font-black uppercase tracking-[0.2em] py-2 transition-colors"><LogOut size={16} /> Sair do Sistema</button>
         </div>
       </aside>
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col h-[100dvh] overflow-hidden z-10 relative">
         <header className="md:hidden h-20 flex items-center justify-between px-6 z-[50] bg-slate-950/50 backdrop-blur-md border-b border-white/5 shrink-0 safe-pt">
           <Logo size="xs" variant="full" lightMode />
           <div className="flex items-center gap-3">
               <NotificationCenter notifications={notifications} onNotificationClick={() => {}} onClearAll={onClearAllNotifications} />
-              <button onClick={() => setIsMobileMenuOpen(true)} className="text-white p-2.5 bg-white/5 rounded-xl transition-all active:scale-90 border border-white/10">
+              <button onClick={() => setIsMobileMenuOpen(true)} className="text-white p-2.5 bg-white/5 rounded-xl border border-white/10">
                 <Menu size={24} />
               </button>
           </div>
@@ -236,7 +219,6 @@ const Layout: React.FC<LayoutProps> = ({
           </div>
         </main>
         
-        {/* Bottom Navigation for Mobile */}
         <BottomNav 
             activeTab={activeTab} 
             setActiveTab={navigate} 
@@ -245,7 +227,6 @@ const Layout: React.FC<LayoutProps> = ({
             hasUnreadMessages={unreadCount > 0}
         />
 
-        {/* FAB position adjustment for mobile to avoid BottomNav overlap */}
         <div className="relative z-[40]">
            <FAB appMode={appMode} onNewSale={onNewSale} onNewIncome={onNewIncome} onNewExpense={onNewExpense} onNewTransfer={onNewTransfer} isMobileView={true} />
         </div>

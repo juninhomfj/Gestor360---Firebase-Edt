@@ -21,7 +21,14 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
   useEffect(() => {
     setLoading(true);
     const unsubscribe = subscribeToCommissionRules(type, (newRules) => {
-        setRules(newRules);
+        // Normalização rigorosa de tipos para evitar decimais invisíveis ou corrompidos
+        const normalized = (newRules || []).map(r => ({
+            ...r,
+            minPercent: Number(r.minPercent),
+            maxPercent: r.maxPercent === null ? null : Number(r.maxPercent),
+            commissionRate: Number(r.commissionRate)
+        }));
+        setRules(normalized);
         setLoading(false);
         setHasChanges(false);
     });
@@ -49,23 +56,15 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
 
   const deactivateRow = async (id: string) => {
     if (readOnly) return;
-    if (!confirm("Desativar esta faixa de comissão? Ela desaparecerá da interface imediatamente.")) return;
-    
-    // Filtra localmente primeiro para resposta instantânea
+    if (!confirm("Desativar esta faixa de comissão?")) return;
     const updatedRules = rules.filter(r => r.id !== id);
     setRules(updatedRules);
-    
-    // Salva no banco
     try {
         setIsSaving(true);
         await saveCommissionRules(type, updatedRules);
-        Logger.info(`Audit: Faixa de comissão desativada na tabela [${type}].`);
     } catch (e: any) {
-        alert("Erro ao desativar. Verifique suas permissões.");
         setPermissionError(true);
-    } finally {
-        setIsSaving(false);
-    }
+    } finally { setIsSaving(false); }
   };
 
   const handleCommit = async () => {
@@ -76,13 +75,9 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
       setHasChanges(false);
       setPermissionError(false);
     } catch (e: any) {
-      if (e.code === 'permission-denied') {
-        setPermissionError(true);
-      }
-      alert("Falha ao salvar no banco de dados. " + e.message);
-    } finally {
-      setIsSaving(false);
-    }
+      if (e.code === 'permission-denied') setPermissionError(true);
+      alert("Erro ao gravar no Firestore: " + e.message);
+    } finally { setIsSaving(false); }
   };
 
   const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -95,9 +90,9 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
         if (Array.isArray(imported)) {
           setRules(imported.map((r, i) => ({
             id: `imp_${Date.now()}_${i}`,
-            minPercent: r.minPercent || 0,
+            minPercent: Number(r.minPercent || 0),
             maxPercent: r.maxPercent ?? null,
-            commissionRate: r.commissionRate || 0,
+            commissionRate: Number(r.commissionRate || 0),
             isActive: true
           })));
           setHasChanges(true);
@@ -112,7 +107,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
     return (
         <div className="flex flex-col items-center justify-center p-20 text-gray-500">
             <Loader2 className="animate-spin mb-4" size={32}/>
-            <p className="text-xs font-black uppercase tracking-widest">Sincronizando com Firestore...</p>
+            <p className="text-xs font-black uppercase tracking-widest animate-pulse">Consultando Firestore...</p>
         </div>
     );
   }
@@ -123,9 +118,9 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
     <div className="space-y-6 animate-in fade-in duration-500">
       
       {permissionError && (
-          <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-2xl flex items-center gap-3 text-red-500 text-sm font-bold">
+          <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-2xl flex items-center gap-3 text-red-500 text-sm font-bold animate-in shake">
               <ShieldAlert size={20}/>
-              <span>Acesso Negado: Você não tem permissão para alterar tabelas globais. Contate um Administrador Root.</span>
+              <span>Acesso Negado: Sua autoridade Cloud não permite gravar tabelas globais.</span>
           </div>
       )}
 
@@ -136,9 +131,9 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
               <Database size={24} />
             </div>
             <div>
-              <h3 className="text-xl font-black text-gray-900 dark:text-white">Editor: {type === ProductType.BASICA ? 'Cesta Básica' : 'Natal'}</h3>
-              <p className="text-xs text-gray-500 font-bold uppercase tracking-widest flex items-center gap-1">
-                <CloudSync size={12}/> Live Database View
+              <h3 className="text-xl font-black text-gray-900 dark:text-white">Editor Global: {type === ProductType.BASICA ? 'Cesta Básica' : 'Natal'}</h3>
+              <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest flex items-center gap-1">
+                <CloudSync size={12}/> Live Firestore Sync Active
               </p>
             </div>
           </div>
@@ -146,7 +141,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
           <div className="flex gap-2">
             {!readOnly && isAdminOrDev && (
                 <>
-                    <label className="p-3 cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-800 rounded-xl text-gray-500 transition-all" title="Importar JSON">
+                    <label className="p-3 cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-800 rounded-xl text-gray-500 transition-all">
                         <Upload size={20} />
                         <input type="file" className="hidden" accept=".json" onChange={handleImportJson} />
                     </label>
@@ -158,7 +153,6 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
                             a.href = url; a.download = `comissao_${type.toLowerCase()}.json`; a.click();
                         }}
                         className="p-3 hover:bg-gray-200 dark:hover:bg-slate-800 rounded-xl text-gray-500 transition-all"
-                        title="Exportar JSON"
                     >
                         <Download size={20} />
                     </button>
@@ -171,9 +165,9 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
             <table className="w-full text-sm text-left">
                 <thead className="text-[10px] font-black uppercase text-gray-400 tracking-[0.2em] border-b dark:border-slate-800">
                     <tr>
-                        <th className="p-4">Margem Mínima (%)</th>
-                        <th className="p-4">Margem Máxima (%)</th>
-                        <th className="p-4">Alíquota Comissão (%)</th>
+                        <th className="p-4">Margem Mín (%)</th>
+                        <th className="p-4">Margem Máx (%)</th>
+                        <th className="p-4">Comissão (%)</th>
                         <th className="p-4 text-center">Gestão</th>
                     </tr>
                 </thead>
@@ -182,8 +176,8 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
                         <tr key={rule.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors group">
                             <td className="p-4">
                                 <input 
-                                    type="number" step="0.01" 
-                                    className="bg-transparent font-bold text-gray-900 dark:text-white outline-none focus:text-indigo-500 w-full"
+                                    type="number" step="0.01"
+                                    className="bg-transparent font-black text-gray-900 dark:text-white outline-none w-full"
                                     value={rule.minPercent} 
                                     onChange={(e) => handleFieldChange(rule.id, 'minPercent', parseFloat(e.target.value))}
                                     disabled={readOnly || !isAdminOrDev}
@@ -193,22 +187,22 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
                                 <input 
                                     type="number" step="0.01" 
                                     placeholder="Sem limite"
-                                    className="bg-transparent font-bold text-gray-900 dark:text-white outline-none focus:text-indigo-500 w-full"
+                                    className="bg-transparent font-black text-gray-900 dark:text-white outline-none w-full"
                                     value={rule.maxPercent === null ? '' : rule.maxPercent} 
                                     onChange={(e) => handleFieldChange(rule.id, 'maxPercent', e.target.value === '' ? null : parseFloat(e.target.value))}
                                     disabled={readOnly || !isAdminOrDev}
                                 />
                             </td>
                             <td className="p-4">
-                                <div className="flex items-center gap-1 text-emerald-600 font-black">
+                                <div className="flex items-center gap-2">
                                     <input 
-                                        type="number" step="0.001" 
-                                        className="bg-transparent outline-none w-16 text-right"
+                                        type="number" step="0.0001"
+                                        className="bg-transparent font-black text-emerald-600 dark:text-emerald-400 outline-none w-24 text-right"
                                         value={rule.commissionRate} 
                                         onChange={(e) => handleFieldChange(rule.id, 'commissionRate', parseFloat(e.target.value))}
                                         disabled={readOnly || !isAdminOrDev}
                                     />
-                                    <span>%</span>
+                                    <span className="text-[10px] font-black text-gray-400">%</span>
                                 </div>
                             </td>
                             <td className="p-4 text-center">
@@ -216,7 +210,6 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
                                     <button 
                                         onClick={() => deactivateRow(rule.id)}
                                         className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                                        title="Desativar Linha"
                                     >
                                         <Trash2 size={16} />
                                     </button>
@@ -227,7 +220,7 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
                     {rules.length === 0 && (
                         <tr>
                             <td colSpan={4} className="p-12 text-center text-gray-500 italic">
-                                Nenhuma regra ativa no banco de dados.
+                                Nenhuma faixa configurada para este produto.
                             </td>
                         </tr>
                     )}
@@ -241,37 +234,26 @@ const CommissionEditor: React.FC<CommissionEditorProps> = ({ type, currentUser, 
                     onClick={addRow}
                     className="w-full md:w-auto px-6 py-3 rounded-xl border-2 border-dashed border-gray-300 dark:border-slate-700 text-gray-500 font-bold hover:border-indigo-500 hover:text-indigo-500 transition-all flex items-center justify-center gap-2"
                 >
-                    <Plus size={18}/> Nova Faixa de Margem
+                    <Plus size={18}/> Nova Faixa
                 </button>
 
                 <div className="flex items-center gap-4 w-full md:w-auto">
                     {hasChanges && (
                         <span className="text-[10px] font-black text-amber-500 uppercase animate-pulse flex items-center gap-1">
-                            <AlertCircle size={14}/> Pendente de Escrita
+                            <AlertCircle size={14}/> Pendente de Sincronia
                         </span>
                     )}
                     <button 
                         onClick={handleCommit}
                         disabled={!hasChanges || isSaving}
-                        className={`w-full md:w-auto px-10 py-4 rounded-2xl font-black uppercase text-xs tracking-widest transition-all flex items-center justify-center gap-3 shadow-xl ${hasChanges ? 'bg-indigo-600 text-white shadow-indigo-900/30 hover:bg-indigo-700 active:scale-95' : 'bg-gray-200 dark:bg-slate-800 text-gray-400 cursor-not-allowed'}`}
+                        className={`w-full md:w-auto px-10 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all flex items-center justify-center gap-3 shadow-xl ${hasChanges ? 'bg-indigo-600 text-white shadow-indigo-900/30 hover:bg-indigo-700' : 'bg-gray-200 dark:bg-slate-800 text-gray-400'}`}
                     >
                         {isSaving ? <Loader2 size={18} className="animate-spin"/> : <Save size={18}/>}
-                        Gravar no Firestore
+                        Publicar Alterações Cloud
                     </button>
                 </div>
             </div>
         )}
-      </div>
-
-      <div className="p-6 bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-800 rounded-3xl flex gap-4">
-          <ShieldAlert className="text-indigo-600 dark:text-indigo-400 shrink-0" size={24}/>
-          <div>
-              <h4 className="font-bold text-indigo-900 dark:text-indigo-300 text-sm">Controle de Propagação</h4>
-              <p className="text-xs text-indigo-700 dark:text-indigo-400 mt-1 leading-relaxed">
-                  As alterações feitas nesta tela são propagadas para todos os usuários do sistema em tempo real. 
-                  Vendas já faturadas não serão recalculadas retroativamente a menos que o botão "Recalc" seja utilizado no módulo de vendas.
-              </p>
-          </div>
       </div>
     </div>
   );

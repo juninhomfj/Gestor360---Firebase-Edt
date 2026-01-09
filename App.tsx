@@ -28,6 +28,7 @@ const SettingsHub = lazy(() => import('./components/SettingsHub'));
 const DevRoadmap = lazy(() => import('./components/DevRoadmap'));
 const BackupModal = lazy(() => import('./components/BackupModal'));
 const BulkDateModal = lazy(() => import('./components/BulkDateModal'));
+const TrainingHub = lazy(() => import('./components/TrainingHub'));
 
 import {
     User, Sale, AppMode, AppTheme, FinanceAccount, Transaction, CreditCard,
@@ -100,7 +101,6 @@ const App: React.FC = () => {
     const [categories, setCategories] = useState<TransactionCategory[]>([]);
     const [goals, setGoals] = useState<FinanceGoal[]>([]);
     const [receivables, setReceivables] = useState<Receivable[]>([]);
-    // Added missing state for challenges and challenge cells
     const [challenges, setChallenges] = useState<Challenge[]>([]);
     const [cells, setCells] = useState<ChallengeCell[]>([]);
     const [rulesBasic, setRulesBasic] = useState<CommissionRule[]>([]);
@@ -210,7 +210,6 @@ const App: React.FC = () => {
             setCategories(finData.categories || []);
             setGoals(finData.goals || []);
             setReceivables(finData.receivables || []);
-            // Correctly update challenges and cells state from loaded finance data
             setChallenges(finData.challenges || []);
             setCells(finData.cells || []);
             
@@ -281,6 +280,7 @@ const App: React.FC = () => {
                 {activeTab === 'fin_goals' && <FinanceGoals goals={goals} onUpdate={() => loadDataForUser()} darkMode={true} />}
                 {activeTab === 'fin_challenges' && <FinanceChallenges challenges={challenges} cells={cells} onUpdate={() => loadDataForUser()} darkMode={true} />}
                 {activeTab === 'settings' && <SettingsHub rulesBasic={rulesBasic} rulesNatal={rulesNatal} reportConfig={reportConfig} onSaveRules={handleSaveCommissionRulesInApp} onSaveReportConfig={saveReportConfig} darkMode={true} currentUser={currentUser!} onUpdateUser={setCurrentUser} sales={sales} onUpdateSales={setSales} onNotify={addToast} isAdmin={isAdmin} isDev={isDev} />}
+                {activeTab === 'university' && <TrainingHub onClose={() => setActiveTab('dashboard')} darkMode={true} />}
                 {activeTab === 'dev_roadmap' && <DevRoadmap />}
             </Suspense>
             
