@@ -109,7 +109,10 @@ const Layout: React.FC<LayoutProps> = ({
   const hasAccess = (mod: string) => canAccess(currentUser, mod);
 
   const navigate = (tabId: string) => {
-    Logger.info(`Navegação: Usuário acessou a aba [${tabId}]`);
+    Logger.info(`Navegação: Usuário mudou aba de [${activeTab}] para [${tabId}]`, { 
+        userId: currentUser.id, 
+        role: currentUser.role 
+    });
     setActiveTab(tabId);
     setIsMobileMenuOpen(false);
   };
@@ -159,7 +162,10 @@ const Layout: React.FC<LayoutProps> = ({
     const nextIndex = (currentIndex + 1) % modes.length;
     const nextMode = modes[nextIndex];
 
-    Logger.info(`Módulo: Usuário alterou modo global para [${nextMode}]`);
+    Logger.info(`Módulo: Usuário alterou Modo Global de [${appMode}] para [${nextMode}]`, {
+        userId: currentUser.id
+    });
+
     setAppMode(nextMode);
     if (nextMode === 'FINANCE') setActiveTab('fin_dashboard');
     else if (nextMode === 'FISCAL') setActiveTab('fiscal_main');
@@ -224,6 +230,7 @@ const Layout: React.FC<LayoutProps> = ({
               <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 text-slate-400 hover:text-white transition-colors">
                 <Menu size={24} />
               </button>
+              {/* SYNC STATUS SEMPRE VISÍVEL NO MOBILE (ETAPA 3) */}
               <div className="flex">
                   <SyncStatus />
               </div>
@@ -258,7 +265,7 @@ const Layout: React.FC<LayoutProps> = ({
         isMobileView={true}
       />
 
-      {/* Consistência: BottomNav em Mobile (Android/iOS) */}
+      {/* Bottom Navigation obrigatória em telas pequenas (Android/iOS) - ETAPA 2 */}
       <BottomNav 
         activeTab={activeTab} 
         setActiveTab={navigate} 

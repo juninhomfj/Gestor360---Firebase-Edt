@@ -158,15 +158,16 @@ const App: React.FC = () => {
             await bootstrapProductionData();
             await loadDataForUser();
 
-            // --- REDIRECIONAMENTO CANÔNICO ---
-            const onboarded = localStorage.getItem("sys_v3_onboarded") === "true";
+            // --- REDIRECIONAMENTO CANÔNICO (ETAPA 1) ---
+            const onboarded = localStorage.getItem("sys_onboarded_v1") === "true";
             
             if (!onboarded) {
+                // PRIMEIRO ACESSO: Sempre HOME para disparar onboarding
                 setActiveTab("home");
                 setAppMode("SALES");
-                localStorage.setItem("sys_v3_onboarded", "true");
+                Logger.info("Acesso: Novo usuário detectado. Forçando aba Home para Onboarding.");
             } else {
-                // Confiamos no campo canônico higienizado pelo Auth Service (Etapa 3)
+                // ACESSO RECORRENTE: Aplica preferência prefs.defaultModule
                 const pref = user.prefs?.defaultModule || 'home';
                 
                 if (pref !== 'home') {
@@ -174,6 +175,7 @@ const App: React.FC = () => {
                     if (modInfo && canAccess(user, modInfo.key)) {
                         setActiveTab(modInfo.route);
                         setAppMode(modInfo.appMode);
+                        Logger.info(`Acesso: Redirecionando para módulo padrão [${pref}]`);
                     }
                 } else {
                     setActiveTab('home');

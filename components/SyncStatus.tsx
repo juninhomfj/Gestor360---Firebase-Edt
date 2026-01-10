@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { Cloud, Loader2, Database, WifiOff, Activity, Zap, ShieldCheck } from 'lucide-react';
 import { getPendingSyncs } from '../storage/db';
@@ -43,7 +42,7 @@ const SyncStatus: React.FC = () => {
             }
         };
 
-        const interval = setInterval(check, 5000); // Check a cada 5s para não sobrecarregar
+        const interval = setInterval(check, 5000); 
         check();
         return () => clearInterval(interval);
     }, [lastTraffic]);
@@ -57,17 +56,17 @@ const SyncStatus: React.FC = () => {
     const renderButton = () => {
         if (status === 'QUERYING') {
             return (
-                <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500 text-white rounded-lg text-[10px] font-black border border-indigo-400 animate-pulse transition-all">
-                    <Activity size={12} className="animate-bounce" />
-                    <span>CONSULTANDO...</span>
+                <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 px-3 py-2 bg-indigo-500 text-white rounded-xl text-[10px] font-black border border-indigo-400 animate-pulse transition-all">
+                    <Activity size={14} className="animate-bounce" />
+                    <span className="hidden sm:inline">CONSULTANDO...</span>
                 </button>
             );
         }
 
         if (status === 'SYNCING') {
             return (
-                <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 text-blue-600 rounded-lg text-[10px] font-black border border-blue-200 animate-pulse transition-all">
-                    <Loader2 size={12} className="animate-spin" />
+                <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 px-3 py-2 bg-blue-100 text-blue-600 rounded-xl text-[10px] font-black border border-blue-200 animate-pulse transition-all">
+                    <Loader2 size={14} className="animate-spin" />
                     <span>SINC {pendingCount}</span>
                 </button>
             );
@@ -75,22 +74,22 @@ const SyncStatus: React.FC = () => {
 
         if (status === 'OFFLINE') {
             return (
-                <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 px-3 py-1.5 bg-red-100 text-red-600 rounded-lg text-[10px] font-black border border-red-200 transition-all">
-                    <WifiOff size={12} />
+                <button onClick={() => setIsModalOpen(true)} className="flex items-center gap-2 px-3 py-2 bg-red-100 text-red-600 rounded-xl text-[10px] font-black border border-red-200 transition-all">
+                    <WifiOff size={14} />
                     <span>OFFLINE</span>
                 </button>
             );
         }
 
         return (
-            <button onClick={() => setIsModalOpen(true)} className={`flex items-center gap-3 px-3 py-1.5 rounded-lg text-[10px] font-black border transition-all ${status === 'CLOUD_SAVED' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
+            <button onClick={() => setIsModalOpen(true)} className={`flex items-center gap-3 px-3 py-2 rounded-xl text-[10px] font-black border shadow-sm transition-all ${status === 'CLOUD_SAVED' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600' : 'bg-slate-100 border-slate-200 text-slate-500'}`}>
                 <div className="flex items-center gap-1.5">
-                    <Cloud size={12} className={status === 'CLOUD_SAVED' ? 'fill-emerald-500' : ''} />
+                    <Cloud size={14} className={status === 'CLOUD_SAVED' ? 'fill-emerald-500' : ''} />
                     <span className="hidden sm:inline">{status === 'CLOUD_SAVED' ? 'CLOUD OK' : 'LOCAL OK'}</span>
                 </div>
                 {latency > 0 && (
                     <div className={`flex items-center gap-1 border-l pl-2 dark:border-white/10 ${getLatencyColor()}`}>
-                        <Zap size={10} fill="currentColor"/>
+                        <Zap size={12} fill="currentColor"/>
                         <span>{latency}ms</span>
                     </div>
                 )}

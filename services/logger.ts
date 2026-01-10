@@ -10,13 +10,16 @@ export const Logger = {
     async log(level: LogLevel, message: string, details?: any) {
         const uid = auth.currentUser?.uid || 'anonymous';
         
-        // Detecção de navegador robusta para mobile/desktop
+        // Detecção de plataforma robusta para auditoria Enterprise (Etapa 4)
         const ua = navigator.userAgent;
         let platform = 'Web-Generic';
-        if (/android/i.test(ua)) platform = 'PWA-Android';
-        else if (/iphone|ipad|ipod/i.test(ua)) platform = 'PWA-iOS';
-        else if (/macintosh/i.test(ua)) platform = 'Mac-Desktop';
-        else if (/windows/i.test(ua)) platform = 'Windows-Desktop';
+        
+        if (/android/i.test(ua)) platform = 'Mobile-Android';
+        else if (/iphone|ipad|ipod/i.test(ua)) platform = 'Mobile-iOS';
+        else if (/macintosh/i.test(ua)) platform = 'Desktop-Mac';
+        else if (/windows/i.test(ua)) platform = 'Desktop-Windows';
+
+        const isPWA = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
 
         const safeDetails = details ? sanitizeForFirestore(JSON.parse(JSON.stringify(details))) : null;
 
@@ -24,8 +27,14 @@ export const Logger = {
             timestamp: Date.now(),
             level,
             message,
-            details: safeDetails,
-            userAgent: platform + ' | ' + ua.substring(0, 50)
+            details: {
+                ...safeDetails,
+                platform,
+                isPWA,
+                screen: `${window.innerWidth}x${window.innerHeight}`,
+                appMode: localStorage.getItem('sys_last_mode') || 'unknown'
+            },
+            userAgent: ua.substring(0, 100)
         };
 
         try {
@@ -41,7 +50,6 @@ export const Logger = {
                 const cloudLogRef = doc(collection(db, "audit_log"));
                 await setDoc(cloudLogRef, {
                     ...entry,
-                    details: safeDetails,
                     userId: uid,
                     userName: auth.currentUser.displayName || 'System User',
                     browserInfo: platform,

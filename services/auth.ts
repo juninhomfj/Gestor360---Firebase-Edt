@@ -51,8 +51,8 @@ const DEFAULT_PERMISSIONS: UserPermissions = {
 };
 
 /**
- * 🧱 PROFILE HYDRATION & MIGRATION ENGINE (v3.0)
- * Garante que o perfil Firestore exista, esteja atualizado e migra campos legados.
+ * 🧱 PROFILE HYDRATION & MIGRATION ENGINE (v3.1)
+ * Garante que o perfil Firestore exista, esteja atualizado e migra campos legados para prefs.defaultModule.
  */
 async function getProfileFromFirebase(fbUser: any): Promise<User | null> {
   try {
@@ -84,7 +84,7 @@ async function getProfileFromFirebase(fbUser: any): Promise<User | null> {
     let needsMigrationUpdate = false;
     let migratedPrefs = { ...(data?.prefs || {}) };
 
-    // --- MOTOR DE MIGRAÇÃO DE PREFERÊNCIAS (Etapa 3) ---
+    // --- MOTOR DE MIGRAÇÃO DE PREFERÊNCIAS (ETAPA 1) ---
     // Se não temos o campo canônico, mas temos campos antigos, migramos.
     if (!migratedPrefs.defaultModule) {
       const legacyValue = data?.HomeModule || data?.homeTab || data?.moduleDefault || data?.prefs?.HomeModule || null;

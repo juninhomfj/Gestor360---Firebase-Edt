@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { LayoutDashboard, ShoppingCart, Users, Menu, PieChart, Home } from 'lucide-react';
 import { AppMode } from '../types';
@@ -16,6 +15,7 @@ const BottomNav: React.FC<BottomNavProps> = ({
 }) => {
     const isSales = appMode === 'SALES';
 
+    // Itens dinâmicos baseados no modo, mas Home sempre visível (Etapa 2)
     const items = [
         { 
             id: 'home', 
@@ -24,7 +24,7 @@ const BottomNav: React.FC<BottomNavProps> = ({
         },
         { 
             id: isSales ? 'dashboard' : 'fin_dashboard', 
-            label: 'Indicadores', 
+            label: 'KPIs', 
             icon: LayoutDashboard 
         },
         { 
@@ -40,7 +40,7 @@ const BottomNav: React.FC<BottomNavProps> = ({
     ];
 
     return (
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[60] bg-slate-950/95 backdrop-blur-xl border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.6)]">
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-[60] bg-slate-950/90 backdrop-blur-xl border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]">
             <div className="flex items-center justify-around h-16 px-2">
                 {items.map((item) => {
                     const isActive = activeTab === item.id;

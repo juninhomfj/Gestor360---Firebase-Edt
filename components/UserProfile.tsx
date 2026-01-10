@@ -24,6 +24,8 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
   const [contactVisibility, setContactVisibility] = useState(currentUser?.contactVisibility || 'PRIVATE');
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  
+  // Preferência canônica (Etapa 1)
   const [defaultModule, setDefaultModule] = useState(currentUser?.prefs?.defaultModule || 'home');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,7 +36,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
     setMessage(null);
 
     try {
-      // O usuário comum NÃO pode atualizar 'permissions' ou 'modules' por aqui.
       const updateData = {
         name: name.trim(),
         username: username.trim(),
@@ -43,7 +44,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
         contactVisibility: contactVisibility,
         prefs: {
             ...currentUser.prefs,
-            defaultModule: defaultModule
+            defaultModule: defaultModule // Grava apenas no canônico
         }
       };
 
@@ -78,8 +79,6 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
       }
   };
 
-  const isAdminOrDev = currentUser.role === 'ADMIN' || currentUser.role === 'DEV';
-
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20 animate-in fade-in">
       <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-[2.5rem] p-8 md:p-12 text-white relative overflow-hidden shadow-2xl">
@@ -107,7 +106,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                   </p>
                   <div className="flex flex-wrap justify-center md:justify-start gap-2 mt-6">
                       <button onClick={() => requestAndSaveToken(currentUser.id)} className="bg-white/10 hover:bg-white/20 backdrop-blur-md px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 border border-white/10">
-                          <BellRing size={16}/> Push Ativo
+                          <BellRing size={16}/> Notificações
                       </button>
                       <button onClick={logout} className="bg-red-500/20 hover:bg-red-500/40 backdrop-blur-md px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2 border border-red-500/30">
                           <LogOut size={16}/> Sair
@@ -128,21 +127,14 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
           <div className="space-y-6">
              <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm">
                 <h3 className="font-black text-gray-700 dark:text-gray-300 mb-6 flex items-center gap-2 border-b dark:border-slate-800 pb-2 uppercase text-xs tracking-widest">
-                    <Smartphone className="text-indigo-500" size={16} /> Contato do Representante
+                    <Smartphone className="text-indigo-500" size={16} /> Contato
                 </h3>
                 <div className="space-y-4">
                     <div>
-                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">WhatsApp Corporativo</label>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">WhatsApp</label>
                         <div className="relative">
                             <Phone size={16} className="absolute left-3 top-3.5 text-gray-500" />
-                            <input className="w-full pl-10 pr-4 py-3 bg-slate-100 dark:bg-slate-950 border border-gray-200 dark:border-slate-700 rounded-xl outline-none" value={tel} onChange={e => setTel(e.target.value)} placeholder="55 11 9..." />
-                        </div>
-                    </div>
-                    <div>
-                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">Visibilidade na Rede</label>
-                        <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl">
-                            <button onClick={() => setContactVisibility('PUBLIC')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${contactVisibility === 'PUBLIC' ? 'bg-white dark:bg-slate-800 text-emerald-600 shadow' : 'text-gray-500'}`}>Público</button>
-                            <button onClick={() => setContactVisibility('PRIVATE')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${contactVisibility === 'PRIVATE' ? 'bg-white dark:bg-slate-800 text-indigo-600 shadow' : 'text-gray-500'}`}>Privado</button>
+                            <input className="w-full pl-10 pr-4 py-3 bg-slate-100 dark:bg-slate-950 border border-gray-200 dark:border-slate-700 rounded-xl outline-none" value={tel} onChange={e => setTel(e.target.value)} placeholder="55..." />
                         </div>
                     </div>
                 </div>
@@ -152,7 +144,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm">
                 <h3 className="font-black text-gray-700 dark:text-gray-300 mb-6 flex items-center gap-2 border-b dark:border-slate-800 pb-2 uppercase text-xs tracking-widest">
-                    <UserIcon className="text-indigo-500" size={16} /> Identidade Digital
+                    <UserIcon className="text-indigo-500" size={16} /> Identidade
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -160,7 +152,7 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                         <input className="w-full p-3 bg-slate-100 dark:bg-slate-950 border border-gray-200 dark:border-slate-700 rounded-xl outline-none" value={name} onChange={e => setName(e.target.value)} />
                     </div>
                     <div>
-                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">Usuário (Username)</label>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-1 tracking-widest">Usuário</label>
                         <input className="w-full p-3 bg-slate-100 dark:bg-slate-950 border border-gray-200 dark:border-slate-700 rounded-xl outline-none font-mono" value={username} onChange={e => setUsername(e.target.value)} />
                     </div>
                 </div>
@@ -168,12 +160,12 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
 
             <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-700 p-6 shadow-sm">
                 <h3 className="font-black text-gray-700 dark:text-gray-300 mb-6 flex items-center gap-2 border-b dark:border-slate-800 pb-2 uppercase text-xs tracking-widest">
-                    <LayoutDashboard className="text-indigo-500" size={16} /> Preferências de Inicialização
+                    <LayoutDashboard className="text-indigo-500" size={16} /> Inicialização Automática
                 </h3>
                 <div>
                     <label className="block text-[10px] font-black text-gray-400 uppercase mb-2 tracking-widest">Módulo principal (Auto-open):</label>
                     <select 
-                        className="w-full p-3 border rounded-xl dark:bg-slate-950 dark:border-slate-700 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+                        className="w-full p-4 border rounded-2xl dark:bg-slate-950 dark:border-slate-700 font-bold text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
                         value={defaultModule}
                         onChange={e => setDefaultModule(e.target.value)}
                     >
@@ -182,14 +174,13 @@ const UserProfile: React.FC<UserProfileProps> = ({ user: currentUser, onUpdate }
                             <option key={m.key} value={m.route}>{m.label}</option>
                         ))}
                     </select>
-                    <p className="mt-2 text-xs text-gray-500 italic">Escolha qual tela o sistema deve abrir automaticamente assim que você entrar.</p>
                 </div>
             </div>
 
             <div className="flex justify-end gap-4">
-                <button onClick={handleSave} disabled={isSaving} className="px-10 py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl shadow-indigo-900/20 transition-all flex items-center gap-2 uppercase text-xs tracking-widest">
+                <button onClick={handleSave} disabled={isSaving} className="px-10 py-5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl shadow-indigo-900/20 transition-all flex items-center gap-2 uppercase text-xs tracking-widest">
                     {isSaving ? <Loader2 className="animate-spin" size={18}/> : <Save size={18}/>}
-                    Gravar Alterações
+                    Salvar Perfil
                 </button>
             </div>
           </div>

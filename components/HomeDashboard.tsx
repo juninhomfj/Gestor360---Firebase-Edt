@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SYSTEM_MODULES } from '../config/modulesCatalog';
 import { User, AppMode } from '../types';
-import { canAccess } from '../services/logic';
+import { canAccess, getSystemConfig } from '../services/logic';
 import { sendMessage } from '../services/internalChat';
-import { LayoutDashboard, ArrowRight, Sparkles, Lock, MessageSquare, ShieldCheck, Zap } from 'lucide-react';
+import { updateUser } from '../services/auth';
+import { LayoutDashboard, ArrowRight, Sparkles, Lock, MessageSquare, ShieldCheck, Zap, CheckCircle, Smartphone, SmartphoneNfc } from 'lucide-react';
 
 interface Props {
     currentUser: User;
@@ -13,6 +14,15 @@ interface Props {
 
 const HomeDashboard: React.FC<Props> = ({ currentUser, onNavigate, darkMode }) => {
     const [isRequesting, setIsRequesting] = useState<string | null>(null);
+    const [showOnboarding, setShowOnboarding] = useState(false);
+    const [defaultMod, setDefaultMod] = useState(currentUser.prefs?.defaultModule || 'home');
+
+    useEffect(() => {
+        const onboarded = localStorage.getItem("sys_onboarded_v1") === "true";
+        if (!onboarded) {
+            setShowOnboarding(true);
+        }
+    }, []);
 
     const handleContactAdmin = async (modLabel: string) => {
         setIsRequesting(modLabel);
@@ -31,8 +41,63 @@ const HomeDashboard: React.FC<Props> = ({ currentUser, onNavigate, darkMode }) =
         }
     };
 
+    const handleFinishOnboarding = async () => {
+        try {
+            await updateUser(currentUser.id, {
+                prefs: {
+                    ...currentUser.prefs,
+                    defaultModule: defaultMod
+                }
+            });
+            localStorage.setItem("sys_onboarded_v1", "true");
+            setShowOnboarding(false);
+        } catch (e) {
+            alert("Erro ao salvar preferências.");
+        }
+    };
+
+    // Módulos que o usuário tem acesso (para o dropdown do onboarding)
+    const availableModules = SYSTEM_MODULES.filter(m => canAccess(currentUser, m.key));
+
     return (
         <div className="space-y-10 animate-in fade-in duration-700 pb-20">
+            {showOnboarding && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-xl p-4 animate-in zoom-in-95">
+                    <div className="bg-white dark:bg-slate-900 border border-white/10 p-10 rounded-[3rem] shadow-2xl max-w-lg w-full text-center">
+                        <div className="w-20 h-20 bg-indigo-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 text-white shadow-xl shadow-indigo-900/30">
+                            <SmartphoneNfc size={40} />
+                        </div>
+                        <h2 className="text-3xl font-black text-gray-900 dark:text-white mb-2 tracking-tighter">Bem-vindo à v3!</h2>
+                        <p className="text-gray-500 text-sm mb-8 leading-relaxed">
+                            Seu ambiente Gestor360 foi configurado. Qual módulo você deseja abrir <b>automaticamente</b> ao entrar no sistema?
+                        </p>
+                        
+                        <div className="space-y-6 text-left">
+                            <div>
+                                <label className="block text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3 ml-1">Módulo Preferencial</label>
+                                <select 
+                                    value={defaultMod}
+                                    onChange={(e) => setDefaultMod(e.target.value)}
+                                    className="w-full p-5 rounded-2xl border dark:bg-slate-800 dark:border-slate-700 dark:text-white outline-none focus:ring-4 ring-indigo-500/20 font-bold text-sm"
+                                >
+                                    <option value="home">Dashboard Geral (Menu)</option>
+                                    {availableModules.map(m => (
+                                        <option key={m.key} value={m.route}>{m.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <button 
+                                onClick={handleFinishOnboarding}
+                                className="w-full py-5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl flex items-center justify-center gap-3 shadow-xl transition-all active:scale-95 uppercase text-xs tracking-widest"
+                            >
+                                <CheckCircle size={20}/> Concluir Configuração
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-4xl font-black tracking-tight flex items-center gap-3">
@@ -59,18 +124,21 @@ const HomeDashboard: React.FC<Props> = ({ currentUser, onNavigate, darkMode }) =
                         <div
                             key={mod.key}
                             className={`group p-8 rounded-[2.5rem] border text-left transition-all relative overflow-hidden flex flex-col h-full ${
-                                !hasAccess ? 'opacity-70 grayscale' : ''
+                                !hasAccess ? 'opacity-70' : ''
                             } ${
                                 darkMode ? 'bg-slate-900 border-slate-800 hover:border-indigo-500/50' : 'bg-white border-gray-100 shadow-sm'
                             } ${hasAccess ? 'hover:shadow-2xl hover:-translate-y-1' : ''}`}
                         >
-                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white mb-6 shadow-lg transition-transform group-hover:scale-110 ${mod.color}`}>
+                            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white mb-6 shadow-lg transition-transform group-hover:scale-110 ${hasAccess ? mod.color : 'bg-slate-700'}`}>
                                 {hasAccess ? <mod.icon size={28} /> : <Lock size={28} />}
                             </div>
                             
                             <div className="relative z-10 flex-1">
                                 <div className="flex items-center gap-2 mb-2">
                                     <h3 className="text-xl font-black">{mod.label}</h3>
+                                    {!hasAccess && (
+                                        <span className="bg-red-100 text-red-700 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">Bloqueado</span>
+                                    )}
                                     {mod.isBeta && (
                                         <span className="bg-amber-100 text-amber-700 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">Beta</span>
                                     )}
@@ -97,7 +165,7 @@ const HomeDashboard: React.FC<Props> = ({ currentUser, onNavigate, darkMode }) =
                                     >
                                         {isRequesting === mod.label ? "Enviando..." : (
                                             <>
-                                                <MessageSquare size={14} /> Contatar Admin
+                                                <MessageSquare size={14} /> Solicitar Acesso
                                             </>
                                         )}
                                     </button>
