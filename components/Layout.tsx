@@ -117,7 +117,7 @@ const Layout: React.FC<LayoutProps> = ({
     setIsMobileMenuOpen(false);
   };
 
-  // Sidebar Items
+  // Sidebar Items - Garantindo Home/Menu Principal em todos
   const salesNavItems = [
     { id: 'home', label: 'Menu Principal', icon: Home, show: true },
     { id: 'dashboard', label: 'Indicadores', icon: LayoutDashboard, show: true },
@@ -147,7 +147,7 @@ const Layout: React.FC<LayoutProps> = ({
   ];
 
   const getCurrentNavItems = () => {
-    if (activeTab === 'home') return [{ id: 'home', label: 'Home', icon: Home, show: true }];
+    if (activeTab === 'home') return [{ id: 'home', label: 'Menu Principal', icon: Home, show: true }];
     if (appMode === 'SALES') return salesNavItems.filter(i => i.show);
     if (appMode === 'FINANCE') return financeNavItems.filter(i => i.show);
     if (appMode === 'FISCAL') return fiscalNavItems.filter(i => i.show);
@@ -230,14 +230,13 @@ const Layout: React.FC<LayoutProps> = ({
               <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden p-2 text-slate-400 hover:text-white transition-colors">
                 <Menu size={24} />
               </button>
-              {/* SYNC STATUS SEMPRE VISÍVEL NO MOBILE (ETAPA 3) */}
               <div className="flex">
                   <SyncStatus />
               </div>
           </div>
 
           <div className="flex items-center space-x-2 md:space-x-4">
-            <button onClick={toggleAppMode} className={`px-4 py-2 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest transition-all ${appMode === 'SALES' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : appMode === 'FISCAL' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' : 'bg-blue-500/10 text-blue-400 border-blue-500/30'}`}>
+            <button onClick={toggleAppMode} className={`px-4 py-2 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest transition-all ${appMode === 'SALES' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : appMode === 'FISCAL' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30' : 'bg-blue-50/10 text-blue-400 border-blue-500/30'}`}>
                 {appMode}
             </button>
             <div className="w-px h-6 bg-white/10 hidden sm:block"></div>
@@ -265,7 +264,7 @@ const Layout: React.FC<LayoutProps> = ({
         isMobileView={true}
       />
 
-      {/* Bottom Navigation obrigatória em telas pequenas (Android/iOS) - ETAPA 2 */}
+      {/* Bottom Navigation obrigatória em telas pequenas (Android/iOS) */}
       <BottomNav 
         activeTab={activeTab} 
         setActiveTab={navigate} 

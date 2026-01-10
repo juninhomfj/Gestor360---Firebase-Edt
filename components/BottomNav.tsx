@@ -15,7 +15,7 @@ const BottomNav: React.FC<BottomNavProps> = ({
 }) => {
     const isSales = appMode === 'SALES';
 
-    // Itens dinâmicos baseados no modo, mas Home sempre visível (Etapa 2)
+    // Itens dinâmicos baseados no modo, mas Home sempre visível
     const items = [
         { 
             id: 'home', 

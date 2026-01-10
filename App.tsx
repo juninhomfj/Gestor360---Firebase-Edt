@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
 
 import Layout from './components/Layout';
@@ -42,6 +43,7 @@ import {
 import {
     getStoredSales, getFinanceData, getSystemConfig, getReportConfig,
     getStoredTable, saveSingleSale, getClients,
+    // Fix: Alterado boxSaveReportConfig para o nome correto exportado saveReportConfig em services/logic.ts
     saveCommissionRules, bootstrapProductionData, saveReportConfig,
     canAccess, handleSoftDelete, clearNotifications
 } from './services/logic';
@@ -158,16 +160,14 @@ const App: React.FC = () => {
             await bootstrapProductionData();
             await loadDataForUser();
 
-            // --- REDIRECIONAMENTO CANÔNICO (ETAPA 1) ---
+            // --- REDIRECIONAMENTO CANÔNICO ---
             const onboarded = localStorage.getItem("sys_onboarded_v1") === "true";
             
             if (!onboarded) {
-                // PRIMEIRO ACESSO: Sempre HOME para disparar onboarding
                 setActiveTab("home");
                 setAppMode("SALES");
                 Logger.info("Acesso: Novo usuário detectado. Forçando aba Home para Onboarding.");
             } else {
-                // ACESSO RECORRENTE: Aplica preferência prefs.defaultModule
                 const pref = user.prefs?.defaultModule || 'home';
                 
                 if (pref !== 'home') {
@@ -293,6 +293,7 @@ const App: React.FC = () => {
             onClearAllNotifications={handleClearAllNotifications}
         >
             <Suspense fallback={<ModuleLoader />}>
+                {/* Garantia de renderização da Home */}
                 {activeTab === 'home' && (
                     <HomeDashboard 
                         currentUser={currentUser!} 
