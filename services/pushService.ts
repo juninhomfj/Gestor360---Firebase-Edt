@@ -1,4 +1,3 @@
-
 import { getToken } from "firebase/messaging";
 import { initMessaging } from "./firebase";
 import { getSystemConfig } from "./logic";
@@ -7,11 +6,15 @@ import { collection, query, where, getDocs, doc, getDoc } from "firebase/firesto
 import { db } from "./firebase";
 
 // Chave VAPID para notificações push
-const VAPID_KEY = "BPEW_REPLACE_WITH_YOUR_ACTUAL_PUBLIC_VAPID_KEY_FROM_FIREBASE_CONSOLE";
+const VAPID_KEY = (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY || "BPEW_REPLACE_WITH_YOUR_ACTUAL_PUBLIC_VAPID_KEY_FROM_FIREBASE_CONSOLE";
 
+/**
+ * Validação de integridade da chave VAPID (Etapa 3)
+ */
 const isValidVapid = (key: string): boolean => {
     return !!key && 
            key.trim() !== "" && 
+           key.length > 20 &&
            !key.includes("REPLACE_WITH") && 
            !key.includes("PLACEHOLDER");
 };
@@ -22,7 +25,10 @@ const isValidVapid = (key: string): boolean => {
 export const requestAndSaveToken = async (userId: string): Promise<string | null> => {
     try {
         if (!isValidVapid(VAPID_KEY)) {
-            console.warn("⚠️ [Push] Registro cancelado: Chave VAPID inválida ou placeholder.");
+            // Silencioso em produção para não poluir o console do usuário
+            if ((import.meta as any).env?.DEV) {
+                console.warn("⚠️ [Push] Registro cancelado: Chave VAPID inválida ou em modo placeholder.");
+            }
             return null;
         }
 
@@ -31,7 +37,6 @@ export const requestAndSaveToken = async (userId: string): Promise<string | null
 
         const permission = await Notification.requestPermission();
         if (permission !== "granted") {
-            console.info("[Push] Permissão negada pelo usuário.");
             return null;
         }
 
@@ -39,12 +44,13 @@ export const requestAndSaveToken = async (userId: string): Promise<string | null
         if (token) {
             // Salva o token no perfil do usuário
             await updateUser(userId, { fcmToken: token });
-            console.log("[Push] Token registrado com sucesso:", token);
             return token;
         }
         return null;
     } catch (error) {
-        console.error("[Push] Erro crítico ao registrar token:", error);
+        if ((import.meta as any).env?.DEV) {
+            console.error("[Push] Erro crítico ao registrar token:", error);
+        }
         return null;
     }
 };
@@ -62,7 +68,6 @@ export const sendPushNotification = async (
     const serverKey = (config as any).fcmServerKey;
 
     if (!serverKey || serverKey.trim() === "" || serverKey.includes("REPLACE_WITH")) {
-        console.warn("[Push] Envio abortado: Server Key do Firebase (FCM) ausente ou inválida.");
         return;
     }
 
@@ -81,7 +86,6 @@ export const sendPushNotification = async (
     }
 
     if (tokens.length === 0) {
-        console.info("[Push] Nenhum dispositivo com token válido encontrado para o alvo:", targetUserId);
         return;
     }
 
@@ -109,7 +113,7 @@ export const sendPushNotification = async (
                 })
             });
         } catch (e) {
-            console.error("[Push] Falha no disparo individual:", e);
+            // Falha silenciosa em produção
         }
     }
 };

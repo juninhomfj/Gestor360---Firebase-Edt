@@ -1,4 +1,3 @@
-
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
@@ -11,13 +10,13 @@ const getEnv = (key: string): string => {
 };
 
 /**
- * Validação rigorosa de chaves para evitar erros de inicialização
+ * Validação rigorosa de chaves para evitar inicialização com placeholders
  */
 const isValidKey = (key: string | undefined): boolean => {
   if (!key) return false;
   const k = key.trim();
   return k !== "" && 
-         k.length > 10 &&
+         k.length > 15 && 
          !k.includes("REPLACE_WITH") && 
          !k.includes("PLACEHOLDER");
 };
@@ -47,12 +46,9 @@ if (typeof window !== "undefined") {
             isTokenAutoRefreshEnabled: true
         });
     } else {
-        // Log amigável apenas em desenvolvimento para evitar poluição no log de produção
+        // Silêncio total em produção para chaves inválidas (Etapa 3)
         if (isDev) {
-            console.info("🛠️ [AppCheck] Pulando inicialização: Chave VITE_FIREBASE_APPCHECK_RECAPTCHA_KEY ausente ou inválida.");
-            if ((window as any).FIREBASE_APPCHECK_DEBUG_TOKEN === true) {
-                console.info("🛠️ [AppCheck] Modo Debug detectado via flag global.");
-            }
+            console.warn("🛠️ [AppCheck] Inicialização ignorada: Chave VITE_FIREBASE_APPCHECK_RECAPTCHA_KEY ausente ou placeholder.");
         }
     }
 }

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 // Fix: Added RefreshCw to lucide-react imports to resolve the "Cannot find name 'RefreshCw'" error
 import { Mail, Send, Bug, Download, Cloud, Info, CheckCircle, AlertTriangle, MessageSquare, RefreshCw } from 'lucide-react';
@@ -26,7 +25,8 @@ const Help: React.FC = () => {
       setLoading(true);
       setStatusMsg(null);
       
-      const success = await Logger.exportLogsToDrive();
+      // Fix: Alterado de exportLogsToDrive para downloadLogs que é o método correto existente no Logger
+      const success = await Logger.downloadLogs();
       
       if (success) {
           setStatusMsg({ type: 'success', text: 'Relatório baixado no seu dispositivo.' });

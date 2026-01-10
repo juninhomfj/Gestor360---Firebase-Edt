@@ -1,4 +1,3 @@
-
 import { dbPut, dbGetAll, initDB } from '../storage/db';
 import { LogEntry, LogLevel } from '../types';
 import { db, auth } from './firebase';
@@ -7,7 +6,7 @@ import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
 const LOG_STORE = 'audit_log';
 
 /**
- * Remove recursivamente chaves com valor undefined para compatibilidade com Firestore.
+ * Remove recursivamente chaves com valor undefined para compatibilidade com Firestore (Etapa 3).
  */
 const sanitizeDeep = (obj: any): any => {
     if (obj === null || typeof obj !== 'object') return obj;
@@ -39,7 +38,8 @@ export const Logger = {
         else if (/macintosh/i.test(ua)) platform = 'Desktop-Mac';
         else if (/windows/i.test(ua)) platform = 'Desktop-Windows';
 
-        const isPWA = Boolean(
+        // Garantia de tipo booleano para isPWA (Etapa 3)
+        const isPWA = !!(
             typeof window !== 'undefined' && 
             (window.matchMedia?.('(display-mode: standalone)')?.matches || (window.navigator as any).standalone)
         );
@@ -63,7 +63,9 @@ export const Logger = {
             try {
                 await dbPut(LOG_STORE, entry);
             } catch (idbErr) {
-                console.warn("[Logger] Falha ao gravar localmente:", idbErr);
+                if ((import.meta as any).env?.DEV) {
+                    console.warn("[Logger] Falha ao gravar localmente:", idbErr);
+                }
             }
             
             // Persistência Cloud (Principal)
@@ -79,48 +81,32 @@ export const Logger = {
                 });
             }
 
-            if (process.env.NODE_ENV === 'development' || level === 'ERROR' || level === 'CRASH') {
+            if ((import.meta as any).env?.DEV || level === 'ERROR' || level === 'CRASH') {
                 console.log(`[${level}] ${message}`, entry.details);
             }
         } catch (e) {
-            console.error("Critical Failure: Audit Log Error", e);
+            // Silencioso em caso de falha no próprio log para não quebrar o fluxo principal do app
         }
     },
 
-    info(message: string, details?: any) {
-        this.log('INFO', message, details);
-    },
-
-    warn(message: string, details?: any) {
-        this.log('WARN', message, details);
-    },
-
-    error(message: string, details?: any) {
-        this.log('ERROR', message, details);
-    },
-
-    crash(error: Error, componentStack?: string) {
-        this.log('CRASH', error.message, { stack: error.stack, componentStack });
-    },
+    info(message: string, details?: any) { this.log('INFO', message, details); },
+    warn(message: string, details?: any) { this.log('WARN', message, details); },
+    error(message: string, details?: any) { this.log('ERROR', message, details); },
+    crash(error: Error, componentStack?: string) { this.log('CRASH', error.message, { stack: error.stack, componentStack }); },
 
     async getLogs(limitVal = 200): Promise<LogEntry[]> {
         try {
             const allLogs = await dbGetAll(LOG_STORE);
             return allLogs.sort((a: LogEntry, b: LogEntry) => b.timestamp - a.timestamp).slice(0, limitVal);
-        } catch (e) {
-            return [];
-        }
+        } catch (e) { return []; }
     },
 
     async clearLogs() {
         try {
             const dbInst = await initDB();
             await dbInst.clear(LOG_STORE);
-            this.info("Auditoria: Logs locais limpos pelo usuário.");
             return true;
-        } catch (e) {
-            return false;
-        }
+        } catch (e) { return false; }
     },
 
     async downloadLogs() {
@@ -136,12 +122,6 @@ export const Logger = {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             return true;
-        } catch (e) {
-            return false;
-        }
-    },
-
-    async exportLogsToDrive() {
-        return this.downloadLogs();
+        } catch (e) { return false; }
     }
 };

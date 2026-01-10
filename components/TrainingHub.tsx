@@ -69,8 +69,8 @@ const TrainingHub: React.FC<TrainingHubProps> = ({ onClose, darkMode }) => {
     const cardClass = darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200';
 
     const modalContent = (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
-            <div className={`w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden border border-white/10 flex flex-col h-[85vh] ${bgClass}`}>
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className={`w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden border border-white/10 flex flex-col h-[85vh] relative ${bgClass}`}>
                 
                 {/* Header */}
                 <div className="p-8 border-b border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-950 flex justify-between items-center shrink-0">
@@ -83,7 +83,9 @@ const TrainingHub: React.FC<TrainingHubProps> = ({ onClose, darkMode }) => {
                             <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Capacitação para o Nível Enterprise</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-slate-800 rounded-full transition-colors"><X size={24}/></button>
+                    <button onClick={onClose} className="p-2 hover:bg-gray-200 dark:hover:bg-slate-800 rounded-full transition-colors">
+                        <X size={24}/>
+                    </button>
                 </div>
 
                 <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
