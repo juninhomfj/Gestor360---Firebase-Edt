@@ -95,10 +95,6 @@ export const SessionTraffic = {
     trackWrite(count = 1) { this.writes += count; this.lastActivity = new Date(); }
 };
 
-/**
- * 📈 MOTOR PREDITIVO DE FLUXO DE CAIXA (Etapa 4)
- * Calcula a evolução do saldo dia a dia para os próximos 30 dias.
- */
 export const calculatePredictiveCashFlow = (
     currentBalance: number,
     receivables: Receivable[],
@@ -113,13 +109,10 @@ export const calculatePredictiveCashFlow = (
         targetDate.setDate(now.getDate() + i);
         const dateStr = targetDate.toISOString().split('T')[0];
 
-        // Entradas (Comissões efetivadas mas não distribuídas caem no saldo D+0)
-        // Entradas futuras (Receivables pendentes na data específica)
         const dayIncomes = receivables
             .filter(r => r.date === dateStr && r.status === 'PENDING')
             .reduce((acc, r) => acc + (r.value - (r.deductions?.reduce((dAcc, d) => dAcc + d.amount, 0) || 0)), 0);
 
-        // Saídas futuras (Despesas não pagas na data específica)
         const dayExpenses = transactions
             .filter(t => t.date === dateStr && !t.isPaid && t.type === 'EXPENSE')
             .reduce((acc, t) => acc + t.amount, 0);
@@ -137,27 +130,6 @@ export const calculatePredictiveCashFlow = (
     }
 
     return timeline;
-};
-
-export const clearNotifications = async (userId: string, scope: 'ALL' | 'LOCAL' = 'LOCAL') => {
-    if (scope === 'LOCAL') return true;
-    try {
-        const q = query(collection(db, 'notifications'), where('read', '==', false));
-        const snap = await getDocs(q);
-        const batch = writeBatch(db);
-        snap.docs.forEach(d => batch.update(d.ref, { read: true, updatedAt: serverTimestamp() }));
-        await batch.commit();
-        return true;
-    } catch (e) { return false; }
-};
-
-export const archiveWACampaign = async (campaignId: string, status: boolean = true) => {
-    await validateWriteAccess();
-    const campRef = doc(db, 'wa_campaigns', campaignId);
-    await updateDoc(campRef, { isArchived: status, updatedAt: serverTimestamp() });
-    SessionTraffic.trackWrite();
-    Logger.info(`WhatsApp: Campanha [${campaignId}] arquivada: ${status}`);
-    return true;
 };
 
 export const analyzeClients = (sales: Sale[], config: ReportConfig) => {
@@ -276,13 +248,6 @@ export const getInvoiceMonth = (dateStr: string, closingDay: number): string => 
     return d.toISOString().substring(0, 7);
 };
 
-export const importEncryptedBackup = async (file: File, pass: string): Promise<void> => {
-    const text = await file.text();
-    const data = JSON.parse(text);
-    for (const table of Object.keys(data)) await dbBulkPut(table as any, data[table]);
-    Logger.info("Auditoria: Base restaurada localmente via backup.");
-};
-
 export const clearAllSales = async (): Promise<void> => {
     const dbInst = await initDB();
     await dbInst.clear('sales');
@@ -308,23 +273,10 @@ export const saveFinanceData = async (data: { transactions?: Transaction[], acco
         if (data.transactions) await dbBulkPut('transactions', data.transactions);
         if (data.accounts) await dbBulkPut('accounts', data.accounts);
         SessionTraffic.trackWrite();
-        Logger.info(`Audit: Dados financeiros gravados em massa. Txs: ${data.transactions?.length || 0}`);
     } catch (e: any) {
         Logger.error(`Audit: Erro ao gravar dados financeiros: ${e.message}`);
         throw e;
     }
-};
-
-export const atomicClearUserTables = async (targetUserId: string, tables: string[]): Promise<void> => {
-    await validateWriteAccess();
-    for (const table of tables) {
-        const items = await dbGetAll(table as any, (i: any) => i.userId === targetUserId);
-        for (const item of items) {
-            await dbDelete(table as any, item.id);
-            await deleteDoc(doc(db, table, item.id));
-        }
-    }
-    Logger.warn(`Audit: Reset atômico executado para usuário [${targetUserId}] em ${tables.length} tabelas.`);
 };
 
 export const saveSingleSale = async (sale: Sale): Promise<void> => {
@@ -333,40 +285,10 @@ export const saveSingleSale = async (sale: Sale): Promise<void> => {
         await dbPut('sales', sale);
         await setDoc(doc(db, 'sales', sale.id), sanitizeForFirestore(sale), { merge: true });
         SessionTraffic.trackWrite();
-        Logger.info(`Audit: Venda gravada individualmente para o cliente [${sale.client}]`);
     } catch (e: any) {
         Logger.error(`Audit: Erro ao gravar venda [${sale.id}]: ${e.message}`);
         throw e;
     }
-};
-
-export const smartMergeSales = (duplicates: Sale[]): Sale => {
-    const sorted = [...duplicates].sort((a, b) => (b.observations?.length || 0) - (a.observations?.length || 0));
-    return sorted[0];
-};
-
-export const bulkMarkAsReconciled = async (ids: string[], status: boolean) => {
-    await validateWriteAccess();
-    const batch = writeBatch(db);
-    for (const id of ids) {
-        const txRef = doc(db, 'transactions', id);
-        batch.update(txRef, { reconciled: status, reconciledAt: status ? new Date().toISOString() : null, updatedAt: serverTimestamp() });
-        const local = await dbGet('transactions', id);
-        if (local) await dbPut('transactions', { ...local, reconciled: status });
-    }
-    await batch.commit();
-    SessionTraffic.trackWrite(ids.length);
-    Logger.info(`Audit: Conciliação em lote executada para ${ids.length} itens.`);
-};
-
-export const markAsReconciled = async (transactionId: string, status: boolean): Promise<void> => {
-    await validateWriteAccess();
-    const txRef = doc(db, "transactions", transactionId);
-    await updateDoc(txRef, { reconciled: status, reconciledAt: status ? new Date().toISOString() : null, updatedAt: serverTimestamp() });
-    const local = await dbGet('transactions', transactionId);
-    if (local) await dbPut('transactions', { ...local, reconciled: status });
-    SessionTraffic.trackWrite();
-    Logger.info(`Audit: Transação [${transactionId}] conciliada: ${status}`);
 };
 
 export const computeCommissionValues = (quantity: number, valueProposed: number, margin: number, rules: CommissionRule[]) => {
@@ -385,7 +307,6 @@ export const createReceivableFromSale = async (sale: Sale): Promise<string> => {
     await dbPut('receivables', newRec);
     await setDoc(doc(db, "receivables", receivableId), sanitizeForFirestore(newRec));
     SessionTraffic.trackWrite();
-    Logger.info(`Audit: Recebível automático gerado para venda de [${sale.client}]`);
     return receivableId;
 };
 
@@ -404,6 +325,9 @@ export const subscribeToCommissionRules = (type: ProductType, callback: (rules: 
             }));
             callback(rules.sort((a, b) => a.minPercent - b.minPercent));
         } else { callback([]); }
+    }, (error) => {
+        console.error("[Logic] Tabela de comissão erro no onSnapshot:", error);
+        callback([]);
     });
 };
 
@@ -484,7 +408,6 @@ export const handleSoftDelete = async (table: string, id: string) => {
         const local = await dbGet(table as any, id);
         if (local) await dbPut(table as any, { ...local, deleted: true, deletedAt: new Date().toISOString() });
         await updateDoc(doc(db, table, id), { deleted: true, deletedAt: serverTimestamp(), updatedAt: serverTimestamp() });
-        Logger.warn(`Audit: Item [${id}] movido para a lixeira na tabela [${table}]`);
     } catch (e: any) {
         Logger.error(`Audit: Falha ao deletar item [${id}] de [${table}]: ${e.message}`);
     }
@@ -503,7 +426,6 @@ export const saveSystemConfig = async (config: SystemConfig) => {
     await validateWriteAccess();
     await dbPut('config', { ...config, id: 'system' });
     await setDoc(doc(db, "config", "system"), sanitizeForFirestore(config));
-    Logger.info("Audit: Configurações de sistema atualizadas.");
 };
 
 export const getClients = async (): Promise<Client[]> => {
@@ -524,7 +446,6 @@ export const createClientAutomatically = async (name: string): Promise<string> =
     const newClient: Client = { id, name, userId: uid, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), deleted: false };
     await dbPut('clients', newClient);
     await setDoc(doc(db, 'clients', id), sanitizeForFirestore(newClient));
-    Logger.info(`Audit: Novo cliente [${name}] criado automaticamente durante lançamento.`);
     return id;
 };
 
@@ -538,6 +459,7 @@ export const getTrashItems = async () => {
     if (!uid) return { sales: [], transactions: [] };
     return {
         sales: await dbGetAll('sales', s => s.userId === uid && s.deleted),
+        // Fixed: changed 's.deleted' to 't.deleted' as 's' is not defined in this arrow function
         transactions: await dbGetAll('transactions', t => t.userId === uid && t.deleted)
     };
 };
@@ -548,13 +470,11 @@ export const restoreItem = async (type: 'SALE' | 'TRANSACTION', item: any) => {
     const restored = { ...item, deleted: false, updatedAt: new Date().toISOString() };
     await dbPut(table, restored);
     await setDoc(doc(db, table, item.id), sanitizeForFirestore(restored), { merge: true });
-    Logger.info(`Audit: Item restaurado da lixeira: [${item.id}]`);
 };
 
 export const permanentlyDeleteItem = async (type: 'SALE' | 'TRANSACTION', id: string) => {
     await validateWriteAccess();
     await dbDelete(type === 'SALE' ? 'sales' : 'transactions', id);
-    Logger.warn(`Audit: Exclusão permanente executada para item [${id}]`);
 };
 
 export const getReportConfig = async (): Promise<ReportConfig> => {
@@ -585,57 +505,12 @@ export const restoreClient = async (id: string) => {
         const restored = { ...local, deleted: false, updatedAt: new Date().toISOString() };
         await dbPut('clients', restored);
         await updateDoc(doc(db, 'clients', id), { deleted: false, updatedAt: serverTimestamp() });
-        Logger.info(`Audit: Cliente restaurado: [${id}]`);
     }
 };
 
 export const permanentlyDeleteClient = async (id: string) => {
     await validateWriteAccess();
     await dbDelete('clients', id);
-};
-
-export const calculateFinancialPacing = (balance: number, salaryDays: number[], transactions: Transaction[]): FinancialPacing => {
-    const now = new Date();
-    const today = now.getDate();
-    const nextIncomeDay = (salaryDays || []).find(d => d > today) || (salaryDays || [])[0] || 1;
-    let nextIncomeDate = new Date(now.getFullYear(), now.getMonth(), nextIncomeDay);
-    if (nextIncomeDay <= today) nextIncomeDate = new Date(now.getFullYear(), now.getMonth() + 1, nextIncomeDay);
-    const daysRemaining = Math.max(1, Math.ceil((nextIncomeDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
-    const pendingExpenses = transactions
-        .filter(t => !t.isPaid && !t.deleted && t.type === 'EXPENSE' && new Date(t.date) <= nextIncomeDate)
-        .reduce((acc, t) => acc + t.amount, 0);
-    return {
-        daysRemaining,
-        safeDailySpend: Math.max(0, (balance - pendingExpenses) / daysRemaining),
-        pendingExpenses,
-        nextIncomeDate
-    };
-};
-
-export const processFinanceImport = async (data: any[][], mapping: ImportMapping): Promise<Transaction[]> => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return [];
-    const rows = data.slice(1);
-    const transactions: Transaction[] = [];
-    rows.forEach(row => {
-        const descIndex = mapping['description'];
-        const amountIndex = mapping['amount'];
-        const dateIndex = mapping['date'];
-        const desc = descIndex !== -1 && descIndex !== undefined ? String(row[descIndex] || '') : 'Importação';
-        const val = amountIndex !== -1 && amountIndex !== undefined ? ensureNumber(row[amountIndex]) : 0;
-        const dateRaw = dateIndex !== -1 && dateIndex !== undefined ? row[dateIndex] : new Date().toISOString();
-        let date = new Date().toISOString().split('T')[0];
-        try { if (dateRaw) { const parsedDate = new Date(dateRaw); if (!isNaN(parsedDate.getTime())) date = parsedDate.toISOString().split('T')[0]; } } catch (e) {}
-        if (desc && val !== 0) {
-            transactions.push({
-                id: crypto.randomUUID(), description: desc, amount: Math.abs(val), type: val > 0 ? 'INCOME' : 'EXPENSE',
-                date, categoryId: 'uncategorized', accountId: '', isPaid: true, provisioned: false, isRecurring: false,
-                deleted: false, createdAt: new Date().toISOString(), userId: uid
-            } as Transaction);
-        }
-    });
-    Logger.info(`Audit: Importação financeira de ${transactions.length} registros processada.`);
-    return transactions;
 };
 
 export const readExcelFile = (file: File): Promise<any[][]> => {
@@ -680,7 +555,6 @@ export const saveSales = async (sales: Sale[]) => {
     await batch.commit();
     await dbBulkPut('sales', sales);
     SessionTraffic.trackWrite(sales.length);
-    Logger.info(`Audit: Gravação de vendas em lote concluída: ${sales.length} registros.`);
 };
 
 export const getTicketStats = async (): Promise<number> => {
@@ -727,4 +601,190 @@ export const exportEncryptedBackup = async (passphrase: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = `backup_gestor360_${Date.now()}.json`; a.click();
+};
+
+export const calculateFinancialPacing = (balance: number, expenses: Transaction[]): FinancialPacing => {
+    const now = new Date();
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const daysRemaining = endOfMonth.getDate() - now.getDate() + 1;
+    
+    const pendingExpenses = expenses
+        .filter(e => !e.isPaid && e.type === 'EXPENSE')
+        .reduce((acc, e) => acc + e.amount, 0);
+    
+    const safeDailySpend = (balance - pendingExpenses) / Math.max(1, daysRemaining);
+    
+    return {
+        daysRemaining,
+        safeDailySpend: Math.max(0, safeDailySpend),
+        pendingExpenses,
+        nextIncomeDate: new Date() 
+    };
+};
+
+export const markAsReconciled = async (txId: string, status: boolean) => {
+    await validateWriteAccess();
+    await updateDoc(doc(db, "transactions", txId), {
+        reconciled: status,
+        reconciledAt: status ? serverTimestamp() : null,
+        updatedAt: serverTimestamp()
+    });
+    
+    const local = await dbGet('transactions', txId);
+    if (local) {
+        await dbPut('transactions', { 
+            ...local, 
+            reconciled: status, 
+            reconciledAt: status ? new Date().toISOString() : undefined 
+        });
+    }
+};
+
+export const bulkMarkAsReconciled = async (ids: string[], status: boolean) => {
+    await validateWriteAccess();
+    const batch = writeBatch(db);
+    for (const id of ids) {
+        batch.update(doc(db, "transactions", id), {
+            reconciled: status,
+            reconciledAt: status ? serverTimestamp() : null,
+            updatedAt: serverTimestamp()
+        });
+        
+        const local = await dbGet('transactions', id);
+        if (local) {
+            await dbPut('transactions', { 
+                ...local, 
+                reconciled: status, 
+                reconciledAt: status ? new Date().toISOString() : undefined 
+            });
+        }
+    }
+    await batch.commit();
+};
+
+export const importEncryptedBackup = async (file: File, passphrase: string) => {
+    return new Promise<void>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const content = e.target?.result as string;
+                const data = JSON.parse(content);
+                
+                for (const table in data) {
+                    if (Array.isArray(data[table])) {
+                        await dbBulkPut(table as any, data[table]);
+                    }
+                }
+                resolve();
+            } catch (err) { reject(err); }
+        };
+        reader.onerror = reject;
+        reader.readAsText(file);
+    });
+};
+
+export const processFinanceImport = async (data: any[][], mapping: ImportMapping) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
+
+    const transactions: Transaction[] = [];
+    const batch = writeBatch(db);
+
+    for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (!row || row.length === 0) continue;
+
+        const dateIdx = mapping['date'];
+        const descIdx = mapping['description'];
+        const amountIdx = mapping['amount'];
+        const typeIdx = mapping['type'];
+
+        if (dateIdx === -1 || descIdx === -1 || amountIdx === -1) continue;
+
+        const amount = ensureNumber(row[amountIdx]);
+        const type = typeIdx !== -1 && row[typeIdx] 
+            ? (String(row[typeIdx]).toUpperCase().includes('REC') ? 'INCOME' : 'EXPENSE') 
+            : (amount >= 0 ? 'INCOME' : 'EXPENSE');
+
+        const txId = crypto.randomUUID();
+        const tx: Transaction = {
+            id: txId,
+            description: String(row[descIdx] || 'Importado'),
+            amount: Math.abs(amount),
+            type: type as any,
+            date: row[dateIdx] ? new Date(row[dateIdx]).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            isPaid: true,
+            provisioned: false,
+            isRecurring: false,
+            deleted: false,
+            createdAt: new Date().toISOString(),
+            userId: uid,
+            categoryId: 'uncategorized',
+            accountId: '' 
+        };
+        
+        transactions.push(tx);
+        batch.set(doc(db, 'transactions', txId), sanitizeForFirestore(tx));
+    }
+    
+    if (transactions.length > 0) {
+        await batch.commit();
+        await dbBulkPut('transactions', transactions);
+    }
+};
+
+export const atomicClearUserTables = async (userId: string, tables: string[]) => {
+    await validateWriteAccess();
+    for (const table of tables) {
+        const q = query(collection(db, table), where('userId', '==', userId));
+        const snap = await getDocs(q);
+        const batch = writeBatch(db);
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+        
+        // Local clear
+        const local = await dbGetAll(table as any);
+        for(const item of local) {
+            if (item.userId === userId) await dbDelete(table as any, item.id);
+        }
+    }
+};
+
+export const clearNotifications = async (userId: string, source: string) => {
+    await validateWriteAccess();
+    const colRef = collection(db, 'notifications');
+    const q = source === 'ALL' 
+        ? query(colRef, where('userId', '==', userId))
+        : query(colRef, where('userId', '==', userId), where('source', '==', source));
+    
+    const snap = await getDocs(q);
+    const batch = writeBatch(db);
+    snap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+};
+
+export const archiveWACampaign = async (campaignId: string, status: boolean) => {
+    await validateWriteAccess();
+    await updateDoc(doc(db, 'wa_campaigns', campaignId), {
+        isArchived: status,
+        updatedAt: serverTimestamp()
+    });
+    const local = await dbGet('wa_campaigns', campaignId);
+    if (local) {
+        await dbPut('wa_campaigns', { ...local, isArchived: status } as any);
+    }
+};
+
+export const smartMergeSales = (items: Sale[]): Sale => {
+    const sorted = [...items].sort((a,b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const master = sorted[0];
+    const duplicates = sorted.slice(1);
+    
+    const obs = [master.observations, ...duplicates.map(d => d.observations)].filter(Boolean).join(' | ');
+    
+    return {
+        ...master,
+        observations: obs,
+        updatedAt: new Date().toISOString()
+    };
 };

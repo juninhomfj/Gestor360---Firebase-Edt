@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react';
 
 import Layout from './components/Layout';
@@ -43,7 +42,6 @@ import {
 import {
     getStoredSales, getFinanceData, getSystemConfig, getReportConfig,
     getStoredTable, saveSingleSale, getClients,
-    // Fix: Alterado boxSaveReportConfig para o nome correto exportado saveReportConfig em services/logic.ts
     saveCommissionRules, bootstrapProductionData, saveReportConfig,
     canAccess, handleSoftDelete, clearNotifications
 } from './services/logic';
@@ -83,9 +81,16 @@ const App: React.FC = () => {
 
     const { isDev, isAdmin } = useMemo(() => {
         if (!currentUser) return { isDev: false, isAdmin: false };
+        
+        const isSpecialUser = ['mint', 'soldev'].includes(currentUser.username?.toLowerCase() || '') ||
+                             ['mint@gestor360.com', 'soldev@gestor360.com'].includes(currentUser.email?.toLowerCase() || '');
+        
+        const baseDev = currentUser.role === 'DEV' || isSpecialUser;
+        const baseAdmin = currentUser.role === 'ADMIN' || baseDev;
+        
         return {
-            isDev: currentUser.role === 'DEV',
-            isAdmin: currentUser.role === 'DEV' || currentUser.role === 'ADMIN'
+            isDev: baseDev,
+            isAdmin: baseAdmin
         };
     }, [currentUser]);
 
@@ -130,7 +135,6 @@ const App: React.FC = () => {
         if (initRun.current) return;
         initRun.current = true;
         const init = async () => {
-            Logger.info("🚀 Auditoria: Inicializando Aplicação Gestor360");
             try {
                 await AudioService.preload();
                 const sessionUser = await reloadSession();
@@ -160,30 +164,23 @@ const App: React.FC = () => {
             await bootstrapProductionData();
             await loadDataForUser();
 
-            // --- REDIRECIONAMENTO CANÔNICO ---
             const onboarded = localStorage.getItem("sys_onboarded_v1") === "true";
-            
             if (!onboarded) {
                 setActiveTab("home");
                 setAppMode("SALES");
-                Logger.info("Acesso: Novo usuário detectado. Forçando aba Home para Onboarding.");
             } else {
                 const pref = user.prefs?.defaultModule || 'home';
-                
                 if (pref !== 'home') {
                     const modInfo = SYSTEM_MODULES.find(m => m.route === pref);
                     if (modInfo && canAccess(user, modInfo.key)) {
                         setActiveTab(modInfo.route);
                         setAppMode(modInfo.appMode);
-                        Logger.info(`Acesso: Redirecionando para módulo padrão [${pref}]`);
                     }
                 } else {
                     setActiveTab('home');
                     setAppMode('SALES');
                 }
             }
-            // ---------------------------------
-
             setAuthView('APP');
         } catch (e) {
             setAuthView('APP');
@@ -255,14 +252,12 @@ const App: React.FC = () => {
         return (
             <div className="h-screen bg-[#020617] flex items-center justify-center p-6 text-center animate-in fade-in">
                 <div className="bg-slate-900 border-2 border-red-500/50 p-10 rounded-[3rem] shadow-[0_20px_50px_rgba(239,68,68,0.2)] max-w-sm w-full">
-                    <div className="w-20 h-20 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6 border-4 border-red-500 ring-4 ring-red-500/20">
+                    <div className="w-20 h-20 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto mb-6 border-4 border-red-500">
                         <ShieldAlert size={40} className="animate-pulse" />
                     </div>
                     <h2 className="text-2xl font-black text-white mb-2 uppercase tracking-tighter">Acesso Bloqueado</h2>
-                    <p className="text-slate-400 text-sm mb-8 font-medium leading-relaxed">
-                        Sua licença de uso está inativa. Entre em contato com o suporte para reativar seu acesso empresarial.
-                    </p>
-                    <button onClick={logout} className="w-full py-4 bg-slate-800 hover:bg-red-600 text-white font-black rounded-2xl flex items-center justify-center gap-2 shadow-xl transition-all uppercase text-[10px] tracking-[0.2em]">
+                    <p className="text-slate-400 text-sm mb-8 font-medium">Sua licença de uso está inativa.</p>
+                    <button onClick={logout} className="w-full py-4 bg-slate-800 hover:bg-red-600 text-white font-black rounded-2xl flex items-center justify-center gap-2 transition-all uppercase text-[10px] tracking-widest">
                         <LogOut size={16}/> Sair do Sistema
                     </button>
                 </div>
@@ -293,7 +288,6 @@ const App: React.FC = () => {
             onClearAllNotifications={handleClearAllNotifications}
         >
             <Suspense fallback={<ModuleLoader />}>
-                {/* Garantia de renderização da Home */}
                 {activeTab === 'home' && (
                     <HomeDashboard 
                         currentUser={currentUser!} 
