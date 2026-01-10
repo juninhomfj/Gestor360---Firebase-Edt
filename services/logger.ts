@@ -1,16 +1,36 @@
+
 import { dbPut, dbGetAll, initDB } from '../storage/db';
 import { LogEntry, LogLevel } from '../types';
 import { db, auth } from './firebase';
 import { collection, doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { sanitizeForFirestore } from '../utils/firestoreUtils';
 
 const LOG_STORE = 'audit_log';
+
+/**
+ * Remove recursivamente chaves com valor undefined para compatibilidade com Firestore.
+ */
+const sanitizeDeep = (obj: any): any => {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (obj instanceof Date) return obj;
+    if (Array.isArray(obj)) return obj.map(sanitizeDeep);
+    
+    const newObj: any = {};
+    for (const key in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
+            const value = obj[key];
+            if (value !== undefined) {
+                newObj[key] = sanitizeDeep(value);
+            }
+        }
+    }
+    return newObj;
+};
 
 export const Logger = {
     async log(level: LogLevel, message: string, details?: any) {
         const uid = auth.currentUser?.uid || 'anonymous';
         
-        // Detecção de plataforma robusta para auditoria Enterprise (Etapa 4)
+        // Detecção de plataforma robusta
         const ua = navigator.userAgent;
         let platform = 'Web-Generic';
         
@@ -19,21 +39,22 @@ export const Logger = {
         else if (/macintosh/i.test(ua)) platform = 'Desktop-Mac';
         else if (/windows/i.test(ua)) platform = 'Desktop-Windows';
 
-        const isPWA = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
-
-        const safeDetails = details ? sanitizeForFirestore(JSON.parse(JSON.stringify(details))) : null;
+        const isPWA = Boolean(
+            typeof window !== 'undefined' && 
+            (window.matchMedia?.('(display-mode: standalone)')?.matches || (window.navigator as any).standalone)
+        );
 
         const entry: LogEntry = {
             timestamp: Date.now(),
             level,
             message,
-            details: {
-                ...safeDetails,
+            details: sanitizeDeep({
+                ...details,
                 platform,
                 isPWA,
-                screen: `${window.innerWidth}x${window.innerHeight}`,
+                screen: typeof window !== 'undefined' ? `${window.innerWidth}x${window.innerHeight}` : '0x0',
                 appMode: localStorage.getItem('sys_last_mode') || 'unknown'
-            },
+            }),
             userAgent: ua.substring(0, 100)
         };
 
@@ -59,7 +80,7 @@ export const Logger = {
             }
 
             if (process.env.NODE_ENV === 'development' || level === 'ERROR' || level === 'CRASH') {
-                console.log(`[${level}] ${message}`, details);
+                console.log(`[${level}] ${message}`, entry.details);
             }
         } catch (e) {
             console.error("Critical Failure: Audit Log Error", e);

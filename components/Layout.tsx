@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { LayoutDashboard, ShoppingCart, Settings, Menu, X, ShoppingBag, Users, FileText, Wallet, PieChart, Moon, Target, Trophy, Tag, ArrowLeftRight, PiggyBank, List, LogOut, Sun, Palette, ClipboardList, BarChart2, Sparkles, HelpCircle, PartyPopper, CalendarClock, Cloud, MessageCircle, Zap, Trees, Flame, Lock, MessageSquare, Newspaper, Rocket, FlaskConical, Terminal, Snowflake, BookOpen, Calculator, Home } from 'lucide-react';
 import { AppMode, User, AppTheme, AppNotification, SystemModules, InternalMessage } from '../types';
@@ -240,7 +241,18 @@ const Layout: React.FC<LayoutProps> = ({
                 {appMode}
             </button>
             <div className="w-px h-6 bg-white/10 hidden sm:block"></div>
-            <NotificationCenter notifications={notifications} onNotificationClick={navigate} onClearAll={onClearAllNotifications} />
+            {/* Comentário: Fix do erro de tipagem no onNotificationClick, convertendo o objeto AppNotification para o ID da aba correspondente */}
+            <NotificationCenter 
+                notifications={notifications} 
+                onNotificationClick={(notif) => {
+                    if (notif.source === 'SALES') navigate('dashboard');
+                    else if (notif.source === 'FINANCE') navigate('fin_dashboard');
+                    else if (notif.source === 'FISCAL') navigate('fiscal_main');
+                    else if (notif.source === 'WHATSAPP') navigate('whatsapp_main');
+                    else navigate('home');
+                }} 
+                onClearAll={onClearAllNotifications} 
+            />
             <button onClick={() => setIsChatOpen(true)} className="relative p-2 text-slate-400 hover:text-white transition-colors">
                 <MessageSquare size={22} />
                 {unreadCount > 0 && <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-black rounded-full flex items-center justify-center ring-2 ring-slate-950 animate-pulse">{unreadCount}</span>}

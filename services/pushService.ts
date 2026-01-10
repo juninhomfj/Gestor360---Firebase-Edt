@@ -1,36 +1,50 @@
 
-import { getToken, Messaging } from "firebase/messaging";
+import { getToken } from "firebase/messaging";
 import { initMessaging } from "./firebase";
 import { getSystemConfig } from "./logic";
-/* Fix: Corrected updateUser import source from auth service */
 import { updateUser } from "./auth";
-import { User } from "../types";
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "./firebase";
 
+// Chave VAPID para notificações push
 const VAPID_KEY = "BPEW_REPLACE_WITH_YOUR_ACTUAL_PUBLIC_VAPID_KEY_FROM_FIREBASE_CONSOLE";
+
+const isValidVapid = (key: string): boolean => {
+    return !!key && 
+           key.trim() !== "" && 
+           !key.includes("REPLACE_WITH") && 
+           !key.includes("PLACEHOLDER");
+};
 
 /**
  * Solicita permissão e retorna o Token FCM do dispositivo atual
  */
 export const requestAndSaveToken = async (userId: string): Promise<string | null> => {
     try {
+        if (!isValidVapid(VAPID_KEY)) {
+            console.warn("⚠️ [Push] Registro cancelado: Chave VAPID inválida ou placeholder.");
+            return null;
+        }
+
         const messaging = await initMessaging();
         if (!messaging) return null;
 
         const permission = await Notification.requestPermission();
-        if (permission !== "granted") return null;
+        if (permission !== "granted") {
+            console.info("[Push] Permissão negada pelo usuário.");
+            return null;
+        }
 
         const token = await getToken(messaging, { vapidKey: VAPID_KEY });
         if (token) {
-            // Salva o token no perfil do usuário para que outros possam enviar push para ele
+            // Salva o token no perfil do usuário
             await updateUser(userId, { fcmToken: token });
-            console.log("[Push] Token registrado:", token);
+            console.log("[Push] Token registrado com sucesso:", token);
             return token;
         }
         return null;
     } catch (error) {
-        console.error("[Push] Erro ao registrar token:", error);
+        console.error("[Push] Erro crítico ao registrar token:", error);
         return null;
     }
 };
@@ -47,8 +61,8 @@ export const sendPushNotification = async (
     const config = await getSystemConfig();
     const serverKey = (config as any).fcmServerKey;
 
-    if (!serverKey) {
-        console.warn("[Push] Envio cancelado: Server Key não configurada em Configurações > Sistema.");
+    if (!serverKey || serverKey.trim() === "" || serverKey.includes("REPLACE_WITH")) {
+        console.warn("[Push] Envio abortado: Server Key do Firebase (FCM) ausente ou inválida.");
         return;
     }
 
@@ -66,9 +80,12 @@ export const sendPushNotification = async (
         }
     }
 
-    if (tokens.length === 0) return;
+    if (tokens.length === 0) {
+        console.info("[Push] Nenhum dispositivo com token válido encontrado para o alvo:", targetUserId);
+        return;
+    }
 
-    // Envio via API REST Legada do FCM (compatível com a Server Key que o usuário possui)
+    // Envio via API REST Legada do FCM
     for (const token of tokens) {
         try {
             await fetch('https://fcm.googleapis.com/fcm/send', {
@@ -92,7 +109,7 @@ export const sendPushNotification = async (
                 })
             });
         } catch (e) {
-            console.error("[Push] Falha no disparo para token:", token, e);
+            console.error("[Push] Falha no disparo individual:", e);
         }
     }
 };

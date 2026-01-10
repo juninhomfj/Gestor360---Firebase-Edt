@@ -1,5 +1,6 @@
 
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { BookOpen, Award, PieChart, TrendingUp, Sparkles, MessageCircle, X, ChevronRight, Play, CheckCircle, Calculator, ShieldCheck, Zap } from 'lucide-react';
 
 interface TrainingHubProps {
@@ -67,8 +68,8 @@ const TrainingHub: React.FC<TrainingHubProps> = ({ onClose, darkMode }) => {
     const bgClass = darkMode ? 'bg-slate-900 text-white' : 'bg-white text-gray-900';
     const cardClass = darkMode ? 'bg-slate-800 border-slate-700' : 'bg-gray-50 border-gray-200';
 
-    return (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
+    const modalContent = (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
             <div className={`w-full max-w-5xl rounded-[3rem] shadow-2xl overflow-hidden border border-white/10 flex flex-col h-[85vh] ${bgClass}`}>
                 
                 {/* Header */}
@@ -111,7 +112,6 @@ const TrainingHub: React.FC<TrainingHubProps> = ({ onClose, darkMode }) => {
                             <div className="animate-in slide-in-from-right duration-500 h-full flex flex-col max-w-2xl mx-auto">
                                 <div className="mb-10 text-center">
                                     <div className={`w-20 h-20 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-2xl ${selectedCourse.color}`}>
-                                        {/* Fix: Added explicit <any> generic type to resolve "size" property error during cloneElement */}
                                         {React.cloneElement(selectedCourse.icon as React.ReactElement<any>, { size: 40 })}
                                     </div>
                                     <h4 className="text-3xl font-black mb-3">{selectedCourse.title}</h4>
@@ -162,6 +162,8 @@ const TrainingHub: React.FC<TrainingHubProps> = ({ onClose, darkMode }) => {
             </div>
         </div>
     );
+
+    return createPortal(modalContent, document.body);
 };
 
 export default TrainingHub;
