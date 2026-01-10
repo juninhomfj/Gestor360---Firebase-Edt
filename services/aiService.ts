@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality } from "@google/generative-ai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import { Transaction, Sale, Company, Client } from '../types';
 import { getCompany } from './fiscalService';
 
@@ -28,8 +28,9 @@ export const sendMessageToAi = async (message: string, history: any[], userKeys:
         ${fiscalContext}
     `;
 
+    // Process history into correct Content format for @google/genai
     const contents = history.map(h => ({
-        role: h.role,
+        role: h.role as any,
         parts: h.parts || [{ text: h.text }]
     })).concat([{ role: 'user', parts: [{ text: dataContext + "\n\nPergunta: " + message }] }]);
 
@@ -58,7 +59,7 @@ export const sendMessageToAi = async (message: string, history: any[], userKeys:
 };
 
 /**
- * 🎯 ESTRATÉGIA PREDITIVA DE CLIENTE (Etapa 5)
+ * 🎯 ESTRATÉGIA PREDITIVA DE CLIENTE
  * Analisa o histórico de um cliente específico e gera uma proposta comercial otimizada.
  */
 export const generateClientStrategy = async (client: Client, sales: Sale[]) => {
