@@ -1,5 +1,4 @@
-
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/generative-ai";
 import { Transaction, Sale, Company, Client } from '../types';
 import { getCompany } from './fiscalService';
 

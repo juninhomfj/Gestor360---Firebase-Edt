@@ -325,8 +325,9 @@ export const subscribeToCommissionRules = (type: ProductType, callback: (rules: 
             }));
             callback(rules.sort((a, b) => a.minPercent - b.minPercent));
         } else { callback([]); }
-    }, (error) => {
+    }, (error: any) => {
         console.error("[Logic] Tabela de comissão erro no onSnapshot:", error);
+        // Destrava o estado de loading no frontend retornando array vazio em caso de falha de permissão ou rede
         callback([]);
     });
 };
@@ -459,7 +460,6 @@ export const getTrashItems = async () => {
     if (!uid) return { sales: [], transactions: [] };
     return {
         sales: await dbGetAll('sales', s => s.userId === uid && s.deleted),
-        // Fixed: changed 's.deleted' to 't.deleted' as 's' is not defined in this arrow function
         transactions: await dbGetAll('transactions', t => t.userId === uid && t.deleted)
     };
 };

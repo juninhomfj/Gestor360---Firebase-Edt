@@ -3,17 +3,7 @@ export default {
   darkMode: 'class',
   content: [
     "./index.html",
-
-    // ✅ projeto SEM /src: captura tudo na raiz
-    "./*.{js,ts,jsx,tsx}",
-
-    // ✅ e também subpastas comuns na raiz
-    "./components/**/*.{js,ts,jsx,tsx}",
-    "./services/**/*.{js,ts,jsx,tsx}",
-    "./utils/**/*.{js,ts,jsx,tsx}",
-    "./config/**/*.{js,ts,jsx,tsx}",
-    "./data/**/*.{js,ts,jsx,tsx}",
-    "./storage/**/*.{js,ts,jsx,tsx}"
+    "./**/*.{js,ts,jsx,tsx}"
   ],
   theme: {
     extend: {
