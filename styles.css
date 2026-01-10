@@ -58,7 +58,6 @@
   }
 }
 
-/* Animações específicas que requerem transformações complexas no CSS */
 .animate-countdown {
   animation: countdown linear forwards;
 }
